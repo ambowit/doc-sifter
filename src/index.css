@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 215 50% 20%;
+        --card: 0 0% 100%;
+        --card-foreground: 215 50% 20%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 215 50% 20%;
+        --primary: 215 50% 20%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 220 14% 96%;
+        --secondary-foreground: 215 50% 20%;
+        --muted: 220 14% 96%;
+        --muted-foreground: 215 20% 46%;
+        --accent: 66 70% 50%;
+        --accent-foreground: 215 50% 15%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 220 13% 91%;
+        --input: 220 13% 91%;
+        --ring: 215 50% 20%;
+        
+        /* Custom DD Organizer tokens - Brand Colors */
+        --surface-subtle: 220 14% 97%;
+        --status-success: 66 70% 45%;
+        --status-warning: 32 95% 44%;
+        --status-error: 0 84% 60%;
+        --accent-interactive: 66 70% 50%;
+        --brand-navy: 215 50% 20%;
+        --brand-lime: 66 70% 50%;
+        
+        --font-sans: 'Inter', system-ui, sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
+        --radius: 0.25rem;
+    }
+
+    .dark {
+        --background: 215 50% 10%;
+        --foreground: 220 14% 96%;
+        --card: 215 50% 14%;
+        --card-foreground: 220 14% 96%;
+        --popover: 215 50% 14%;
+        --popover-foreground: 220 14% 96%;
+        --primary: 66 70% 50%;
+        --primary-foreground: 215 50% 10%;
+        --secondary: 215 50% 18%;
+        --secondary-foreground: 220 14% 96%;
+        --muted: 215 50% 18%;
+        --muted-foreground: 220 9% 64%;
+        --accent: 66 70% 50%;
+        --accent-foreground: 215 50% 10%;
+        --destructive: 0 62% 50%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 215 50% 22%;
+        --input: 215 50% 22%;
+        --ring: 66 70% 50%;
+        
+        --surface-subtle: 215 50% 14%;
+        --status-success: 66 70% 50%;
+        --status-warning: 32 95% 50%;
+        --status-error: 0 62% 50%;
+        --accent-interactive: 66 70% 55%;
+        --brand-navy: 215 50% 20%;
+        --brand-lime: 66 70% 50%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground font-sans antialiased;
+        font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    }
+
+    html, body {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+        display: none;
+    }
+
+    * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    *::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+@layer utilities {
+    .field-sizing-content {
+        field-sizing: content;
+    }
+    
+    /* Tabular numbers for data alignment */
+    .tabular-nums {
+        font-variant-numeric: tabular-nums;
+    }
+    
+    /* Mono font utility */
+    .font-mono {
+        font-family: var(--font-mono);
+    }
+    
+    /* Status colors */
+    .text-status-success {
+        color: hsl(var(--status-success));
+    }
+    
+    .text-status-warning {
+        color: hsl(var(--status-warning));
+    }
+    
+    .text-status-error {
+        color: hsl(var(--status-error));
+    }
+    
+    .bg-status-success {
+        background-color: hsl(var(--status-success));
+    }
+    
+    .bg-status-warning {
+        background-color: hsl(var(--status-warning));
+    }
+    
+    .bg-status-error {
+        background-color: hsl(var(--status-error));
+    }
+    
+    /* Interactive accent */
+    .text-interactive {
+        color: hsl(var(--accent-interactive));
+    }
+    
+    /* Surface subtle */
+    .bg-surface-subtle {
+        background-color: hsl(var(--surface-subtle));
+    }
+}

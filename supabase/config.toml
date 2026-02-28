@@ -1,0 +1,34 @@
+project_id = "teuymwhkrdiwebjyaeum"
+
+[functions.parse]
+verify_jwt = false
+
+[functions.fileupload]
+verify_jwt = false
+
+[functions.presign]
+verify_jwt = false
+
+[functions.init-test-users]
+verify_jwt = false
+
+[functions.s3-pre-sign-url]
+verify_jwt = false
+
+[functions.s3_presign]
+verify_jwt = false
+
+[functions.ai-mapping]
+verify_jwt = false
+
+[functions.extract-archive]
+verify_jwt = false
+
+[functions.generate-report]
+verify_jwt = false
+
+[functions.ocr-extract]
+verify_jwt = false
+
+[functions.generate-docx]
+verify_jwt = false
