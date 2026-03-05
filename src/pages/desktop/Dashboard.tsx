@@ -232,7 +232,7 @@ export default function Dashboard() {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
         <AlertCircle className="w-12 h-12 text-destructive mb-4" />
-        <h2 className="text-lg font-semibold mb-2">加载失败</h2>
+        <h2 className="text-lg font-semibold mb-2">��载失败</h2>
         <p className="text-muted-foreground mb-4">{error.message}</p>
         <Button onClick={() => window.location.reload()}>重试</Button>
       </div>
@@ -320,7 +320,8 @@ export default function Dashboard() {
           </div>
         ) : (
           filteredProjects.map((project) => {
-            const status = statusConfig[project.status];
+            // Fallback to NOT_UPLOADED if status is not found in config
+            const status = statusConfig[project.status] || statusConfig[ProjectStatusEnum.NOT_UPLOADED];
             const updatedDate = new Date(project.updatedAt).toLocaleDateString("zh-CN", {
               month: "2-digit",
               day: "2-digit",
