@@ -257,12 +257,12 @@ async function invokeWithTimeout<T>(
   try {
     console.log(`[invokeWithTimeout] Calling ${functionName}...`);
     const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
+      `${import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/${functionName}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
