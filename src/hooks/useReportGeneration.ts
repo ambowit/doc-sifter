@@ -457,9 +457,16 @@ export function useGenerateAIReport() {
     mutationFn: async (projectId: string): Promise<AIGeneratedReport> => {
       console.log("[useGenerateAIReport] Starting AI report generation for project:", projectId);
       
+      // Get current user session for JWT auth
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("请重新登录后再试");
+      }
+      
       try {
         const { data, error } = await supabase.functions.invoke("generate-report", {
           body: { projectId },
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
 
         if (error) {

@@ -575,6 +575,12 @@ export default function ReportPreview() {
     try {
       toast.info(`正在重新生成「${sectionTitle}」...`);
       
+      // Get current session for JWT auth
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("请重新登录后再试");
+      }
+      
       // Find the chapter info for this section
       const chapter = flatChapters.find(c => c.id === sectionId || c.title === sectionTitle);
       
@@ -586,6 +592,7 @@ export default function ReportPreview() {
           chapterTitle: sectionTitle,
           chapterNumber: chapter?.number || "",
         },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
       
       // Clear timeout on response
@@ -649,6 +656,12 @@ export default function ReportPreview() {
     setMetadata(null);
 
     try {
+      // Get current session for JWT auth
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("请重新登录后再试");
+      }
+      
       // Step 1: Generate metadata (equity structure, definitions)
       setGenerationStatus("正在提取股权结构和定义表...");
       setGenerationProgress(10);
@@ -657,6 +670,7 @@ export default function ReportPreview() {
         "generate-report",
         {
           body: { projectId, mode: "metadata" },
+          headers: { Authorization: `Bearer ${session.access_token}` },
         }
       );
 
@@ -691,6 +705,12 @@ export default function ReportPreview() {
               await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
             }
             
+            // Re-fetch session for each batch (token might have been refreshed)
+            const { data: { session: batchSession } } = await supabase.auth.getSession();
+            if (!batchSession?.access_token) {
+              throw new Error("请重新登录后再试");
+            }
+            
             const { data, error } = await supabase.functions.invoke(
               "generate-report",
               {
@@ -700,6 +720,7 @@ export default function ReportPreview() {
                   batchIndex, 
                   totalBatches 
                 },
+                headers: { Authorization: `Bearer ${batchSession.access_token}` },
               }
             );
 
@@ -738,6 +759,8 @@ export default function ReportPreview() {
       setGenerationStatus("正在整理报告...");
 
       // Step 3: Analyze and finalize
+      // Re-fetch session for final step
+      const { data: { session: finalSession } } = await supabase.auth.getSession();
       const { data: analyzeResult } = await supabase.functions.invoke(
         "generate-report",
         {
@@ -746,6 +769,9 @@ export default function ReportPreview() {
             mode: "analyze", 
             previousSections: allSections 
           },
+          headers: finalSession?.access_token 
+            ? { Authorization: `Bearer ${finalSession.access_token}` }
+            : undefined,
         }
       );
 

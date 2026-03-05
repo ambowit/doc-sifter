@@ -289,11 +289,18 @@ export default function ChapterMapping() {
         startStep(1, "提取股权结构与定义...");
         
         try {
+          // Get current session for JWT auth
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            throw new Error("请重新登录后再试");
+          }
+          
           const metadataResult = await supabase.functions.invoke("generate-report", {
             body: { 
               projectId: currentProjectId, 
               mode: "metadata" 
             },
+            headers: { Authorization: `Bearer ${session.access_token}` },
           });
 
           if (metadataResult.data?.metadata) {
@@ -346,8 +353,15 @@ export default function ChapterMapping() {
           }
 
           try {
+            // Re-fetch session for each batch (token might have been refreshed)
+            const { data: { session: batchSession } } = await supabase.auth.getSession();
+            if (!batchSession?.access_token) {
+              throw new Error("请重新登录后再试");
+            }
+            
             const result = await supabase.functions.invoke("generate-report", {
               body: { projectId: currentProjectId, mode: "batch", batchIndex, totalBatches },
+              headers: { Authorization: `Bearer ${batchSession.access_token}` },
             });
 
             if (result.error) {
