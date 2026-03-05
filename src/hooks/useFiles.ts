@@ -322,12 +322,18 @@ export async function uploadFile(
   }
 }
 
-// Get download URL for a file
-export function getFileDownloadUrl(storagePath: string): string {
-  const { data } = supabase.storage
+// Get download URL for a file (signed URL for private bucket)
+export async function getFileDownloadUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage
     .from("dd-files")
-    .getPublicUrl(storagePath);
-  return data.publicUrl;
+    .createSignedUrl(storagePath, 3600); // 1 hour expiry
+  
+  if (error || !data?.signedUrl) {
+    console.error("[getFileDownloadUrl] Failed to get signed URL:", error);
+    throw new Error("无法获取文件下载链接");
+  }
+  
+  return data.signedUrl;
 }
 
 // Format file size for display

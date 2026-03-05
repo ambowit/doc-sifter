@@ -11,6 +11,7 @@ import {
   formatFileSize,
   canOcrFile,
   useBatchOcrExtract,
+  getFileDownloadUrl,
   type FileType 
 } from "@/hooks/useFiles";
 import { 
@@ -291,13 +292,7 @@ export default function FileUpload() {
     
     if (!downloadUrl) {
       try {
-        const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-          body: {
-            key: file.storagePath,
-            contentType: "application/octet-stream",
-          },
-        });
-        downloadUrl = data?.downloadUrl || "";
+        downloadUrl = await getFileDownloadUrl(file.storagePath);
       } catch (error) {
         console.error("[FileUpload] Failed to get download URL:", error);
         toast.error("获取下载链接失败");
@@ -510,10 +505,7 @@ export default function FileUpload() {
       try {
         let downloadUrl = file.downloadUrl;
         if (!downloadUrl) {
-          const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-            body: { key: storagePath, contentType: file.mimeType },
-          });
-          downloadUrl = data?.downloadUrl;
+          downloadUrl = await getFileDownloadUrl(storagePath);
         }
         
         if (downloadUrl) {
@@ -551,10 +543,7 @@ export default function FileUpload() {
     let downloadUrl = file.downloadUrl;
     if (!downloadUrl) {
       try {
-        const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-          body: { key: file.storagePath, contentType: file.mimeType },
-        });
-        downloadUrl = data?.downloadUrl;
+        downloadUrl = await getFileDownloadUrl(file.storagePath);
       } catch (error) {
         console.error("[FileUpload] Failed to get download URL for retry:", error);
         toast.error(`获取文件链接失败: ${file.name}`);
@@ -592,10 +581,7 @@ export default function FileUpload() {
       try {
         let downloadUrl = file.downloadUrl;
         if (!downloadUrl) {
-          const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-            body: { key: file.storagePath, contentType: file.mimeType },
-          });
-          downloadUrl = data?.downloadUrl;
+          downloadUrl = await getFileDownloadUrl(file.storagePath);
         }
         if (downloadUrl) {
           filesToRetry.push({
@@ -642,10 +628,7 @@ export default function FileUpload() {
       try {
         let downloadUrl = file.downloadUrl;
         if (!downloadUrl) {
-          const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-            body: { key: file.storagePath, contentType: file.mimeType },
-          });
-          downloadUrl = data?.downloadUrl;
+          downloadUrl = await getFileDownloadUrl(file.storagePath);
         }
         if (downloadUrl) {
           filesToProcess.push({
@@ -1350,10 +1333,7 @@ export default function FileUpload() {
                               let url = file.downloadUrl;
                               if (!url) {
                                 try {
-                                  const { data } = await supabase.functions.invoke("s3-pre-sign-url", {
-                                    body: { key: file.storagePath, contentType: "application/octet-stream" },
-                                  });
-                                  url = data?.downloadUrl;
+                                  url = await getFileDownloadUrl(file.storagePath);
                                 } catch (error) {
                                   console.error("[FileUpload] Failed to get download URL:", error);
                                   toast.error("获取下载链接失败");
