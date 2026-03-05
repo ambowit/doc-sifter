@@ -446,7 +446,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     children: [
       { number: "6.1", title: "税务登记", level: 2, description: "税务登记及纳税主体资格" },
       { number: "6.2", title: "各项税种", level: 2, description: "各项税种的申报及缴纳情况" },
-      { number: "6.3", title: "税收优惠", level: 2, description: "享受的税���优惠政策" },
+      { number: "6.3", title: "税收优惠", level: 2, description: "享受的税收优惠政策" },
     ],
   },
   {
@@ -456,7 +456,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     description: "核查诉讼、仲裁及行政处罚情况",
     children: [
       { number: "7.1", title: "诉讼及仲裁", level: 2, description: "现有及潜在诉讼、仲裁案件" },
-      { number: "7.2", title: "行政处罚", level: 2, description: "��政处罚情况" },
+      { number: "7.2", title: "行政处罚", level: 2, description: "行政处罚情况" },
     ],
   },
   {
