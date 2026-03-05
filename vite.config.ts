@@ -22,6 +22,7 @@ export default defineConfig({
     include: [
       "react",
       "react-dom",
+      "react-dom/client",
       "react-router-dom",
       "@tanstack/react-query",
       "framer-motion",
