@@ -827,8 +827,35 @@ export default function ReportPreview() {
       setGenerationProgress(100);
       setGenerationStatus("报告生成完成");
       
-      // Only mark as generated if we have actual sections
-      if (allSections.length > 0) {
+      // Quality gate: Check citation coverage on frontend
+      const sectionsWithCitations = allSections.filter(
+        (s: ReportSection) => s.sourceFiles && s.sourceFiles.length > 0
+      );
+      const allSourceFilesEmpty = allSections.length > 0 && sectionsWithCitations.length === 0;
+      const totalIssues = allSections.reduce((acc, s) => acc + (s.issues?.length || 0), 0);
+      
+      // Log quality metrics
+      console.log("[v0] Report quality check:", {
+        totalSections: allSections.length,
+        sectionsWithCitations: sectionsWithCitations.length,
+        citationCoverage: allSections.length > 0 
+          ? ((sectionsWithCitations.length / allSections.length) * 100).toFixed(1) + "%" 
+          : "0%",
+        totalIssues,
+      });
+      
+      // Quality gate: Reject if all sections have empty sourceFiles
+      if (allSourceFilesEmpty) {
+        throw new Error("生成失败（无证据引用），请先完成文件 OCR 解析后重试");
+      }
+      
+      // Quality gate: Warn if no issues found and low citation coverage
+      if (totalIssues === 0 && sectionsWithCitations.length < allSections.length * 0.5) {
+        throw new Error("结果质量不足，请先完成 OCR 并重试");
+      }
+      
+      // Only mark as generated if we have actual sections with citations
+      if (allSections.length > 0 && sectionsWithCitations.length > 0) {
         setHasGenerated(true);
         
         // Save report data to localStorage for persistence
@@ -857,6 +884,12 @@ export default function ReportPreview() {
         description = "AI服务超时，请稍后重试";
       } else if (errMsg.includes("无章节") || errMsg.includes("NO_CHAPTERS")) {
         description = "无章节数据，请先在章节映射中配置章节";
+      } else if (errMsg.includes("NO_EVIDENCE") || errMsg.includes("证据文件不足")) {
+        description = "证据文件不足，请先完成文件 OCR 解析";
+      } else if (errMsg.includes("EMPTY_CITATIONS") || errMsg.includes("无证据引用")) {
+        description = "生成失败（无证据引用），请先完成 OCR 解析后重试";
+      } else if (errMsg.includes("质量不足")) {
+        description = "结果质量不足，请先完成 OCR 并重试";
       }
       toast.error("报告生成失败", {
         description,
@@ -1608,7 +1641,7 @@ function generateReportHTML(
     <div class="content">
       <p>受<strong>${project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>${project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。</p>
       <p><strong>一、报告依据</strong></p>
-      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核验。</p>
+      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核���。</p>
       <p><strong>二、尽调范围</strong></p>
       <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据室文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
