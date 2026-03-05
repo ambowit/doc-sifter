@@ -24,9 +24,9 @@ import {
 import { cn } from "@/lib/utils";
 import BrandLogoSvg from "@/components/desktop/BrandLogoSvg";
 
-// Check if running in production - hide test accounts in production
-const isProduction = import.meta.env.PROD || 
-  (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1'));
+// TODO: Re-enable production check before launch
+// For testing purposes, always show test accounts
+const isProduction = false;
 
 // Test accounts with real credentials
 const TEST_ACCOUNTS: Array<{
