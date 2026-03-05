@@ -145,8 +145,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchProfile]);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    console.log("[v0] signInWithEmail called with:", email);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      console.log("[v0] signInWithPassword response:", { data, error });
+      if (error) {
+        console.error("[v0] Login error:", error.message, error.status);
+        throw error;
+      }
+      console.log("[v0] Login successful, user:", data.user?.email);
+    } catch (err) {
+      console.error("[v0] signInWithEmail exception:", err);
+      throw err;
+    }
   }, []);
 
   const signUpWithEmail = useCallback(async (
