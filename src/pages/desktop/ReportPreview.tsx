@@ -688,6 +688,10 @@ export default function ReportPreview() {
       const CHAPTERS_PER_BATCH = 2; // Reduced for stability with detailed content generation
       const totalBatches = Math.ceil(totalChapters / CHAPTERS_PER_BATCH);
       const sectionsMap = new Map<string, ReportSection>(); // Use map for deduplication
+      
+      // Track failed batches for proper error handling
+      let failedBatchCount = 0;
+      let lastBatchError: Error | null = null;
 
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
         setGenerationStatus(`正在生成章节内容 (${batchIndex + 1}/${totalBatches})...`);
@@ -695,7 +699,7 @@ export default function ReportPreview() {
 
         // Retry logic for network stability
         let batchResult = null;
-        let lastError = null;
+        let lastError: Error | null = null;
         const MAX_RETRIES = 2;
         
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -725,26 +729,58 @@ export default function ReportPreview() {
             );
 
             if (error) {
-              lastError = error;
+              // Classify error type
+              const errorMsg = error.message || String(error);
+              if (errorMsg.includes("401") || errorMsg.includes("Unauthorized") || errorMsg.includes("JWT")) {
+                lastError = new Error("鉴权失败，请重新登录");
+              } else if (errorMsg.includes("timeout") || errorMsg.includes("504") || errorMsg.includes("502")) {
+                lastError = new Error("AI服务超时，请稍后重试");
+              } else {
+                lastError = new Error(errorMsg);
+              }
               console.warn(`Batch ${batchIndex} attempt ${attempt + 1} failed:`, error);
+              continue;
+            }
+            
+            // Check if response indicates failure
+            if (data && data.success === false) {
+              const errorCode = data.errorCode || "UNKNOWN";
+              const errorMessage = data.errorMessage || data.error || "未知错误";
+              if (errorCode === "NO_CHAPTERS") {
+                lastError = new Error("无章节数据");
+              } else if (errorCode === "AUTH_FAILED") {
+                lastError = new Error("鉴权失败，请重新登录");
+              } else {
+                lastError = new Error(errorMessage);
+              }
+              console.warn(`Batch ${batchIndex} returned error:`, data);
               continue;
             }
             
             batchResult = data;
             break; // Success, exit retry loop
           } catch (err) {
-            lastError = err;
+            const errMsg = err instanceof Error ? err.message : String(err);
+            if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("JWT")) {
+              lastError = new Error("鉴权失败，请重新登录");
+            } else if (errMsg.includes("timeout") || errMsg.includes("504") || errMsg.includes("502")) {
+              lastError = new Error("AI服务超时，请稍后重试");
+            } else {
+              lastError = err instanceof Error ? err : new Error(errMsg);
+            }
             console.warn(`Batch ${batchIndex} attempt ${attempt + 1} exception:`, err);
           }
         }
         
         if (!batchResult) {
           console.error(`Batch ${batchIndex} failed after ${MAX_RETRIES + 1} attempts`);
+          failedBatchCount++;
+          lastBatchError = lastError;
           // Continue with next batch instead of failing entirely
           continue;
         }
         
-        if (batchResult?.sections) {
+        if (batchResult?.sections && batchResult.sections.length > 0) {
           // Deduplicate sections by ID
           for (const section of batchResult.sections) {
             sectionsMap.set(section.id, section);
@@ -754,6 +790,19 @@ export default function ReportPreview() {
       }
       
       const allSections = Array.from(sectionsMap.values());
+      
+      // Validate results - must have at least some sections
+      if (totalBatches > 0 && allSections.length === 0) {
+        // All batches failed or returned no sections
+        if (failedBatchCount === totalBatches) {
+          // All batches failed
+          const errorMsg = lastBatchError?.message || "所有批次均失败";
+          throw new Error(`报告生成失败: ${errorMsg}`);
+        } else {
+          // Batches succeeded but no sections returned
+          throw new Error("报告生成失败: 无章节数据，请检查项目是否已配置章节");
+        }
+      }
 
       setGenerationProgress(95);
       setGenerationStatus("正在整理报告...");
@@ -777,23 +826,40 @@ export default function ReportPreview() {
 
       setGenerationProgress(100);
       setGenerationStatus("报告生成完成");
-      setHasGenerated(true);
       
-      // Save report data to localStorage for persistence
-      saveReportData(allSections, currentMetadata);
-
-      toast.success("报告生成完成", {
-        description: `共生成 ${allSections.length} 个章节`,
-      });
-
-      // Set first section as active
+      // Only mark as generated if we have actual sections
       if (allSections.length > 0) {
+        setHasGenerated(true);
+        
+        // Save report data to localStorage for persistence
+        saveReportData(allSections, currentMetadata);
+
+        const warningMsg = failedBatchCount > 0 
+          ? `（${failedBatchCount} 个批次失败）` 
+          : "";
+        toast.success("报告生成完成", {
+          description: `共生成 ${allSections.length} 个章节${warningMsg}`,
+        });
+
+        // Set first section as active
         setActiveSectionId(allSections[0].id);
+      } else {
+        throw new Error("报告生成失败: 未能生成任何章节内容");
       }
     } catch (error) {
       console.error("Report generation error:", error);
+      const errMsg = error instanceof Error ? error.message : "请稍后重试";
+      // Classify error for user-friendly message
+      let description = errMsg;
+      if (errMsg.includes("鉴权") || errMsg.includes("登录") || errMsg.includes("401")) {
+        description = "鉴权失败，请重新登录后再试";
+      } else if (errMsg.includes("超时") || errMsg.includes("timeout") || errMsg.includes("502") || errMsg.includes("504")) {
+        description = "AI服务超时，请稍后重试";
+      } else if (errMsg.includes("无章节") || errMsg.includes("NO_CHAPTERS")) {
+        description = "无章节数据，请先在章节映射中配置章节";
+      }
       toast.error("报告生成失败", {
-        description: error instanceof Error ? error.message : "请稍后重试",
+        description,
       });
     } finally {
       setIsGenerating(false);
