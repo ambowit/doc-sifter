@@ -177,8 +177,8 @@ export function useParseTemplate() {
         console.log("[ParseTemplate] Calling Edge Function...");
         
         // Use fetch directly for better timeout control
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
-        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
         
         const requestBody: Record<string, unknown> = {
           type: "template",
