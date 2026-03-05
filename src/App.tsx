@@ -12,6 +12,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import NotFound from "@/pages/NotFound";
 import AppLayout from "@/layouts/desktop/AppLayout";
+import ProjectLayout from "@/layouts/desktop/ProjectLayout";
 import Dashboard from "@/pages/desktop/Dashboard";
 import FileUpload from "@/pages/desktop/FileUpload";
 import TemplateFingerprint from "@/pages/desktop/TemplateFingerprint";
@@ -26,8 +27,7 @@ import Help from "@/pages/desktop/Help";
 import ProtectedRoute from "@/components/desktop/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
 
-// Export queryClient for use in auth hooks (cache clearing)
-export const queryClient = new QueryClient({
+const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
@@ -52,8 +52,8 @@ const router = createBrowserRouter(
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
-      
-      {/* Protected routes */}
+
+      {/* Protected: Project list (top-bar only layout) */}
       <Route
         element={
           <ProtectedRoute>
@@ -62,15 +62,26 @@ const router = createBrowserRouter(
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/upload" element={<FileUpload />} />
-        <Route path="/template" element={<TemplateFingerprint />} />
-        <Route path="/mapping" element={<ChapterMapping />} />
-        <Route path="/definitions" element={<Definitions />} />
-        <Route path="/preview" element={<ReportPreview />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/help" element={<Help />} />
       </Route>
-      
+
+      {/* Protected: Project workspace (sidebar layout with modules) */}
+      <Route
+        path="/project/:projectId"
+        element={
+          <ProtectedRoute>
+            <ProjectLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="template" element={<TemplateFingerprint />} />
+        <Route path="upload" element={<FileUpload />} />
+        <Route path="definitions" element={<Definitions />} />
+        <Route path="mapping" element={<ChapterMapping />} />
+        <Route path="preview" element={<ReportPreview />} />
+      </Route>
+
       <Route path="*" element={<NotFound />} />
     </Route>
   )

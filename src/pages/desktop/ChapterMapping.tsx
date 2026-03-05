@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { validateProjectExists, clearInvalidProject, useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, flattenChaptersWithNumbers } from "@/hooks/useChapters";
@@ -79,7 +79,8 @@ const toChineseNumber = (n: number) => chineseNumbers[n - 1] || String(n);
 
 export default function ChapterMapping() {
   const navigate = useNavigate();
-  const currentProjectId = localStorage.getItem("dd-organizer-current-project");
+  const { projectId } = useParams<{ projectId: string }>();
+  const currentProjectId = projectId || null;
   
   const { data: project } = useCurrentProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
@@ -521,7 +522,7 @@ export default function ChapterMapping() {
         setFailedBatchIndices(new Set());
         reportMetadataCacheRef.current = null;
 
-        setTimeout(() => navigate("/preview"), 1500);
+        setTimeout(() => navigate(`/project/${projectId}/preview`), 1500);
       }
     } catch (error) {
       // Non-batch errors (init, metadata, etc.)
@@ -596,7 +597,7 @@ export default function ChapterMapping() {
 
           <Button
             variant="outline"
-            onClick={() => navigate("/preview")}
+            onClick={() => navigate(`/project/${projectId}/preview`)}
             className="gap-2"
           >
             报告预览
@@ -643,7 +644,7 @@ export default function ChapterMapping() {
               {files.length === 0 && <p>• 请先上传尽调文件</p>}
               {flatChapters.length === 0 && <p>• 请先上传报告模板</p>}
             </div>
-            <Button variant="outline" size="sm" onClick={() => navigate("/upload")} className="mt-3 gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate(`/project/${projectId}/upload`)} className="mt-3 gap-2">
               前往上传 <ArrowRight className="w-3 h-3" />
             </Button>
           </div>
@@ -808,7 +809,7 @@ export default function ChapterMapping() {
                         </Button>
                       )}
                       {generatedReport && (
-                        <Button variant="ghost" size="sm" onClick={() => navigate("/preview")} className="h-7 text-[11px] gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => navigate(`/project/${projectId}/preview`)} className="h-7 text-[11px] gap-1">
                           查看已生成内容 <ArrowRight className="w-3 h-3" />
                         </Button>
                       )}
@@ -826,7 +827,7 @@ export default function ChapterMapping() {
                   用时 {formatTime(elapsedTime)}
                 </p>
                 <Button 
-                  onClick={() => navigate("/preview")} 
+                  onClick={() => navigate(`/project/${projectId}/preview`)} 
                   className="gap-2"
                 >
                   进入报告预览
@@ -840,7 +841,7 @@ export default function ChapterMapping() {
               <div className="mt-4 pt-4 border-t border-border">
                 <Button 
                   variant="outline"
-                  onClick={() => navigate("/preview")} 
+                  onClick={() => navigate(`/project/${projectId}/preview`)} 
                   className="w-full gap-2"
                 >
                   前往报告预览

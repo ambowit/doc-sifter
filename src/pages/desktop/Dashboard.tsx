@@ -151,7 +151,7 @@ export default function Dashboard() {
       setFormErrors({});
 
       // Navigate to template fingerprint page first
-      navigate("/template");
+      navigate(`/project/${project.id}/template`);
     } catch (error) {
       console.error("[Dashboard] Create project failed:", error);
       toast.error("创建项目失败", {
@@ -194,7 +194,7 @@ export default function Dashboard() {
 
   const handleEnterProject = (projectId: string) => {
     setCurrentProjectId(projectId);
-    navigate("/template");
+    navigate(`/project/${projectId}/template`);
   };
 
   // Loading state

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -242,8 +242,8 @@ function EditDefinitionDialog({
 
 export default function Definitions() {
   const navigate = useNavigate();
+  const { projectId } = useParams<{ projectId: string }>();
   const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject();
-  const projectId = currentProject?.id;
 
   // Fetch real data
   const { data: definitions = [], isLoading: isDefinitionsLoading } = useDefinitions(projectId);
@@ -396,7 +396,7 @@ export default function Definitions() {
           <BookMarked className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-lg font-semibold mb-2">请先选择项目</h2>
           <p className="text-muted-foreground text-sm mb-4">返回仪表板选择一个项目</p>
-          <Button onClick={() => navigate("/")}>返回仪表板</Button>
+          <Button onClick={() => navigate("/")}>返回项目列表</Button>
         </div>
       </div>
     );
@@ -662,7 +662,7 @@ export default function Definitions() {
             </Badge>
           )}
         </div>
-        <Button onClick={() => navigate("/mapping")} className="gap-2">
+        <Button onClick={() => navigate(`/project/${projectId}/mapping`)} className="gap-2">
           下一步：AI智能分析
           <ArrowRight className="w-4 h-4" />
         </Button>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useContext, createContext, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { queryClient } from "@/App";
+import { useQueryClient } from "@tanstack/react-query";
 import type { User, Session } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "senior_lawyer" | "junior_lawyer" | "assistant";
@@ -35,6 +35,7 @@ export interface AuthContextValue extends AuthState {
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     session: null,

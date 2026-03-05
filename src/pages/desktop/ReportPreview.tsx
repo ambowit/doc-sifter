@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -423,8 +423,8 @@ function SectionRenderer({
 // Main Component
 export default function ReportPreview() {
   const navigate = useNavigate();
+  const { projectId } = useParams<{ projectId: string }>();
   const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject();
-  const projectId = currentProject?.id;
 
   // Fetch real data
   const { data: flatChapters = [], isLoading: isChaptersLoading } = useFlatChapters(projectId);
@@ -851,7 +851,7 @@ export default function ReportPreview() {
           <p className="text-muted-foreground text-sm mb-4">
             返回仪表板选择一个项目以查看报告
           </p>
-          <Button onClick={() => navigate("/")}>返回仪表板</Button>
+          <Button onClick={() => navigate("/")}>返回项目列表</Button>
         </div>
       </div>
     );
@@ -883,7 +883,7 @@ export default function ReportPreview() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate("/upload")}
+            onClick={() => navigate(`/project/${projectId}/upload`)}
             className="gap-2"
           >
             <FileCode className="w-4 h-4" />
@@ -894,7 +894,7 @@ export default function ReportPreview() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate("/mapping")}
+                onClick={() => navigate(`/project/${projectId}/mapping`)}
                 className="gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -912,7 +912,7 @@ export default function ReportPreview() {
           ) : (
             <Button
               variant="outline"
-              onClick={() => navigate("/mapping")}
+              onClick={() => navigate(`/project/${projectId}/mapping`)}
               className="gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -975,7 +975,7 @@ export default function ReportPreview() {
 
             <Button
               size="lg"
-              onClick={() => navigate("/mapping")}
+              onClick={() => navigate(`/project/${projectId}/mapping`)}
               className="gap-2"
             >
               <ArrowLeft className="w-5 h-5" />

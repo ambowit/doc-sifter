@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -574,7 +574,8 @@ function TableStylePanel({ tables }: { tables: TFType["tables"] }) {
 
 export default function TemplateFingerprint() {
   const navigate = useNavigate();
-  const currentProjectId = localStorage.getItem("dd-organizer-current-project");
+  const { projectId } = useParams<{ projectId: string }>();
+  const currentProjectId = projectId || null;
   const { data: currentProject, isLoading: projectLoading } = useCurrentProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
   
@@ -735,7 +736,7 @@ export default function TemplateFingerprint() {
           <LayoutTemplate className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-lg font-semibold mb-2">请先选择项目</h2>
           <p className="text-muted-foreground text-sm mb-4">返回仪表板选择一个项目</p>
-          <Button onClick={() => navigate("/")}>返回仪表板</Button>
+          <Button onClick={() => navigate("/")}>返回项目列表</Button>
         </div>
       </div>
     );
@@ -798,7 +799,7 @@ export default function TemplateFingerprint() {
                 <Upload className="w-4 h-4 mr-1" />
                 重新上传
               </Button>
-              <Button onClick={() => navigate("/upload")} className="gap-2">
+              <Button onClick={() => navigate(`/project/${projectId}/upload`)} className="gap-2">
                 继续上传文件
                 <ArrowRight className="w-4 h-4" />
               </Button>
@@ -980,7 +981,7 @@ export default function TemplateFingerprint() {
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
                       <StyleTokenCard label="一级标题 H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
-                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子标题" />
+                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子���题" />
                       <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
                     </div>
                   </div>

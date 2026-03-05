@@ -5,23 +5,54 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  optimizeDeps: {
-    include: ["lucide-react", "framer-motion", "recharts"],
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          ui: ["lucide-react", "framer-motion"],
-          charts: ["recharts"],
-        },
-      },
-    },
-  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  server: {
+    hmr: {
+      overlay: false,
+    },
+    warmup: {
+      clientFiles: ["./src/main.tsx", "./src/App.tsx"],
+    },
+  },
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "@tanstack/react-query",
+      "framer-motion",
+      "lucide-react",
+      "sonner",
+      "recharts",
+      "next-themes",
+      "clsx",
+      "tailwind-merge",
+      "class-variance-authority",
+      "date-fns",
+      "zod",
+      "@supabase/supabase-js",
+      "@radix-ui/react-dialog",
+      "@radix-ui/react-dropdown-menu",
+      "@radix-ui/react-tabs",
+      "@radix-ui/react-tooltip",
+      "@radix-ui/react-popover",
+      "@radix-ui/react-select",
+      "@radix-ui/react-switch",
+      "@radix-ui/react-checkbox",
+      "@radix-ui/react-label",
+      "@radix-ui/react-separator",
+      "@radix-ui/react-scroll-area",
+      "@radix-ui/react-avatar",
+      "@radix-ui/react-slot",
+      "@radix-ui/react-accordion",
+      "@radix-ui/react-progress",
+      "@radix-ui/react-toggle",
+      "@radix-ui/react-toggle-group",
+      "@radix-ui/react-radio-group",
+    ],
   },
 });

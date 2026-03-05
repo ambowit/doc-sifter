@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { validateProjectExists, clearInvalidProject } from "@/hooks/useProjects";
 import { 
@@ -112,7 +112,8 @@ const ALLOWED_EXTENSIONS = [
 
 export default function FileUpload() {
   const navigate = useNavigate();
-  const currentProjectId = localStorage.getItem("dd-organizer-current-project");
+  const { projectId } = useParams<{ projectId: string }>();
+  const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
   const { data: chapters = [] } = useChapters(currentProjectId || undefined);
   const createFileMutation = useCreateFile();
@@ -460,7 +461,7 @@ export default function FileUpload() {
         if (options?.autoRedirect && hasTemplate && result.failed === 0) {
           toast.info("正在跳转到定义管理...", { duration: 2000 });
           setTimeout(() => {
-            navigate("/definitions");
+            navigate(`/project/${projectId}/definitions`);
           }, 1500);
         }
       }
@@ -900,10 +901,10 @@ export default function FileUpload() {
       toast.error("请先设置报告模板结构", {
         description: "前往「模板指纹」页面上传或生成报告结构",
       });
-      navigate("/template");
+      navigate(`/project/${projectId}/template`);
       return;
     }
-    navigate("/definitions");
+    navigate(`/project/${projectId}/definitions`);
   };
 
   // Show loading if no project selected
@@ -942,7 +943,7 @@ export default function FileUpload() {
           {!hasTemplate && (
             <Button
               variant="outline"
-              onClick={() => navigate("/template")}
+              onClick={() => navigate(`/project/${projectId}/template`)}
               className="gap-2"
             >
               <LayoutTemplate className="w-4 h-4" />
@@ -977,7 +978,7 @@ export default function FileUpload() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate("/template")}
+            onClick={() => navigate(`/project/${projectId}/template`)}
             className="border-amber-300 text-amber-800 hover:bg-amber-100"
           >
             去设置
