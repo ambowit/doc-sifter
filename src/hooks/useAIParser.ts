@@ -142,13 +142,14 @@ export function useParseTemplate() {
         .eq("project_id", projectId);
 
       // Insert new chapters
+      // Note: status must be one of: '未匹配', '资料不足', '已匹配' (per database constraint)
       const chaptersToInsert = chapters.map((chapter, index) => ({
         project_id: projectId,
         title: chapter.title,
         number: chapter.number,
         description: chapter.description || chapter.subsections?.join(", ") || "",
         order_index: index,
-        status: "pending" as const,
+        status: "未匹配",
       }));
 
       const { data, error } = await supabase
