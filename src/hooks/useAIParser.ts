@@ -178,7 +178,7 @@ export function useParseTemplate() {
         
         // Use fetch directly for better timeout control
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
         
         const requestBody: Record<string, unknown> = {
           type: "template",
