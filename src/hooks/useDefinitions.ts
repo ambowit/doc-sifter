@@ -242,7 +242,7 @@ export function useBulkCreateDefinitions() {
   });
 }
 
-// Helper function to invoke Edge Function with timeout
+// Helper function to invoke Edge Function with timeout and proper JWT auth
 async function invokeWithTimeout<T>(
   functionName: string,
   body: Record<string, unknown>,
@@ -255,6 +255,12 @@ async function invokeWithTimeout<T>(
   }, timeoutMs);
 
   try {
+    // Get the current user's access token for JWT authentication
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { data: null, error: new Error("用户未登录") };
+    }
+
     console.log(`[invokeWithTimeout] Calling ${functionName}...`);
     const response = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
@@ -262,7 +268,8 @@ async function invokeWithTimeout<T>(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          "Authorization": `Bearer ${session.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
