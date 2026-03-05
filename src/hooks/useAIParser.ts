@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ChapterStatus } from "@/lib/enums";
 
 // Demo template content for quick testing
 export const DEMO_TEMPLATE_CONTENT = `
@@ -142,14 +143,13 @@ export function useParseTemplate() {
         .eq("project_id", projectId);
 
       // Insert new chapters
-      // Note: status must be one of: '未匹配', '资料不足', '已匹配' (per database constraint)
       const chaptersToInsert = chapters.map((chapter, index) => ({
         project_id: projectId,
         title: chapter.title,
         number: chapter.number,
         description: chapter.description || chapter.subsections?.join(", ") || "",
         order_index: index,
-        status: "未匹配",
+        status: ChapterStatus.UNMATCHED,
       }));
 
       const { data, error } = await supabase

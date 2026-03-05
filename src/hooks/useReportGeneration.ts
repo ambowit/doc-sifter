@@ -6,6 +6,15 @@ import { useMappings, type ChapterFileMapping } from "@/hooks/useMappings";
 import { useProject } from "@/hooks/useProjects";
 import { supabase } from "@/integrations/supabase/client";
 
+// Report chapter status types
+type ReportChapterStatus = "completed" | "insufficient" | "no_data";
+
+const ReportChapterStatusLabels: Record<ReportChapterStatus, string> = {
+  completed: "已完成",
+  insufficient: "资料不足",
+  no_data: "无资料",
+};
+
 export interface ChapterContent {
   chapterId: string;
   chapterNumber: string;
@@ -17,7 +26,8 @@ export interface ChapterContent {
     pageRef?: string;
     excerpt?: string;
   }>;
-  status: "已完成" | "资料不足" | "无资料";
+  status: ReportChapterStatus;
+  statusLabel: string;
   warnings: string[];
 }
 
@@ -58,15 +68,15 @@ function generateChapterContent(
   }));
 
   const warnings: string[] = [];
-  let status: "已完成" | "资料不足" | "无资料" = "已完成";
+  let status: ReportChapterStatus = "completed";
   let content = "";
 
   if (mappedFiles.length === 0) {
-    status = "无资料";
+    status = "no_data";
     content = `【本章节暂无相关证据文件】\n\n根据${chapter.title}的核查要求，尚未收到相关证据资料。建议委托方补充提供以下资料：\n\n• ${chapter.description || "与本章节相关的证据文件"}\n\n待收到相关资料后，本章节内容将据实更新。`;
     warnings.push(`章节"${chapter.title}"缺少证据文件`);
   } else if (chapterMappings.some(m => !m.isConfirmed)) {
-    status = "资料不足";
+    status = "insufficient";
     content = generatePartialContent(chapter, mappedFiles);
     warnings.push(`章节"${chapter.title}"部分映射待确认`);
   } else {
@@ -80,6 +90,7 @@ function generateChapterContent(
     content,
     sources,
     status,
+    statusLabel: ReportChapterStatusLabels[status],
     warnings,
   };
 }
@@ -180,9 +191,9 @@ export function useReportData(projectId: string | undefined) {
       // Calculate summary
       const summary = {
         totalChapters: chapters.length,
-        completedChapters: chapters.filter(c => c.status === "已完成").length,
-        insufficientChapters: chapters.filter(c => c.status === "资料不足").length,
-        noDataChapters: chapters.filter(c => c.status === "无资料").length,
+        completedChapters: chapters.filter(c => c.status === "completed").length,
+        insufficientChapters: chapters.filter(c => c.status === "insufficient").length,
+        noDataChapters: chapters.filter(c => c.status === "no_data").length,
         totalSources: chapters.reduce((sum, c) => sum + c.sources.length, 0),
       };
 
@@ -313,7 +324,7 @@ export function generateReportHTML(report: ReportData): string {
     ${report.chapters.map(ch => `
       <div class="toc-item">
         <span><span class="toc-number">${ch.chapterNumber}</span> ${ch.chapterTitle}</span>
-        <span>${ch.status}</span>
+        <span>${ch.statusLabel}</span>
       </div>
     `).join("")}
   </div>
@@ -329,9 +340,9 @@ export function generateReportHTML(report: ReportData): string {
     </h2>
     `;
     
-    if (chapter.status === "无资料") {
+    if (chapter.status === "no_data") {
       html += `<div class="no-data">${chapter.content.replace(/\n/g, "<br>")}</div>`;
-    } else if (chapter.status === "资料不足") {
+    } else if (chapter.status === "insufficient") {
       html += `<div class="warning">${chapter.content.replace(/\n/g, "<br>")}</div>`;
     } else {
       html += `<div class="chapter-content">${chapter.content.split("\n\n").map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("")}</div>`;

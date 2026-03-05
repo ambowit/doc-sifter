@@ -47,6 +47,7 @@ import {
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
 import { useParseTemplate, fileToBase64, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
 import { mockTemplateFingerprint } from "@/lib/reportMockData";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
@@ -79,12 +80,12 @@ function ChapterTree({ chapters, level = 0 }: { chapters: Chapter[]; level?: num
               variant="outline"
               className={cn(
                 "text-[10px] px-1.5 py-0 ml-auto",
-                chapter.status === "已匹配" && "bg-emerald-50 text-emerald-700 border-emerald-200",
-                chapter.status === "资料不足" && "bg-amber-50 text-amber-700 border-amber-200",
-                chapter.status === "未匹配" && "bg-slate-50 text-slate-600 border-slate-200"
+                chapter.status === ChapterStatus.MATCHED && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                chapter.status === ChapterStatus.INSUFFICIENT_DATA && "bg-amber-50 text-amber-700 border-amber-200",
+                chapter.status === ChapterStatus.UNMATCHED && "bg-slate-50 text-slate-600 border-slate-200"
               )}
             >
-              {chapter.status}
+              {ChapterStatusLabels[chapter.status as ChapterStatusType] || chapter.status}
             </Badge>
           </div>
           {chapter.children && chapter.children.length > 0 && (

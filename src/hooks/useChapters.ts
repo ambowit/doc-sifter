@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { ChapterStatus, type ChapterStatusType } from "@/lib/enums";
 
-export type ChapterStatus = "未匹配" | "资料不足" | "已匹配";
+export type { ChapterStatusType as ChapterStatus };
 
 export interface Chapter {
   id: string;
@@ -13,7 +14,7 @@ export interface Chapter {
   level: number;
   orderIndex: number;
   description: string;
-  status: ChapterStatus;
+  status: ChapterStatusType;
   createdAt: string;
   updatedAt: string;
   children?: Chapter[];
@@ -39,7 +40,7 @@ const transformChapter = (row: Record<string, unknown>): Chapter => ({
   level: row.level as number,
   orderIndex: row.order_index as number,
   description: row.description as string,
-  status: row.status as ChapterStatus,
+  status: row.status as ChapterStatusType,
   createdAt: row.created_at as string,
   updatedAt: row.updated_at as string,
 });
@@ -211,7 +212,7 @@ export function useUpdateChapterStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ chapterId, status }: { chapterId: string; status: ChapterStatus }) => {
+    mutationFn: async ({ chapterId, status }: { chapterId: string; status: ChapterStatusType }) => {
       const { data, error } = await supabase
         .from("chapters")
         .update({ status })

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { type Project } from "@/lib/mockData";
+import { ProjectStatus, ReportLanguage } from "@/lib/enums";
 
 const STORAGE_KEY = "dd-organizer-projects";
 const CURRENT_PROJECT_KEY = "dd-organizer-current-project";
@@ -49,7 +50,7 @@ export interface NewProjectData {
   client: string;
   target: string;
   type: "并购" | "投资" | "合规" | "自定义";
-  language: "中文" | "英文";
+  language: typeof ReportLanguage.ZH | typeof ReportLanguage.EN;
   strictMode: boolean;
   description?: string;
 }
@@ -119,7 +120,7 @@ export function useProjectStore() {
         client: data.client,
         target: data.target,
         type: data.type,
-        status: "未上传",
+        status: ProjectStatus.NOT_UPLOADED,
         progress: 0,
         updatedAt: formattedDate,
         filesCount: 0,

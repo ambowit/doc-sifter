@@ -11,6 +11,14 @@ import {
   type ReportLanguage,
   type ProjectStatus,
 } from "@/hooks/useProjects";
+import {
+  ProjectStatus as ProjectStatusEnum,
+  ProjectStatusLabels,
+  ProjectType as ProjectTypeEnum,
+  ProjectTypeLabels,
+  ReportLanguage as ReportLanguageEnum,
+  ReportLanguageLabels,
+} from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,11 +59,11 @@ import {
 } from "lucide-react";
 
 const statusConfig: Record<ProjectStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  "未上传": { label: "未上传", color: "bg-muted text-muted-foreground", icon: <Upload className="w-3 h-3" /> },
-  "解析中": { label: "解析中", color: "bg-amber-100 text-amber-700", icon: <Clock className="w-3 h-3" /> },
-  "映射中": { label: "映射中", color: "bg-blue-100 text-blue-700", icon: <GitBranch className="w-3 h-3" /> },
-  "待审阅": { label: "待审阅", color: "bg-purple-100 text-purple-700", icon: <Eye className="w-3 h-3" /> },
-  "已完成": { label: "已完成", color: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 className="w-3 h-3" /> },
+  [ProjectStatusEnum.NOT_UPLOADED]: { label: ProjectStatusLabels[ProjectStatusEnum.NOT_UPLOADED], color: "bg-muted text-muted-foreground", icon: <Upload className="w-3 h-3" /> },
+  [ProjectStatusEnum.PARSING]: { label: ProjectStatusLabels[ProjectStatusEnum.PARSING], color: "bg-amber-100 text-amber-700", icon: <Clock className="w-3 h-3" /> },
+  [ProjectStatusEnum.MAPPING]: { label: ProjectStatusLabels[ProjectStatusEnum.MAPPING], color: "bg-blue-100 text-blue-700", icon: <GitBranch className="w-3 h-3" /> },
+  [ProjectStatusEnum.PENDING_REVIEW]: { label: ProjectStatusLabels[ProjectStatusEnum.PENDING_REVIEW], color: "bg-purple-100 text-purple-700", icon: <Eye className="w-3 h-3" /> },
+  [ProjectStatusEnum.COMPLETED]: { label: ProjectStatusLabels[ProjectStatusEnum.COMPLETED], color: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 className="w-3 h-3" /> },
 };
 
 interface FormErrors {
@@ -68,8 +76,8 @@ const initialFormData: CreateProjectData = {
   name: "",
   client: "",
   target: "",
-  projectType: "股权收购",
-  reportLanguage: "中文",
+  projectType: ProjectTypeEnum.EQUITY_ACQUISITION,
+  reportLanguage: ReportLanguageEnum.ZH,
   strictEvidenceMode: true,
   description: "",
 };
@@ -97,9 +105,9 @@ export default function Dashboard() {
   // Calculate stats
   const stats = {
     total: projects.length,
-    completed: projects.filter((p) => p.status === "已完成").length,
-    inProgress: projects.filter((p) => ["解析中", "映射中", "待审阅"].includes(p.status)).length,
-    pending: projects.filter((p) => p.status === "未上传").length,
+    completed: projects.filter((p) => p.status === ProjectStatusEnum.COMPLETED).length,
+    inProgress: projects.filter((p) => [ProjectStatusEnum.PARSING, ProjectStatusEnum.MAPPING, ProjectStatusEnum.PENDING_REVIEW].includes(p.status)).length,
+    pending: projects.filter((p) => p.status === ProjectStatusEnum.NOT_UPLOADED).length,
   };
 
   const validateForm = (): boolean => {
@@ -484,12 +492,12 @@ export default function Dashboard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="股权收购">股权收购</SelectItem>
-                    <SelectItem value="资产收购">资产收购</SelectItem>
-                    <SelectItem value="IPO">IPO</SelectItem>
-                    <SelectItem value="债券发行">债券发行</SelectItem>
-                    <SelectItem value="融资">融资</SelectItem>
-                    <SelectItem value="其他">其他</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.EQUITY_ACQUISITION}>{ProjectTypeLabels[ProjectTypeEnum.EQUITY_ACQUISITION]}</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.ASSET_ACQUISITION}>{ProjectTypeLabels[ProjectTypeEnum.ASSET_ACQUISITION]}</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.IPO}>{ProjectTypeLabels[ProjectTypeEnum.IPO]}</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.BOND_ISSUANCE}>{ProjectTypeLabels[ProjectTypeEnum.BOND_ISSUANCE]}</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.FINANCING}>{ProjectTypeLabels[ProjectTypeEnum.FINANCING]}</SelectItem>
+                    <SelectItem value={ProjectTypeEnum.OTHER}>{ProjectTypeLabels[ProjectTypeEnum.OTHER]}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -505,9 +513,9 @@ export default function Dashboard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="中文">中文</SelectItem>
-                    <SelectItem value="英文">English</SelectItem>
-                    <SelectItem value="中英双语">中英双语</SelectItem>
+                    <SelectItem value={ReportLanguageEnum.ZH}>{ReportLanguageLabels[ReportLanguageEnum.ZH]}</SelectItem>
+                    <SelectItem value={ReportLanguageEnum.EN}>{ReportLanguageLabels[ReportLanguageEnum.EN]}</SelectItem>
+                    <SelectItem value={ReportLanguageEnum.ZH_EN}>{ReportLanguageLabels[ReportLanguageEnum.ZH_EN]}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
