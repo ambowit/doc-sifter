@@ -1,126 +1,64 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { mockTemplateFingerprint, type TemplateFingerprint as MockTemplateType } from "@/lib/reportMockData";
 
-export interface TemplateSection {
-  id: string;
-  name: string;
-  description?: string;
-  requiredFields: string[];
-  optionalFields?: string[];
-  order: number;
-}
-
-export interface TemplateFingerprint {
-  id: string;
-  projectId: string;
-  name: string;
-  version: string;
-  description?: string;
-  sections: TemplateSection[];
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
+// Re-export the complete template type from mockData
+export type TemplateFingerprint = MockTemplateType & {
+  id?: string;
+  projectId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 interface DbTemplateFingerprint {
   id: string;
   project_id: string;
+  template_id: string;
   name: string;
   version: string;
-  description: string | null;
-  sections: TemplateSection[];
-  metadata: Record<string, unknown> | null;
+  locale: string | null;
+  status: string | null;
+  numbering: Record<string, unknown> | null;
+  page: Record<string, unknown> | null;
+  styles: Record<string, unknown> | null;
+  lists: Record<string, unknown> | null;
+  tables: Record<string, unknown> | null;
+  figures: Record<string, unknown> | null;
+  toc: unknown[] | null;
+  section_blueprints: Record<string, unknown> | null;
+  intro_variables: unknown[] | null;
+  intro_content: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
 
-// Transform DB record to frontend format
+// Transform DB record to frontend format, merging with defaults
 function transformTemplateFingerprint(db: DbTemplateFingerprint): TemplateFingerprint {
   return {
-    id: db.id,
+    ...mockTemplateFingerprint, // Start with defaults
+    id: db.template_id,
     projectId: db.project_id,
     name: db.name,
     version: db.version,
-    description: db.description || undefined,
-    sections: db.sections || [],
-    metadata: db.metadata || undefined,
+    locale: db.locale || mockTemplateFingerprint.locale,
+    status: (db.status as TemplateFingerprint['status']) || mockTemplateFingerprint.status,
+    numbering: (db.numbering as TemplateFingerprint['numbering']) || mockTemplateFingerprint.numbering,
+    page: (db.page as TemplateFingerprint['page']) || mockTemplateFingerprint.page,
+    styles: (db.styles as TemplateFingerprint['styles']) || mockTemplateFingerprint.styles,
+    lists: (db.lists as TemplateFingerprint['lists']) || mockTemplateFingerprint.lists,
+    tables: (db.tables as TemplateFingerprint['tables']) || mockTemplateFingerprint.tables,
+    figures: (db.figures as TemplateFingerprint['figures']) || mockTemplateFingerprint.figures,
+    toc: (db.toc as TemplateFingerprint['toc']) || mockTemplateFingerprint.toc,
+    sectionBlueprints: (db.section_blueprints as TemplateFingerprint['sectionBlueprints']) || mockTemplateFingerprint.sectionBlueprints,
+    introVariables: (db.intro_variables as TemplateFingerprint['introVariables']) || mockTemplateFingerprint.introVariables,
+    introContent: (db.intro_content as TemplateFingerprint['introContent']) || mockTemplateFingerprint.introContent,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   };
 }
 
-// Default template for new projects
-export const DEFAULT_TEMPLATE: Omit<TemplateFingerprint, 'id' | 'projectId' | 'createdAt' | 'updatedAt'> = {
-  name: "法律尽职调查报告模板",
-  version: "1.0",
-  description: "标准法律尽职调查报告模板，包含公司基本情况、股权结构、重大资产等章节",
-  sections: [
-    {
-      id: "1",
-      name: "公司基本情况",
-      description: "目标公司的工商登记、设立、存续情况",
-      requiredFields: ["公司名称", "统一社会信用代码", "成立日期", "注册资本", "实缴资本"],
-      optionalFields: ["经营范围", "注册地址", "营业期限"],
-      order: 1,
-    },
-    {
-      id: "2",
-      name: "股权结构",
-      description: "股东信息、持股比例、股权变更历史",
-      requiredFields: ["股东名称", "持股比例", "出资额", "出资方式"],
-      optionalFields: ["股权代持情况", "股权质押情况"],
-      order: 2,
-    },
-    {
-      id: "3",
-      name: "公司治理",
-      description: "章程、决议、高管信息",
-      requiredFields: ["法定代表人", "董事", "监事"],
-      optionalFields: ["高级管理人员", "章程特殊条款"],
-      order: 3,
-    },
-    {
-      id: "4",
-      name: "重大资产",
-      description: "房产、土地、知识产权等重大资产",
-      requiredFields: ["资产类型", "资产名称", "权属状态"],
-      optionalFields: ["抵押情况", "使用限制"],
-      order: 4,
-    },
-    {
-      id: "5",
-      name: "重大合同",
-      description: "主要业务合同、借款合同、担保合同等",
-      requiredFields: ["合同类型", "合同金额", "合同期限"],
-      optionalFields: ["履行情况", "风险提示"],
-      order: 5,
-    },
-    {
-      id: "6",
-      name: "劳动人事",
-      description: "员工情况、劳动合同、社保公积金",
-      requiredFields: ["员工总数", "劳动合同签订率"],
-      optionalFields: ["社保缴纳情况", "劳动争议"],
-      order: 6,
-    },
-    {
-      id: "7",
-      name: "税务合规",
-      description: "税务登记、纳税情况、税收优惠",
-      requiredFields: ["纳税人类型", "主要税种"],
-      optionalFields: ["欠税情况", "税收优惠"],
-      order: 7,
-    },
-    {
-      id: "8",
-      name: "诉讼仲裁",
-      description: "诉讼、仲裁、行政处罚情况",
-      requiredFields: ["案件类型", "案件状态"],
-      optionalFields: ["涉案金额", "潜在风险"],
-      order: 8,
-    },
-  ],
-};
+// Default template uses the mock data as baseline
+export const DEFAULT_TEMPLATE = mockTemplateFingerprint;
 
 export function useTemplateFingerprint(projectId: string | undefined) {
   const queryClient = useQueryClient();
@@ -156,15 +94,25 @@ export function useTemplateFingerprint(projectId: string | undefined) {
   // Create or update template fingerprint
   const saveMutation = useMutation({
     mutationFn: async (template: Partial<TemplateFingerprint> & { projectId: string }) => {
-      const { projectId: pid, sections, metadata, ...rest } = template;
+      const { projectId: pid, ...rest } = template;
 
       const payload = {
         project_id: pid,
+        template_id: rest.id || DEFAULT_TEMPLATE.id,
         name: rest.name || DEFAULT_TEMPLATE.name,
         version: rest.version || DEFAULT_TEMPLATE.version,
-        description: rest.description || DEFAULT_TEMPLATE.description,
-        sections: sections || DEFAULT_TEMPLATE.sections,
-        metadata: metadata || {},
+        locale: rest.locale || DEFAULT_TEMPLATE.locale,
+        status: rest.status || DEFAULT_TEMPLATE.status,
+        numbering: rest.numbering || DEFAULT_TEMPLATE.numbering,
+        page: rest.page || DEFAULT_TEMPLATE.page,
+        styles: rest.styles || DEFAULT_TEMPLATE.styles,
+        lists: rest.lists || DEFAULT_TEMPLATE.lists,
+        tables: rest.tables || DEFAULT_TEMPLATE.tables,
+        figures: rest.figures || DEFAULT_TEMPLATE.figures,
+        toc: rest.toc || DEFAULT_TEMPLATE.toc,
+        section_blueprints: rest.sectionBlueprints || DEFAULT_TEMPLATE.sectionBlueprints,
+        intro_variables: rest.introVariables || DEFAULT_TEMPLATE.introVariables,
+        intro_content: rest.introContent || DEFAULT_TEMPLATE.introContent,
       };
 
       // Check if template exists
