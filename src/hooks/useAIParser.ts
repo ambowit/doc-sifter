@@ -28,82 +28,40 @@ export interface DocumentParseResult {
   summary: DocumentSummary;
 }
 
-// Normalize chapter number to "第X章" format for level 1
-function normalizeChapterNumber(number: string | undefined, level: number, index: number): string {
-  // For level 1 chapters, always use "第X章" format
-  if (level === 1) {
-    // Already in correct format
-    if (number && /^第.+章$/.test(number)) {
-      return number;
-    }
-    // Convert index to Chinese chapter number
-    return toChineseChapterNumber(index + 1);
-  }
-  
-  // For level 2+, use the original number or generate one
-  return number || `${index + 1}`;
-}
-
 // Flatten chapter structure to array with parent references
 function flattenChapters(
   chapters: ChapterStructure[],
   projectId: string,
   parentId: string | null = null,
-  parentNumber: string = "",
-  parentIndex: number = 0
+  parentNumber: string = ""
 ): CreateChapterData[] {
   const result: CreateChapterData[] = [];
 
   chapters.forEach((chapter, index) => {
-    const chapterId = crypto.randomUUID();
     const orderIndex = index;
-    
-    // Normalize chapter number based on level
-    const normalizedNumber = normalizeChapterNumber(chapter.number, chapter.level, index);
-    
-    // For level 2 children, use parent index for proper numbering like "1.1", "1.2"
-    let finalNumber = normalizedNumber;
-    if (chapter.level === 2 && parentIndex >= 0) {
-      // If it doesn't already have parent prefix, add it
-      if (!normalizedNumber.includes('.')) {
-        finalNumber = `${parentIndex + 1}.${index + 1}`;
-      }
-    }
 
     result.push({
       projectId,
       parentId,
       title: chapter.title,
-      number: finalNumber || null,
+      number: chapter.number || null,
       level: chapter.level,
       orderIndex,
       description: chapter.description || "",
     });
 
     if (chapter.children && chapter.children.length > 0) {
-      // Note: We can't set the actual parentId here since we don't have the created chapter's ID yet
-      // The bulk create will handle this by ordering properly
       const childChapters = flattenChapters(
         chapter.children,
         projectId,
-        null, // Will be resolved by level/order
-        finalNumber,
-        index // Pass parent index for child numbering
+        null,
+        chapter.number
       );
       result.push(...childChapters);
     }
   });
 
   return result;
-}
-
-// Chinese number mapping for chapter titles
-const chineseNumbers = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", 
-  "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
-
-function toChineseChapterNumber(n: number): string {
-  if (n <= 20) return `第${chineseNumbers[n - 1]}章`;
-  return `第${n}章`;
 }
 
 // Parse template content to extract chapter structure (fallback parser)
@@ -128,7 +86,7 @@ function parseTemplateContent(content: string): ChapterStructure[] {
       chapterIndex++;
       subChapterIndex = 0;
       currentChapter = {
-        number: toChineseChapterNumber(chapterIndex), // Use "第X章" format
+        number: String(chapterIndex), // Use simple numbering
         title: level1Match[1] || trimmed,
         level: 1,
         description: "",
@@ -423,7 +381,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
 // Demo chapter structure for fallback
 const DEMO_CHAPTERS: ChapterStructure[] = [
   {
-    number: "第一章",
+    number: "1",
     title: "公司基本情况",
     level: 1,
     description: "对目标公司的设立情况、历次股权变更、注册资本变化等进行核查",
@@ -431,6 +389,61 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
       { number: "1.1", title: "公司设立及历史沿革", level: 2, description: "历次股权变更、注册资本变化" },
       { number: "1.2", title: "股权结构", level: 2, description: "现有股权结构、股东情况及实际控制人" },
       { number: "1.3", title: "组织架构", level: 2, description: "组织架构、分支机构及关联企业" },
+    ],
+  },
+  {
+    number: "2",
+    title: "公司治理",
+    level: 1,
+    description: "核查公司治理结构的合法性和有效性",
+    children: [
+      { number: "2.1", title: "公司章程", level: 2, description: "公司章程的合法性、有效性及主要条款" },
+      { number: "2.2", title: "股东会/董事会决议", level: 2, description: "历次股东会、董事会决议的合法性" },
+      { number: "2.3", title: "高级管理人员", level: 2, description: "高管人员的任职资格、竞业限制等" },
+    ],
+  },
+  {
+    number: "3",
+    title: "重大资产",
+    level: 1,
+    description: "核查目标公司的重大资产状况",
+    children: [
+      { number: "3.1", title: "房产及土地", level: 2, description: "不动产权属、租赁情况" },
+      { number: "3.2", title: "知识产权", level: 2, description: "专利、商标、著作权等知识产权状况" },
+      { number: "3.3", title: "其他重大资产", level: 2, description: "车辆、设备等其他重大资产" },
+    ],
+  },
+  {
+    number: "4",
+    title: "重大合同",
+    level: 1,
+    description: "核查重大合同的合法性和风险",
+    children: [
+      { number: "4.1", title: "股权投资/收购协议", level: 2, description: "重大投资或收购协议" },
+      { number: "4.2", title: "借款及担保合同", level: 2, description: "借款、担保合同及风险" },
+      { number: "4.3", title: "重大业务合同", level: 2, description: "与主营业务相关的重大合同" },
+    ],
+  },
+  {
+    number: "5",
+    title: "劳动人事",
+    level: 1,
+    description: "核查劳动人事合规情况",
+    children: [
+      { number: "5.1", title: "劳动合同", level: 2, description: "劳动合同签订及执行情况" },
+      { number: "5.2", title: "社会保险及公积金", level: 2, description: "社保及公积金缴纳情况" },
+      { number: "5.3", title: "劳动争议", level: 2, description: "现有及潜在劳动争议" },
+    ],
+  },
+  {
+    number: "6",
+    title: "税务合规",
+    level: 1,
+    description: "核查税务合规情况",
+    children: [
+      { number: "6.1", title: "税务登记", level: 2, description: "税务登记及纳税主体资格" },
+      { number: "6.2", title: "各项税种", level: 2, description: "各项税种的申报及缴纳情况" },
+      { number: "6.3", title: "税收优惠", level: 2, description: "享受的税收优惠政策" },
     ],
   },
   {
@@ -478,18 +491,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "第六章",
-    title: "税务合规",
-    level: 1,
-    description: "核查税务合规情况",
-    children: [
-      { number: "6.1", title: "税务登记", level: 2, description: "税务登记及纳税主体资格" },
-      { number: "6.2", title: "各项税种", level: 2, description: "各项税种的申报及缴纳情况" },
-      { number: "6.3", title: "税收优惠", level: 2, description: "享受��税收优惠政策" },
-    ],
-  },
-  {
-    number: "第七章",
+    number: "7",
     title: "诉讼、仲裁及行政处罚",
     level: 1,
     description: "核查诉讼、仲裁及行政处罚情况",
@@ -499,7 +501,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "第八章",
+    number: "8",
     title: "合规经营",
     level: 1,
     description: "核查合规经营情况",
