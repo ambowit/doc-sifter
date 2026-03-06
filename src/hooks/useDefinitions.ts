@@ -242,7 +242,7 @@ export function useBulkCreateDefinitions() {
   });
 }
 
-// Helper function to invoke Edge Function with timeout and proper JWT auth
+// Helper function to invoke Edge Function with timeout
 async function invokeWithTimeout<T>(
   functionName: string,
   body: Record<string, unknown>,
@@ -255,36 +255,21 @@ async function invokeWithTimeout<T>(
   }, timeoutMs);
 
   try {
-    // Get the current user's access token for JWT authentication
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      return { data: null, error: new Error("用户未登录") };
-    }
-
     console.log(`[invokeWithTimeout] Calling ${functionName}...`);
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      }
-    );
+    
+    // Use supabase.functions.invoke which handles auth automatically
+    const { data, error } = await supabase.functions.invoke(functionName, {
+      body,
+    });
+    
     clearTimeout(timeoutId);
 
-    console.log(`[invokeWithTimeout] Response status: ${response.status}`);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { data: null, error: new Error(`HTTP ${response.status}: ${errorText}`) };
+    if (error) {
+      console.log(`[invokeWithTimeout] Error:`, error);
+      return { data: null, error: new Error(error.message || "调用失败") };
     }
 
-    const data = await response.json();
+    console.log(`[invokeWithTimeout] Success, data:`, data);
     return { data: data as T, error: null };
   } catch (err) {
     clearTimeout(timeoutId);
