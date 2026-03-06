@@ -28,24 +28,53 @@ export interface DocumentParseResult {
   summary: DocumentSummary;
 }
 
+// Normalize chapter number to "第X章" format for level 1
+function normalizeChapterNumber(number: string | undefined, level: number, index: number): string {
+  // For level 1 chapters, always use "第X章" format
+  if (level === 1) {
+    // Already in correct format
+    if (number && /^第.+章$/.test(number)) {
+      return number;
+    }
+    // Convert index to Chinese chapter number
+    return toChineseChapterNumber(index + 1);
+  }
+  
+  // For level 2+, use the original number or generate one
+  return number || `${index + 1}`;
+}
+
 // Flatten chapter structure to array with parent references
 function flattenChapters(
   chapters: ChapterStructure[],
   projectId: string,
   parentId: string | null = null,
-  parentNumber: string = ""
+  parentNumber: string = "",
+  parentIndex: number = 0
 ): CreateChapterData[] {
   const result: CreateChapterData[] = [];
 
   chapters.forEach((chapter, index) => {
     const chapterId = crypto.randomUUID();
     const orderIndex = index;
+    
+    // Normalize chapter number based on level
+    const normalizedNumber = normalizeChapterNumber(chapter.number, chapter.level, index);
+    
+    // For level 2 children, use parent index for proper numbering like "1.1", "1.2"
+    let finalNumber = normalizedNumber;
+    if (chapter.level === 2 && parentIndex >= 0) {
+      // If it doesn't already have parent prefix, add it
+      if (!normalizedNumber.includes('.')) {
+        finalNumber = `${parentIndex + 1}.${index + 1}`;
+      }
+    }
 
     result.push({
       projectId,
       parentId,
       title: chapter.title,
-      number: chapter.number || null,
+      number: finalNumber || null,
       level: chapter.level,
       orderIndex,
       description: chapter.description || "",
@@ -58,7 +87,8 @@ function flattenChapters(
         chapter.children,
         projectId,
         null, // Will be resolved by level/order
-        chapter.number
+        finalNumber,
+        index // Pass parent index for child numbering
       );
       result.push(...childChapters);
     }
@@ -455,7 +485,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     children: [
       { number: "6.1", title: "税务登记", level: 2, description: "税务登记及纳税主体资格" },
       { number: "6.2", title: "各项税种", level: 2, description: "各项税种的申报及缴纳情况" },
-      { number: "6.3", title: "税收优惠", level: 2, description: "享受的税收优惠政策" },
+      { number: "6.3", title: "税收优惠", level: 2, description: "享受��税收优惠政策" },
     ],
   },
   {
