@@ -133,7 +133,7 @@ export function useChapters(projectId: string | undefined) {
   });
 }
 
-// Hook to fetch flat chapter list
+// Hook to fetch flat chapter list (sorted by chapter number naturally)
 export function useFlatChapters(projectId: string | undefined) {
   const { user } = useAuth();
 
@@ -151,7 +151,11 @@ export function useFlatChapters(projectId: string | undefined) {
         .order("order_index", { ascending: true });
 
       if (error) throw error;
-      return (data || []).map(transformChapter);
+      
+      // Sort by chapter number naturally
+      const chapters = (data || []).map(transformChapter);
+      chapters.sort((a, b) => compareChapterNumbers(a.number, b.number));
+      return chapters;
     },
     enabled: !!user && !!projectId,
   });
