@@ -45,9 +45,29 @@ const transformChapter = (row: Record<string, unknown>): Chapter => ({
   updatedAt: row.updated_at as string,
 });
 
+// Extract numeric prefix from chapter number (e.g., "1.2" -> 1, "第一章" -> 1)
+function getChapterPrefix(num: string | null): number {
+  if (!num) return Infinity;
+  // Handle "第X章" format
+  const zhMatch = num.match(/第([一二三四五六七八九十]+)章/);
+  if (zhMatch) {
+    const zhNums: Record<string, number> = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
+    return zhNums[zhMatch[1]] || parseInt(zhMatch[1], 10) || Infinity;
+  }
+  // Handle "X.Y" format - extract the first number
+  const parts = num.split('.');
+  return parseInt(parts[0], 10) || Infinity;
+}
+
 // Parse chapter number for natural sorting (e.g., "1.2" -> [1, 2])
 function parseChapterNumber(num: string | null): number[] {
   if (!num) return [Infinity];
+  // Handle "第X章" format - treat as single level
+  const zhMatch = num.match(/第([一二三四五六七八九十]+)章/);
+  if (zhMatch) {
+    const zhNums: Record<string, number> = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
+    return [zhNums[zhMatch[1]] || 0];
+  }
   return num.split('.').map(n => parseInt(n, 10) || 0);
 }
 
@@ -65,45 +85,44 @@ function compareChapterNumbers(a: string | null, b: string | null): number {
   return 0;
 }
 
-// Build chapter tree from flat list
+// Build chapter tree from flat list based on level and number prefix
 function buildChapterTree(chapters: Chapter[]): Chapter[] {
-  const chapterMap = new Map<string, Chapter>();
-  const rootChapters: Chapter[] = [];
+  // Separate chapters by level
+  const level1Chapters = chapters.filter(c => c.level === 1);
+  const level2Chapters = chapters.filter(c => c.level === 2);
+  const level3Chapters = chapters.filter(c => c.level >= 3);
 
-  // First pass: create map and initialize children arrays
-  chapters.forEach(chapter => {
-    chapterMap.set(chapter.id, { ...chapter, children: [] });
+  // Sort level 1 chapters by number
+  level1Chapters.sort((a, b) => compareChapterNumbers(a.number, b.number));
+
+  // Build tree: assign children based on number prefix matching
+  const rootChapters: Chapter[] = level1Chapters.map(parent => {
+    const parentPrefix = getChapterPrefix(parent.number);
+    
+    // Find level 2 children whose number starts with parent prefix
+    const children = level2Chapters
+      .filter(child => {
+        const childPrefix = getChapterPrefix(child.number);
+        return childPrefix === parentPrefix;
+      })
+      .sort((a, b) => compareChapterNumbers(a.number, b.number))
+      .map(child => {
+        // Find level 3 children for this level 2 chapter
+        const childNumber = child.number || "";
+        const grandChildren = level3Chapters
+          .filter(gc => {
+            const gcNumber = gc.number || "";
+            return gcNumber.startsWith(childNumber + ".");
+          })
+          .sort((a, b) => compareChapterNumbers(a.number, b.number))
+          .map(gc => ({ ...gc, children: [] }));
+        
+        return { ...child, children: grandChildren };
+      });
+    
+    return { ...parent, children };
   });
 
-  // Second pass: build tree structure
-  chapters.forEach(chapter => {
-    const chapterWithChildren = chapterMap.get(chapter.id)!;
-    if (chapter.parentId && chapterMap.has(chapter.parentId)) {
-      const parent = chapterMap.get(chapter.parentId)!;
-      parent.children = parent.children || [];
-      parent.children.push(chapterWithChildren);
-    } else {
-      rootChapters.push(chapterWithChildren);
-    }
-  });
-
-  // Sort children by chapter number first, then by orderIndex as fallback
-  const sortChildren = (chapters: Chapter[]) => {
-    chapters.sort((a, b) => {
-      // First try to sort by chapter number naturally
-      const numCompare = compareChapterNumbers(a.number, b.number);
-      if (numCompare !== 0) return numCompare;
-      // Fallback to orderIndex
-      return a.orderIndex - b.orderIndex;
-    });
-    chapters.forEach(chapter => {
-      if (chapter.children && chapter.children.length > 0) {
-        sortChildren(chapter.children);
-      }
-    });
-  };
-
-  sortChildren(rootChapters);
   return rootChapters;
 }
 
@@ -133,7 +152,23 @@ export function useChapters(projectId: string | undefined) {
   });
 }
 
-// Hook to fetch flat chapter list (sorted by chapter number naturally)
+// Flatten tree to ordered list (parent followed by children)
+function flattenChapterTree(tree: Chapter[]): Chapter[] {
+  const result: Chapter[] = [];
+  const traverse = (chapters: Chapter[]) => {
+    for (const chapter of chapters) {
+      const { children, ...chapterWithoutChildren } = chapter;
+      result.push(chapterWithoutChildren as Chapter);
+      if (children && children.length > 0) {
+        traverse(children);
+      }
+    }
+  };
+  traverse(tree);
+  return result;
+}
+
+// Hook to fetch flat chapter list (sorted by chapter number naturally, parent-child order)
 export function useFlatChapters(projectId: string | undefined) {
   const { user } = useAuth();
 
@@ -152,10 +187,10 @@ export function useFlatChapters(projectId: string | undefined) {
 
       if (error) throw error;
       
-      // Sort by chapter number naturally
+      // Build tree first to get correct parent-child order, then flatten
       const chapters = (data || []).map(transformChapter);
-      chapters.sort((a, b) => compareChapterNumbers(a.number, b.number));
-      return chapters;
+      const tree = buildChapterTree(chapters);
+      return flattenChapterTree(tree);
     },
     enabled: !!user && !!projectId,
   });
