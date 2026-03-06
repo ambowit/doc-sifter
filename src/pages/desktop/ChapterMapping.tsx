@@ -289,31 +289,11 @@ export default function ChapterMapping() {
         startStep(1, "提取股权结构与定义...");
         
         try {
-          // Get current session for JWT auth
-          const { data: { session } } = await supabase.auth.getSession();
-          console.log("[v0] Session check:", { 
-            hasSession: !!session, 
-            hasAccessToken: !!session?.access_token,
-            tokenPreview: session?.access_token?.substring(0, 50) + "...",
-            userId: session?.user?.id 
-          });
-          
-          if (!session?.access_token) {
-            throw new Error("请重新登录后再试");
-          }
-          
-          console.log("[v0] Calling generate-report with mode=metadata");
           const metadataResult = await supabase.functions.invoke("generate-report", {
             body: { 
               projectId: currentProjectId, 
               mode: "metadata" 
             },
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          console.log("[v0] Metadata result:", { 
-            hasError: !!metadataResult.error, 
-            error: metadataResult.error,
-            hasData: !!metadataResult.data 
           });
 
           // Check for auth errors
@@ -379,23 +359,12 @@ export default function ChapterMapping() {
           }
 
           try {
-            // Re-fetch session for each batch (token might have been refreshed)
-            const { data: { session: batchSession } } = await supabase.auth.getSession();
-            if (!batchSession?.access_token) {
-              throw new Error("请重新登录后再试");
-            }
-            
             const result = await supabase.functions.invoke("generate-report", {
               body: { projectId: currentProjectId, mode: "batch", batchIndex, totalBatches },
-              headers: { Authorization: `Bearer ${batchSession.access_token}` },
             });
 
             if (result.error) {
               const errorMsg = result.error.message || JSON.stringify(result.error) || "";
-              // Check for auth errors
-              if (errorMsg.includes("401") || errorMsg.includes("Invalid JWT") || errorMsg.includes("Unauthorized")) {
-                throw new Error("认证失败，请刷新页面重新登录后再试");
-              }
               const isTimeout = errorMsg.includes("504") || errorMsg.includes("timeout") || errorMsg.includes("non-2xx");
               if (isTimeout && attempt < MAX_BATCH_RETRIES) { lastError = new Error(errorMsg); continue; }
               throw new Error(errorMsg || `第${toChineseNumber(batchIndex + 1)}批生成失败`);
