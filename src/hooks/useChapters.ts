@@ -45,6 +45,26 @@ const transformChapter = (row: Record<string, unknown>): Chapter => ({
   updatedAt: row.updated_at as string,
 });
 
+// Parse chapter number for natural sorting (e.g., "1.2" -> [1, 2])
+function parseChapterNumber(num: string | null): number[] {
+  if (!num) return [Infinity];
+  return num.split('.').map(n => parseInt(n, 10) || 0);
+}
+
+// Compare two chapter numbers naturally
+function compareChapterNumbers(a: string | null, b: string | null): number {
+  const partsA = parseChapterNumber(a);
+  const partsB = parseChapterNumber(b);
+  const maxLen = Math.max(partsA.length, partsB.length);
+  
+  for (let i = 0; i < maxLen; i++) {
+    const numA = partsA[i] ?? 0;
+    const numB = partsB[i] ?? 0;
+    if (numA !== numB) return numA - numB;
+  }
+  return 0;
+}
+
 // Build chapter tree from flat list
 function buildChapterTree(chapters: Chapter[]): Chapter[] {
   const chapterMap = new Map<string, Chapter>();
@@ -67,9 +87,15 @@ function buildChapterTree(chapters: Chapter[]): Chapter[] {
     }
   });
 
-  // Sort children by orderIndex
+  // Sort children by chapter number first, then by orderIndex as fallback
   const sortChildren = (chapters: Chapter[]) => {
-    chapters.sort((a, b) => a.orderIndex - b.orderIndex);
+    chapters.sort((a, b) => {
+      // First try to sort by chapter number naturally
+      const numCompare = compareChapterNumbers(a.number, b.number);
+      if (numCompare !== 0) return numCompare;
+      // Fallback to orderIndex
+      return a.orderIndex - b.orderIndex;
+    });
     chapters.forEach(chapter => {
       if (chapter.children && chapter.children.length > 0) {
         sortChildren(chapter.children);
