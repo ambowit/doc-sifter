@@ -268,7 +268,7 @@ export default function Login() {
           </div>
 
           <div className="space-y-2 text-center">
-            <h2 className="text-2xl font-semibold tracking-tight">欢迎回来</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">欢迎回来1</h2>
             <p className="text-muted-foreground">登录您的账户以继续</p>
           </div>
 
