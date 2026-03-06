@@ -248,34 +248,26 @@ async function invokeWithTimeout<T>(
   body: Record<string, unknown>,
   timeoutMs: number = 60000
 ): Promise<{ data: T | null; error: Error | null }> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    console.log(`[invokeWithTimeout] Timeout after ${timeoutMs}ms`);
-    controller.abort();
-  }, timeoutMs);
-
   try {
-    console.log(`[invokeWithTimeout] Calling ${functionName}...`);
+    console.log(`[v0] invokeWithTimeout: Calling ${functionName} with body:`, JSON.stringify(body));
     
     // Use supabase.functions.invoke which handles auth automatically
-    const { data, error } = await supabase.functions.invoke(functionName, {
+    const result = await supabase.functions.invoke(functionName, {
       body,
     });
     
-    clearTimeout(timeoutId);
+    console.log(`[v0] invokeWithTimeout: Raw result:`, JSON.stringify(result));
 
-    if (error) {
-      console.log(`[invokeWithTimeout] Error:`, error);
-      return { data: null, error: new Error(error.message || "调用失败") };
+    if (result.error) {
+      console.log(`[v0] invokeWithTimeout: Error from invoke:`, result.error);
+      return { data: null, error: new Error(result.error.message || "调用失败") };
     }
 
-    console.log(`[invokeWithTimeout] Success, data:`, data);
-    return { data: data as T, error: null };
+    console.log(`[v0] invokeWithTimeout: Success, data type:`, typeof result.data);
+    console.log(`[v0] invokeWithTimeout: Success, data:`, JSON.stringify(result.data));
+    return { data: result.data as T, error: null };
   } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof Error && err.name === "AbortError") {
-      return { data: null, error: new Error("AI 提取超时，请稍后重试") };
-    }
+    console.log(`[v0] invokeWithTimeout: Caught exception:`, err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
