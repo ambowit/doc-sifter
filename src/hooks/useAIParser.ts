@@ -67,6 +67,15 @@ function flattenChapters(
   return result;
 }
 
+// Chinese number mapping for chapter titles
+const chineseNumbers = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", 
+  "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
+
+function toChineseChapterNumber(n: number): string {
+  if (n <= 20) return `第${chineseNumbers[n - 1]}章`;
+  return `第${n}章`;
+}
+
 // Parse template content to extract chapter structure (fallback parser)
 function parseTemplateContent(content: string): ChapterStructure[] {
   const chapters: ChapterStructure[] = [];
@@ -89,7 +98,7 @@ function parseTemplateContent(content: string): ChapterStructure[] {
       chapterIndex++;
       subChapterIndex = 0;
       currentChapter = {
-        number: String(chapterIndex),
+        number: toChineseChapterNumber(chapterIndex), // Use "第X章" format
         title: level1Match[1] || trimmed,
         level: 1,
         description: "",
@@ -384,7 +393,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
 // Demo chapter structure for fallback
 const DEMO_CHAPTERS: ChapterStructure[] = [
   {
-    number: "1",
+    number: "第一章",
     title: "公司基本情况",
     level: 1,
     description: "对目标公司的设立情况、历次股权变更、注册资本变化等进行核查",
@@ -395,7 +404,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "2",
+    number: "第二章",
     title: "公司治理",
     level: 1,
     description: "核查公司治理结构的合法性和有效性",
@@ -406,7 +415,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "3",
+    number: "第三章",
     title: "重大资产",
     level: 1,
     description: "核查目标公司的重大资产状况",
@@ -417,7 +426,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "4",
+    number: "第四章",
     title: "重大合同",
     level: 1,
     description: "核查重大合同的合法性和风险",
@@ -428,7 +437,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "5",
+    number: "第五章",
     title: "劳动人事",
     level: 1,
     description: "核查劳动人事合规情况",
@@ -439,7 +448,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "6",
+    number: "第六章",
     title: "税务合规",
     level: 1,
     description: "核查税务合规情况",
@@ -450,7 +459,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "7",
+    number: "第七章",
     title: "诉讼、仲裁及行政处罚",
     level: 1,
     description: "核查诉讼、仲裁及行政处罚情况",
@@ -460,7 +469,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
-    number: "8",
+    number: "第八章",
     title: "合规经营",
     level: 1,
     description: "核查合规经营情况",

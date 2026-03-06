@@ -645,14 +645,30 @@ export default function ReportPreview() {
     }
   };
 
+  // Clear cached report data for this project
+  const clearReportCache = () => {
+    if (!projectId) return;
+    
+    // Clear project-specific cache
+    localStorage.removeItem(`report_${projectId}`);
+    // Clear legacy global cache
+    localStorage.removeItem("dd-ai-report");
+    
+    console.log("[ReportPreview] Cleared report cache for project:", projectId);
+  };
+
   // Generate report
   const handleGenerateReport = async () => {
     if (!projectId) return;
 
+    // Clear cached data before regenerating
+    clearReportCache();
+    
     setIsGenerating(true);
     setGenerationProgress(0);
     setGenerationStatus("正在准备数据...");
     setSections([]);
+    setHasGenerated(false); // Reset generated state
     setMetadata(null);
 
     try {
@@ -1192,7 +1208,7 @@ export default function ReportPreview() {
               <div className="font-medium text-[13px] text-blue-900">AI 智能分析</div>
               <div className="text-[12px] text-blue-700 mt-0.5">
                 AI 已自动阅读所有数据室文件，根据每个章节主题智能匹配相关证据。
-                报告内容严格基于文件实际内容生成，未找到相关文件的章节将显示"待补充资料"。
+                报告内容��格基于文件实际内容生成，未找到相关文件的章节将显示"待补充资料"。
               </div>
             </div>
           </motion.div>
@@ -1606,7 +1622,7 @@ function generateReportHTML(
 <body>
   <div class="cover">
     <h2>${project.target || project.name}</h2>
-    <h1>法律尽职调查报告</h1>
+    <h1>法律尽职调���报告</h1>
     <div class="firm">委托方：${project.client || "未提供"}</div>
     <div class="date">${formatDate()}</div>
   </div>
@@ -1647,7 +1663,7 @@ function generateReportHTML(
       <p><strong>三、免责声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>
-      <p>3. 本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在遗漏、不完整或不真实，本所不对由此产生的后果承担责任。</p>
+      <p>3. 本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在遗漏、不��整或不真实，本所不对由此产生的后果承担责任。</p>
     </div>
 `;
     } else if (isDefinitionSection && definitions.length > 0) {

@@ -269,12 +269,31 @@ export function useDeleteProjectChapters() {
   });
 }
 
+// Chinese number mapping for chapter titles
+const chineseNumbers = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", 
+  "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
+
+function toChineseNumber(n: number): string {
+  if (n <= 20) return chineseNumbers[n - 1] || String(n);
+  return String(n);
+}
+
 // Generate chapter number from level and index
+// Level 1: "第一章", "第二章", etc.
+// Level 2+: "1.1", "1.2", etc.
 export function generateChapterNumber(level: number, parentNumber: string, index: number): string {
   if (level === 1) {
-    return String(index + 1);
+    return `第${toChineseNumber(index + 1)}章`;
   }
-  return `${parentNumber}.${index + 1}`;
+  // For level 2+, extract the numeric part from parent (e.g., "第一章" -> 1)
+  let parentNumeric = parentNumber;
+  const chapterMatch = parentNumber.match(/第(.+)章/);
+  if (chapterMatch) {
+    const chineseNum = chapterMatch[1];
+    const idx = chineseNumbers.indexOf(chineseNum);
+    parentNumeric = String(idx >= 0 ? idx + 1 : 1);
+  }
+  return `${parentNumeric}.${index + 1}`;
 }
 
 // Flatten chapter tree with numbers
