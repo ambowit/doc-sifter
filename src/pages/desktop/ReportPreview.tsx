@@ -442,7 +442,7 @@ export default function ReportPreview() {
 
   // Restore saved report data on mount - check both storage keys
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || flatChapters.length === 0) return;
     
     // Try project-specific key first
     const storageKey = `report_${projectId}`;
@@ -454,7 +454,9 @@ export default function ReportPreview() {
         // Only restore if data is less than 24 hours old
         const isRecent = Date.now() - generatedAt < 24 * 60 * 60 * 1000;
         if (isRecent && savedSections?.length > 0) {
-          setSections(savedSections);
+          // Sort sections by chapter order before restoring
+          const sortedSections = sortSectionsByChapterOrder(savedSections);
+          setSections(sortedSections);
           setMetadata(savedMetadata);
           setHasGenerated(true);
           console.log("[ReportPreview] Restored saved report data from project key");
@@ -472,7 +474,9 @@ export default function ReportPreview() {
         const report = JSON.parse(legacySaved);
         // Check if this report matches current project
         if (report.projectId === projectId && report.content?.sections?.length > 0) {
-          setSections(report.content.sections);
+          // Sort sections by chapter order before restoring
+          const sortedSections = sortSectionsByChapterOrder(report.content.sections);
+          setSections(sortedSections);
           setMetadata({
             equityStructure: report.equityStructure,
             definitions: report.definitions,
@@ -484,7 +488,18 @@ export default function ReportPreview() {
         console.warn("[ReportPreview] Failed to restore from legacy key:", err);
       }
     }
-  }, [projectId]);
+  }, [projectId, flatChapters]);
+
+  // Helper function to sort sections by chapter order
+  const sortSectionsByChapterOrder = (sectionsToSort: ReportSection[]): ReportSection[] => {
+    if (flatChapters.length === 0) return sectionsToSort;
+    const chapterOrderMap = new Map(flatChapters.map((ch, idx) => [ch.id, idx]));
+    return [...sectionsToSort].sort((a, b) => {
+      const orderA = chapterOrderMap.get(a.id) ?? Infinity;
+      const orderB = chapterOrderMap.get(b.id) ?? Infinity;
+      return orderA - orderB;
+    });
+  };
 
   // Save report data when generated
   const saveReportData = (newSections: ReportSection[], newMetadata: ReportMetadata | null) => {
@@ -805,7 +820,14 @@ export default function ReportPreview() {
         }
       }
       
-      const allSections = Array.from(sectionsMap.values());
+      // Sort sections by flatChapters order
+      const chapterOrderMap = new Map(flatChapters.map((ch, idx) => [ch.id, idx]));
+      const allSections = Array.from(sectionsMap.values()).sort((a, b) => {
+        const orderA = chapterOrderMap.get(a.id) ?? Infinity;
+        const orderB = chapterOrderMap.get(b.id) ?? Infinity;
+        return orderA - orderB;
+      });
+      setSections(allSections);
       
       // Validate results - must have at least some sections
       if (totalBatches > 0 && allSections.length === 0) {
@@ -1207,7 +1229,7 @@ export default function ReportPreview() {
             <div>
               <div className="font-medium text-[13px] text-blue-900">AI 智能分析</div>
               <div className="text-[12px] text-blue-700 mt-0.5">
-                AI 已自动阅读所有数据室文件，根据每个章节主题智能匹配相关证据。
+                AI 已自动阅��所有数据室文件，根据每个章节主题智能匹配相关证据。
                 报告内容��格基于文件实际内容生成，未找到相关文件的章节将显示"待补充资料"。
               </div>
             </div>
@@ -1659,7 +1681,7 @@ function generateReportHTML(
       <p><strong>一、报告依据</strong></p>
       <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核���。</p>
       <p><strong>二、尽调范围</strong></p>
-      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据室文件（共${fileCount}份）进行分析。</p>
+      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>
