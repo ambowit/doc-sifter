@@ -136,14 +136,24 @@ async function extractTextFromPdf(base64Data: string): Promise<string> {
 function isContentUseful(content: string | undefined): boolean {
   if (!content) return false;
   
+  const trimmed = content.trim();
+  
   // Check for placeholder messages
-  if (content.includes("无法在浏览器中直接解析") || 
-      content.includes("[文件:") ||
-      content.trim().length < 50) {
+  if (trimmed.includes("无法在浏览器中直接解析") || 
+      trimmed.includes("[文件:")) {
     return false;
   }
   
-  return true;
+  // Check minimum length (reduced from 50 to 20 to catch more content)
+  if (trimmed.length < 20) {
+    return false;
+  }
+  
+  // Check if content has meaningful text (Chinese or alphanumeric)
+  const hasChineseText = /[\u4E00-\u9FFF]/.test(trimmed);
+  const hasAlphanumeric = /[a-zA-Z0-9]/.test(trimmed);
+  
+  return hasChineseText || hasAlphanumeric;
 }
 
 serve(async (req) => {
@@ -174,15 +184,29 @@ serve(async (req) => {
 
     // If we have file data, try to extract text from it
     if (fileData && fileData.length > 0) {
-      logStep("Processing file data", { mimeType, dataLength: fileData.length });
+      logStep("Processing file data", { 
+        mimeType, 
+        dataLength: fileData.length,
+        filenameExt: filename?.split('.').pop(),
+      });
       
       if (mimeType?.includes("word") || filename?.endsWith(".docx")) {
+        logStep("Attempting DOCX extraction");
         actualContent = await extractTextFromDocx(fileData);
       } else if (mimeType?.includes("pdf") || filename?.endsWith(".pdf")) {
+        logStep("Attempting PDF extraction");
         actualContent = await extractTextFromPdf(fileData);
+      } else {
+        logStep("Unknown file type, skipping extraction", { mimeType, filename });
       }
       
-      logStep("File content extracted", { extractedLength: actualContent.length });
+      logStep("File content extracted", { 
+        extractedLength: actualContent.length,
+        hasContent: actualContent.length > 0,
+        contentPreview: actualContent.substring(0, 200),
+      });
+    } else {
+      logStep("No file data provided, using content directly", { contentLength: content?.length });
     }
 
     if (type === "template" || type === "generate-structure") {
@@ -190,9 +214,11 @@ serve(async (req) => {
       logStep("Content analysis", { 
         hasUsefulContent, 
         contentLength: actualContent?.length,
+        contentPreview: actualContent?.substring(0, 100),
       });
 
-      if (hasUsefulContent && actualContent && actualContent.length > 100) {
+      // Lowered threshold from 100 to 50 to catch more extracted content
+      if (hasUsefulContent && actualContent && actualContent.length > 50) {
         // Parse actual content from file
         systemPrompt = `你是一个专业的法律尽调报告分析专家。你的任务是从用户上传的尽调报告中**完整提取目录结构**。
 

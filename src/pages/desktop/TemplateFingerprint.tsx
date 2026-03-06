@@ -641,6 +641,12 @@ export default function TemplateFingerprint() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    console.log("[TemplateFingerprint] File selected for upload:", {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
+
     // Clear input value for re-upload
     event.target.value = "";
 
@@ -649,7 +655,7 @@ export default function TemplateFingerprint() {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "application/msword",
     ];
-    
+
     if (!validTypes.includes(file.type)) {
       toast.error("不支持的文件格式", {
         description: "请上传 PDF 或 Word (.docx) 文件",
@@ -658,14 +664,19 @@ export default function TemplateFingerprint() {
     }
 
     try {
-      toast.info(`正在解析 ${file.name}...`, { duration: 3000 });
+      toast.info(`正在解析 ${file.name}，AI 正在提取报告结构...`, { duration: 5000 });
 
       // Convert file to base64 for server-side parsing
       const fileData = await fileToBase64(file);
       
+      console.log("[TemplateFingerprint] File converted to base64:", {
+        fileDataLength: fileData.length,
+        mimeType: file.type,
+      });
+      
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: "",
+        content: "", // Empty content, will use fileData for extraction
         filename: file.name,
         fileData,
         mimeType: file.type,
@@ -981,7 +992,7 @@ export default function TemplateFingerprint() {
                       标题样式
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="一级标题 H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
+                      <StyleTokenCard label="一级标��� H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
                       <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子���题" />
                       <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
                     </div>
