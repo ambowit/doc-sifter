@@ -291,16 +291,29 @@ export default function ChapterMapping() {
         try {
           // Get current session for JWT auth
           const { data: { session } } = await supabase.auth.getSession();
+          console.log("[v0] Session check:", { 
+            hasSession: !!session, 
+            hasAccessToken: !!session?.access_token,
+            tokenPreview: session?.access_token?.substring(0, 50) + "...",
+            userId: session?.user?.id 
+          });
+          
           if (!session?.access_token) {
             throw new Error("请重新登录后再试");
           }
           
+          console.log("[v0] Calling generate-report with mode=metadata");
           const metadataResult = await supabase.functions.invoke("generate-report", {
             body: { 
               projectId: currentProjectId, 
               mode: "metadata" 
             },
             headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          console.log("[v0] Metadata result:", { 
+            hasError: !!metadataResult.error, 
+            error: metadataResult.error,
+            hasData: !!metadataResult.data 
           });
 
           // Check for auth errors
