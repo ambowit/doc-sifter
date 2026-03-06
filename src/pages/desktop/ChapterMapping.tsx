@@ -303,6 +303,14 @@ export default function ChapterMapping() {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
 
+          // Check for auth errors
+          if (metadataResult.error) {
+            const errorMsg = metadataResult.error.message || JSON.stringify(metadataResult.error) || "";
+            if (errorMsg.includes("401") || errorMsg.includes("Invalid JWT") || errorMsg.includes("Unauthorized")) {
+              throw new Error("认证失败，请刷新页面重新登录后再试");
+            }
+          }
+
           if (metadataResult.data?.metadata) {
             reportMetadata = metadataResult.data.metadata;
             const shareholders = reportMetadata?.equityStructure?.shareholders?.length || 0;
@@ -315,6 +323,11 @@ export default function ChapterMapping() {
             updateStep(1, { status: "completed", detail: "已提取" });
           }
         } catch (metaErr) {
+          // Check if it's an auth error
+          const errMsg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+          if (errMsg.includes("认证失败") || errMsg.includes("401") || errMsg.includes("JWT")) {
+            throw metaErr; // Re-throw auth errors to stop generation
+          }
           console.warn("Metadata extraction failed:", metaErr);
           updateStep(1, { status: "completed", detail: "跳过" });
         }
@@ -365,7 +378,11 @@ export default function ChapterMapping() {
             });
 
             if (result.error) {
-              const errorMsg = result.error.message || "";
+              const errorMsg = result.error.message || JSON.stringify(result.error) || "";
+              // Check for auth errors
+              if (errorMsg.includes("401") || errorMsg.includes("Invalid JWT") || errorMsg.includes("Unauthorized")) {
+                throw new Error("认证失败，请刷新页面重新登录后再试");
+              }
               const isTimeout = errorMsg.includes("504") || errorMsg.includes("timeout") || errorMsg.includes("non-2xx");
               if (isTimeout && attempt < MAX_BATCH_RETRIES) { lastError = new Error(errorMsg); continue; }
               throw new Error(errorMsg || `第${toChineseNumber(batchIndex + 1)}批生成失败`);
