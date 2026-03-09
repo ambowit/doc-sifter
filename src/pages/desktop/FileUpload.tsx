@@ -20,7 +20,7 @@ import {
   extractZipFile,
   detectArchiveType,
 } from "@/lib/archiveExtractor";
-import { useFlatChapters } from "@/hooks/useChapters";
+import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
 import { useMappings, useCreateMapping, useDeleteMapping, type ChapterFileMapping } from "@/hooks/useMappings";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
