@@ -20,8 +20,24 @@ import {
   extractZipFile,
   detectArchiveType,
 } from "@/lib/archiveExtractor";
-import { useChapters } from "@/hooks/useChapters";
+import { useFlatChapters } from "@/hooks/useChapters";
+import { useMappings, useCreateMapping, useDeleteMapping, type ChapterFileMapping } from "@/hooks/useMappings";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -46,6 +62,9 @@ import {
   CheckCircle,
   LayoutTemplate,
   RefreshCw,
+  Plus,
+  BookOpen,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
@@ -116,10 +135,16 @@ export default function FileUpload() {
   const { projectId } = useParams<{ projectId: string }>();
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
-  const { data: chapters = [] } = useChapters(currentProjectId || undefined);
+  const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
+  const { data: mappings = [] } = useMappings(currentProjectId || undefined);
+  const createMappingMutation = useCreateMapping();
+  const deleteMappingMutation = useDeleteMapping();
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
+  
+  // State for chapter selector popover
+  const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
   
   const [dataRoomDragOver, setDataRoomDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
@@ -154,6 +179,47 @@ export default function FileUpload() {
 
   // Check if template is ready (chapters exist)
   const hasTemplate = chapters.length > 0;
+
+  // Get mappings for a specific file
+  const getFileMappings = useCallback((fileId: string): ChapterFileMapping[] => {
+    return mappings.filter(m => m.fileId === fileId);
+  }, [mappings]);
+
+  // Get chapter info by ID
+  const getChapterById = useCallback((chapterId: string) => {
+    return chapters.find(c => c.id === chapterId);
+  }, [chapters]);
+
+  // Handle adding a chapter mapping
+  const handleAddMapping = useCallback(async (fileId: string, chapterId: string) => {
+    try {
+      await createMappingMutation.mutateAsync({
+        fileId,
+        chapterId,
+        isConfirmed: true,
+      });
+      toast.success("已关联章节");
+    } catch (error) {
+      console.error("[FileUpload] Failed to add mapping:", error);
+      toast.error("关联章节失败");
+    }
+  }, [createMappingMutation]);
+
+  // Handle removing a chapter mapping
+  const handleRemoveMapping = useCallback(async (mappingId: string) => {
+    try {
+      await deleteMappingMutation.mutateAsync(mappingId);
+      toast.success("已取消关联");
+    } catch (error) {
+      console.error("[FileUpload] Failed to remove mapping:", error);
+      toast.error("取消关联失败");
+    }
+  }, [deleteMappingMutation]);
+
+  // Check if file is already mapped to a chapter
+  const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
+    return mappings.some(m => m.fileId === fileId && m.chapterId === chapterId);
+  }, [mappings]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -1316,6 +1382,96 @@ export default function FileUpload() {
                         />
                         {getFileIcon(file.name)}
                         <span className="flex-1 truncate" title={file.name}>{file.name}</span>
+                        
+                        {/* Chapter Badges */}
+                        {file.id && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {getFileMappings(file.id).map((mapping) => {
+                              const chapter = getChapterById(mapping.chapterId);
+                              if (!chapter) return null;
+                              return (
+                                <Badge
+                                  key={mapping.id}
+                                  variant="secondary"
+                                  className="text-[10px] h-5 px-1.5 gap-1 cursor-pointer hover:bg-destructive/20 group/badge"
+                                  title={`${chapter.number} ${chapter.title} - 点击取消关联`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveMapping(mapping.id);
+                                  }}
+                                >
+                                  <BookOpen className="w-2.5 h-2.5" />
+                                  <span className="max-w-[60px] truncate">{chapter.number || chapter.title.slice(0, 4)}</span>
+                                  <X className="w-2.5 h-2.5 opacity-0 group-hover/badge:opacity-100 transition-opacity" />
+                                </Badge>
+                              );
+                            })}
+                            
+                            {/* Add Chapter Button */}
+                            <Popover 
+                              open={chapterSelectorFileId === file.id} 
+                              onOpenChange={(open) => setChapterSelectorFileId(open ? file.id! : null)}
+                            >
+                              <PopoverTrigger asChild>
+                                <button
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-5 h-5 rounded bg-muted hover:bg-primary/10 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                                  title="关联章节"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64 p-0" align="end" onClick={(e) => e.stopPropagation()}>
+                                <Command>
+                                  <CommandInput placeholder="搜索章节..." />
+                                  <CommandList>
+                                    <CommandEmpty>未找到章节</CommandEmpty>
+                                    <CommandGroup>
+                                      {chapters.map((chapter) => {
+                                        const isMapped = isFileMappedToChapter(file.id!, chapter.id);
+                                        return (
+                                          <CommandItem
+                                            key={chapter.id}
+                                            value={`${chapter.number} ${chapter.title}`}
+                                            onSelect={() => {
+                                              if (!isMapped) {
+                                                handleAddMapping(file.id!, chapter.id);
+                                              }
+                                              setChapterSelectorFileId(null);
+                                            }}
+                                            className="flex items-center gap-2"
+                                          >
+                                            <Checkbox
+                                              checked={isMapped}
+                                              className="w-3.5 h-3.5"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (isMapped) {
+                                                  const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);
+                                                  if (mapping) handleRemoveMapping(mapping.id);
+                                                } else {
+                                                  handleAddMapping(file.id!, chapter.id);
+                                                }
+                                              }}
+                                            />
+                                            <span className="text-[11px] text-muted-foreground min-w-[32px]">
+                                              {chapter.number || "-"}
+                                            </span>
+                                            <span className="flex-1 truncate text-[12px]">
+                                              {chapter.title}
+                                            </span>
+                                            {isMapped && <Check className="w-3.5 h-3.5 text-primary" />}
+                                          </CommandItem>
+                                        );
+                                      })}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        )}
+                        
                         <div className="flex items-center gap-1">
                           <button
                             onClick={(e) => {
