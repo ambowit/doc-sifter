@@ -597,11 +597,59 @@ export default function TemplateFingerprint() {
   const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
   const [activeTab, setActiveTab] = useState("styles");
   const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
+  const [isEditingStyle, setIsEditingStyle] = useState(false);
   
-  // Get current selected style
+  // Editable styles - each template can be edited independently
+  const [editableStyles, setEditableStyles] = useState<Record<string, typeof templateStyles[0]>>(() => {
+    const initial: Record<string, typeof templateStyles[0]> = {};
+    templateStyles.forEach(style => {
+      initial[style.id] = JSON.parse(JSON.stringify(style));
+    });
+    return initial;
+  });
+  
+  // Get current selected style (from editable state)
   const currentStyle = useMemo(() => {
-    return templateStyles.find(s => s.id === selectedStyleId) || templateStyles[0];
-  }, [selectedStyleId]);
+    return editableStyles[selectedStyleId] || templateStyles[0];
+  }, [selectedStyleId, editableStyles]);
+  
+  // Update a specific style's property
+  const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
+    setEditableStyles(prev => {
+      const newStyles = { ...prev };
+      const style = JSON.parse(JSON.stringify(newStyles[styleId]));
+      
+      // Navigate to the nested property and update it
+      let current: Record<string, unknown> = style;
+      for (let i = 0; i < path.length - 1; i++) {
+        current = current[path[i]] as Record<string, unknown>;
+      }
+      current[path[path.length - 1]] = value;
+      
+      newStyles[styleId] = style;
+      return newStyles;
+    });
+  }, []);
+  
+  // Save current style
+  const saveCurrentStyle = useCallback(() => {
+    toast.success("样式已保存", {
+      description: `「${currentStyle.name}」的样式配置已保存`,
+    });
+    setIsEditingStyle(false);
+  }, [currentStyle.name]);
+  
+  // Reset style to default
+  const resetStyleToDefault = useCallback((styleId: string) => {
+    const defaultStyle = templateStyles.find(s => s.id === styleId);
+    if (defaultStyle) {
+      setEditableStyles(prev => ({
+        ...prev,
+        [styleId]: JSON.parse(JSON.stringify(defaultStyle)),
+      }));
+      toast.success("已重置为默认样式");
+    }
+  }, []);
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
@@ -866,14 +914,6 @@ export default function TemplateFingerprint() {
                 <Hash className="w-4 h-4" />
                 编号配置
               </TabsTrigger>
-              <TabsTrigger value="typography" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Type className="w-4 h-4" />
-                排版样式
-              </TabsTrigger>
-              <TabsTrigger value="tables" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Table2 className="w-4 h-4" />
-                表格样式
-              </TabsTrigger>
               <TabsTrigger value="intro" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Edit3 className="w-4 h-4" />
                 引言编辑
@@ -887,87 +927,355 @@ export default function TemplateFingerprint() {
 
           {/* Tab Contents */}
           <div className="flex-1 overflow-hidden min-h-0 relative">
-            {/* Styles Tab - Template Style Selection */}
+            {/* Styles Tab - Template Style Selection and Editing */}
             <TabsContent value="styles" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
                 {/* Left: Style list */}
-                <div className="w-5/12 border-r border-border flex flex-col min-h-0">
+                <div className="w-72 border-r border-border flex flex-col min-h-0">
                   <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
                     <div className="flex items-center gap-2">
                       <Palette className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-[13px] font-medium">选择模板样式</span>
+                      <span className="text-[13px] font-medium">模板样式</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      共 {templateStyles.length} 种预设样式可选
+                      选择并编辑样式配置
                     </p>
                   </div>
                   <ScrollArea className="h-0 grow">
-                    <div className="p-4 space-y-3">
-                      {templateStyles.map((style) => (
-                        <motion.div
-                          key={style.id}
-                          initial={{ opacity: 0, y: 5 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className={cn(
-                            "p-4 rounded-lg border-2 cursor-pointer transition-all",
-                            selectedStyleId === style.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-muted-foreground/50 bg-card"
-                          )}
-                          onClick={() => setSelectedStyleId(style.id)}
+                    <div className="p-3 space-y-2">
+                      {templateStyles.map((style) => {
+                        const editedStyle = editableStyles[style.id];
+                        return (
+                          <motion.div
+                            key={style.id}
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              selectedStyleId === style.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-muted-foreground/50 bg-card"
+                            )}
+                            onClick={() => {
+                              setSelectedStyleId(style.id);
+                              setIsEditingStyle(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Color preview */}
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
+                                <div 
+                                  className="h-1/2" 
+                                  style={{ backgroundColor: editedStyle?.preview.primaryColor || style.preview.primaryColor }}
+                                />
+                                <div 
+                                  className="h-1/2" 
+                                  style={{ backgroundColor: editedStyle?.preview.accentColor || style.preview.accentColor }}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">{editedStyle?.name || style.name}</h4>
+                                  {selectedStyleId === style.id && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {editedStyle?.preview.fontFamily || style.preview.fontFamily}
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Middle: Style Editor */}
+                <div className="w-80 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Edit3 className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">编辑样式</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 text-[11px]"
+                          onClick={() => resetStyleToDefault(selectedStyleId)}
                         >
-                          <div className="flex items-start gap-3">
-                            {/* Color preview */}
-                            <div className="flex-shrink-0 w-12 h-12 rounded-lg border border-border overflow-hidden">
-                              <div 
-                                className="h-1/2" 
-                                style={{ backgroundColor: style.preview.primaryColor }}
+                          重置
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          className="h-7 text-[11px]"
+                          onClick={saveCurrentStyle}
+                        >
+                          保存
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {currentStyle.name} - {currentStyle.description}
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-4 space-y-6">
+                      {/* Basic Info */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">基本信息</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-[11px]">样式名称</Label>
+                            <Input 
+                              value={currentStyle.name}
+                              onChange={(e) => updateStyleProperty(selectedStyleId, ['name'], e.target.value)}
+                              className="h-8 text-[12px] mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">主色调</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input 
+                                type="color"
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
                               />
-                              <div 
-                                className="h-1/2" 
-                                style={{ backgroundColor: style.preview.accentColor }}
+                              <Input 
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
                               />
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-[13px] font-semibold">{style.name}</h4>
-                                {selectedStyleId === style.id && (
-                                  <Badge variant="default" className="text-[10px] px-1.5">
-                                    已选择
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
-                                {style.description}
-                              </p>
-                              <div className="flex items-center gap-2 mt-2">
-                                <Badge variant="outline" className="text-[10px]">
-                                  {style.preview.fontFamily}
-                                </Badge>
-                                <Badge variant="outline" className="text-[10px]">
-                                  {style.preview.headerStyle === "classic" ? "经典" : 
-                                   style.preview.headerStyle === "modern" ? "现代" : "简约"}
-                                </Badge>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">辅助色</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input 
+                                type="color"
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
+                              />
+                              <Input 
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Heading Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">标题样式 (H1)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.h1.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.h1.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 text-[11px]">
+                              <input 
+                                type="checkbox"
+                                checked={currentStyle.styles.h1.bold}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'bold'], e.target.checked)}
+                                className="rounded"
+                              />
+                              加粗
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* H2 Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">二级标题 (H2)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.h2.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.h2.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Body Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">正文样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.body.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.body.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">行距</Label>
+                              <Input 
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.lineSpacing}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'lineSpacing'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">首行缩进 (cm)</Label>
+                              <Input 
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.firstLineIndentCm}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'firstLineIndentCm'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">对齐方式</Label>
+                            <Select 
+                              value={currentStyle.styles.body.align}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'align'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="left">左对齐</SelectItem>
+                                <SelectItem value="center">居中</SelectItem>
+                                <SelectItem value="right">右对齐</SelectItem>
+                                <SelectItem value="justify">两端对齐</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Table Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">表格样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">边框样式</Label>
+                              <Select 
+                                value={currentStyle.tables.default.border}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'border'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="single">单线边框</SelectItem>
+                                  <SelectItem value="threeLines">三线表</SelectItem>
+                                  <SelectItem value="none">无边框</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">表头背景色</Label>
+                              <div className="flex gap-1 mt-1">
+                                <Input 
+                                  type="color"
+                                  value={currentStyle.tables.default.headerFill === "transparent" ? "#ffffff" : currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 w-10 p-1"
+                                />
+                                <Input 
+                                  value={currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 text-[11px] flex-1"
+                                />
                               </div>
                             </div>
                           </div>
-                        </motion.div>
-                      ))}
+                        </div>
+                      </div>
                     </div>
                   </ScrollArea>
-                  <div className="shrink-0 p-4 border-t border-border bg-surface-subtle">
-                    <Button 
-                      className="w-full gap-2"
-                      onClick={() => {
-                        toast.success("样式已应用", {
-                          description: `已选择「${currentStyle.name}」样式`,
-                        });
-                      }}
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      应用选中样式
-                    </Button>
-                  </div>
                 </div>
 
                 {/* Right: Style preview */}
@@ -976,20 +1284,11 @@ export default function TemplateFingerprint() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Eye className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-[13px] font-medium">样式预览</span>
+                        <span className="text-[13px] font-medium">实时预览</span>
                       </div>
-                      <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
-                        <SelectTrigger className="w-40 h-8 text-[12px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {templateStyles.map(style => (
-                            <SelectItem key={style.id} value={style.id} className="text-[12px]">
-                              {style.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Badge variant="outline" className="text-[10px]">
+                        {currentStyle.name}
+                      </Badge>
                     </div>
                   </div>
                   <ScrollArea className="h-0 grow">
@@ -1294,121 +1593,6 @@ export default function TemplateFingerprint() {
                     </div>
                   </motion.div>
                   <NumberingPanel numbering={mockTemplateFingerprint.numbering} />
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Typography Tab */}
-            <TabsContent value="typography" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8 space-y-6">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3"
-                  >
-                    <Palette className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">排版样式已提取</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        以下样式Token从样本报告中自动提取，将应用于最终生成的DOCX报告。样式已锁定。
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      标题样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="一级标题 H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
-                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子标题" />
-                      <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <AlignJustify className="w-4 h-4" />
-                      正文样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="正文 Body" token={mockTemplateFingerprint.styles.body} description="报告主体内容的段落样式" />
-                      <StyleTokenCard label="引用 Quote" token={mockTemplateFingerprint.styles.quote} description="用于引用原始文件内容" />
-                      <StyleTokenCard label="图注 Caption" token={mockTemplateFingerprint.styles.caption} description="图表的标题和注释" />
-                      <StyleTokenCard label="脚注 Footnote" token={mockTemplateFingerprint.styles.footnote} description="页面底部的脚注文字" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <List className="w-4 h-4" />
-                      列表样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard
-                        label="无序列表 Bullet"
-                        token={{
-                          glyph: mockTemplateFingerprint.lists.bullet.glyph,
-                          indentLeftCm: mockTemplateFingerprint.lists.bullet.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.bullet.hangingCm,
-                        }}
-                      />
-                      <StyleTokenCard
-                        label="有序列表 Ordered"
-                        token={{
-                          format: mockTemplateFingerprint.lists.ordered.format,
-                          indentLeftCm: mockTemplateFingerprint.lists.ordered.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.ordered.hangingCm,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Image className="w-4 h-4" />
-                      图表样式
-                    </h3>
-                    <StyleTokenCard
-                      label="图表设置 Figures"
-                      token={{
-                        captionFormat: mockTemplateFingerprint.figures.captionFormat,
-                        captionStyle: mockTemplateFingerprint.figures.captionStyle,
-                        placeCaption: mockTemplateFingerprint.figures.placeCaption === "below" ? "图下方" : "图上方",
-                        maxWidthPercent: `${mockTemplateFingerprint.figures.maxWidthPercent}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Tables Tab */}
-            <TabsContent value="tables" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3 mb-6"
-                  >
-                    <Table2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">表格样式</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        定义报告中表格的边框、颜色、字体等样式，确保与样本一致。
-                      </div>
-                    </div>
-                  </motion.div>
-                  <TableStylePanel tables={mockTemplateFingerprint.tables} />
                 </div>
               </div>
             </TabsContent>
