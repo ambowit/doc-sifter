@@ -579,10 +579,10 @@ export default function TemplateFingerprint() {
   const currentProjectId = projectId || null;
   const { data: currentProject, isLoading: projectLoading } = useCurrentProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
-  
+
   const parseTemplateMutation = useParseTemplate();
   const deleteChaptersMutation = useDeleteProjectChapters();
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
@@ -668,12 +668,12 @@ export default function TemplateFingerprint() {
 
       // Convert file to base64 for server-side parsing
       const fileData = await fileToBase64(file);
-      
+
       console.log("[TemplateFingerprint] File converted to base64:", {
         fileDataLength: fileData.length,
         mimeType: file.type,
       });
-      
+
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
         content: "", // Empty content, will use fileData for extraction
@@ -871,56 +871,56 @@ export default function TemplateFingerprint() {
             {/* TOC Tab - Real Data */}
             <TabsContent value="toc" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Chapter list */}
-              <div className="w-5/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">报告目录</span>
+                {/* Left: Chapter list */}
+                <div className="w-5/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">报告目录</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
-                  </p>
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <ChapterTree chapters={chapters} />
+                  </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <ChapterTree chapters={chapters} />
-                </div>
-              </div>
 
-              {/* Right: TOC preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">目录预览</span>
+                {/* Right: TOC preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">目录预览</span>
+                    </div>
                   </div>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
-                    <div className="space-y-2 text-[14px]">
-                      {chapters.map((chapter, idx) => (
-                        <div key={chapter.id}>
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
-                            <span className="flex-1 font-semibold">{chapter.title}</span>
-                            <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                            <span className="text-muted-foreground">1</span>
-                          </div>
-                          {chapter.children?.map((child, childIdx) => (
-                            <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
-                              <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
-                              <span className="flex-1">{child.title}</span>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
+                      <div className="space-y-2 text-[14px]">
+                        {chapters.map((chapter, idx) => (
+                          <div key={chapter.id}>
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
+                              <span className="flex-1 font-semibold">{chapter.title}</span>
                               <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
                               <span className="text-muted-foreground">1</span>
                             </div>
-                          ))}
-                        </div>
-                      ))}
+                            {chapter.children?.map((child, childIdx) => (
+                              <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
+                                <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
+                                <span className="flex-1">{child.title}</span>
+                                <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                                <span className="text-muted-foreground">1</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
@@ -992,8 +992,8 @@ export default function TemplateFingerprint() {
                       标题样式
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="一级标��� H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
-                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子���题" />
+                      <StyleTokenCard label="一级标题 H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
+                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子标题" />
                       <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
                     </div>
                   </div>
@@ -1086,85 +1086,85 @@ export default function TemplateFingerprint() {
             {/* Intro Tab */}
             <TabsContent value="intro" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Variables */}
-              <div className="w-4/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <Edit3 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">可编辑变量</span>
+                {/* Left: Variables */}
+                <div className="w-4/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Edit3 className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">可编辑变量</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      填写变量值，将自动替换引言中的占位符
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    填写变量值，将自动替换引言中的占位符
-                  </p>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <div className="space-y-4">
-                    {variables.map((v) => (
-                      <div key={v.id}>
-                        <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
-                          {v.name}
-                          {v.required && <span className="text-red-500">*</span>}
-                        </Label>
-                        <Input
-                          value={v.value}
-                          onChange={(e) => handleVariableChange(v.id, e.target.value)}
-                          placeholder={v.placeholder}
-                          className="mt-1"
-                        />
-                      </div>
-                    ))}
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <div className="space-y-4">
+                      {variables.map((v) => (
+                        <div key={v.id}>
+                          <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
+                            {v.name}
+                            {v.required && <span className="text-red-500">*</span>}
+                          </Label>
+                          <Input
+                            value={v.value}
+                            onChange={(e) => handleVariableChange(v.id, e.target.value)}
+                            placeholder={v.placeholder}
+                            className="mt-1"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 p-4 border-t border-border">
-                  <Button onClick={handleSaveVariables} className="w-full gap-2">
-                    <Save className="w-4 h-4" />
-                    保存变量
-                  </Button>
-                </div>
-              </div>
-
-              {/* Right: Intro preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">引言预览</span>
+                  <div className="shrink-0 p-4 border-t border-border">
+                    <Button onClick={handleSaveVariables} className="w-full gap-2">
+                      <Save className="w-4 h-4" />
+                      保存变量
+                    </Button>
                   </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.background}
-                      </p>
-                    </section>
+                {/* Right: Intro preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">引言预览</span>
+                    </div>
+                  </div>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.scope}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.background}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.methodology}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.scope}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.disclaimer}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.methodology}
+                        </p>
+                      </section>
+
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.disclaimer}
+                        </p>
+                      </section>
+                    </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
