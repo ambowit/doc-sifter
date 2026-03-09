@@ -49,8 +49,17 @@ import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/use
 import { useParseTemplate, fileToBase64, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
-import { mockTemplateFingerprint } from "@/lib/reportMockData";
+import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // =============================================================================
 // COMPONENTS
@@ -586,7 +595,13 @@ export default function TemplateFingerprint() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
-  const [activeTab, setActiveTab] = useState("toc");
+  const [activeTab, setActiveTab] = useState("styles");
+  const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
+  
+  // Get current selected style
+  const currentStyle = useMemo(() => {
+    return templateStyles.find(s => s.id === selectedStyleId) || templateStyles[0];
+  }, [selectedStyleId]);
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
@@ -835,6 +850,10 @@ export default function TemplateFingerprint() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border bg-background px-6">
             <TabsList className="h-12 bg-transparent p-0 gap-1">
+              <TabsTrigger value="styles" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                <Palette className="w-4 h-4" />
+                模板样式
+              </TabsTrigger>
               <TabsTrigger value="toc" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <BookOpen className="w-4 h-4" />
                 目录结构
@@ -868,6 +887,317 @@ export default function TemplateFingerprint() {
 
           {/* Tab Contents */}
           <div className="flex-1 overflow-hidden min-h-0 relative">
+            {/* Styles Tab - Template Style Selection */}
+            <TabsContent value="styles" className="absolute inset-0 m-0">
+              <div className="absolute inset-0 flex">
+                {/* Left: Style list */}
+                <div className="w-5/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">选择模板样式</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      共 {templateStyles.length} 种预设样式可选
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-4 space-y-3">
+                      {templateStyles.map((style) => (
+                        <motion.div
+                          key={style.id}
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={cn(
+                            "p-4 rounded-lg border-2 cursor-pointer transition-all",
+                            selectedStyleId === style.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-muted-foreground/50 bg-card"
+                          )}
+                          onClick={() => setSelectedStyleId(style.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Color preview */}
+                            <div className="flex-shrink-0 w-12 h-12 rounded-lg border border-border overflow-hidden">
+                              <div 
+                                className="h-1/2" 
+                                style={{ backgroundColor: style.preview.primaryColor }}
+                              />
+                              <div 
+                                className="h-1/2" 
+                                style={{ backgroundColor: style.preview.accentColor }}
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-[13px] font-semibold">{style.name}</h4>
+                                {selectedStyleId === style.id && (
+                                  <Badge variant="default" className="text-[10px] px-1.5">
+                                    已选择
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                                {style.description}
+                              </p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <Badge variant="outline" className="text-[10px]">
+                                  {style.preview.fontFamily}
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px]">
+                                  {style.preview.headerStyle === "classic" ? "经典" : 
+                                   style.preview.headerStyle === "modern" ? "现代" : "简约"}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <div className="shrink-0 p-4 border-t border-border bg-surface-subtle">
+                    <Button 
+                      className="w-full gap-2"
+                      onClick={() => {
+                        toast.success("样式已应用", {
+                          description: `已选择「${currentStyle.name}」样式`,
+                        });
+                      }}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      应用选中样式
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Right: Style preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">样式预览</span>
+                      </div>
+                      <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
+                        <SelectTrigger className="w-40 h-8 text-[12px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {templateStyles.map(style => (
+                            <SelectItem key={style.id} value={style.id} className="text-[12px]">
+                              {style.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-8">
+                      <div 
+                        className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
+                        style={{ 
+                          padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
+                          minHeight: "600px"
+                        }}
+                      >
+                        {/* Report Header Preview */}
+                        <div className="text-center mb-8 pb-4 border-b-2" style={{ borderColor: currentStyle.preview.primaryColor }}>
+                          <h1 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.styles.h1.color || "#000",
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            法律尽职调查报告
+                          </h1>
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              color: "#666",
+                            }}
+                          >
+                            {currentProject?.target || "目标公司名称"}
+                          </p>
+                        </div>
+
+                        {/* Sample Section */}
+                        <div className="mb-6">
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.styles.h1.color || "#000",
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            一、公司基本情况
+                          </h2>
+                          
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.styles.h2.color || "#000",
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            1.1 公司设立及历史沿革
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            根据我们审阅的工商登记资料，目标公司成立于2018年3月15日，注册资本人民币5,000万元，已全额实缴。公司统一社会信用代码为91110108MA01XXXXXX。
+                          </p>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            目标公司的经营范围包括：技术开发、技术咨询、技术服务、技术转让；软件开发；数据处理；计算机系统服务。公司经营范围合法合规，未见超范围经营情形。
+                          </p>
+                        </div>
+
+                        {/* Sample Table */}
+                        <div className="mb-6">
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.styles.h2.color || "#000",
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            1.2 股权结构
+                          </h3>
+                          
+                          <table 
+                            className="w-full mb-4"
+                            style={{
+                              fontFamily: currentStyle.tables.default.font,
+                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
+                              borderCollapse: "collapse",
+                            }}
+                          >
+                            <thead>
+                              <tr style={{ backgroundColor: currentStyle.tables.default.headerFill }}>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  序号
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  股东名称
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  持股比例
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { no: 1, name: "张明", ratio: "35%" },
+                                { no: 2, name: "李华", ratio: "25%" },
+                                { no: 3, name: "深圳创新投资", ratio: "20%" },
+                                { no: 4, name: "员工持股平台", ratio: "20%" },
+                              ].map((row) => (
+                                <tr key={row.no}>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.no}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.name}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.ratio}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.caption.font,
+                              fontSize: `${currentStyle.styles.caption.sizePt}pt`,
+                              textAlign: currentStyle.styles.caption.align,
+                              color: "#666",
+                            }}
+                          >
+                            表1：目标公司股权结构
+                          </p>
+                        </div>
+
+                        {/* Quote Sample */}
+                        <div 
+                          className="mb-6"
+                          style={{
+                            fontFamily: currentStyle.styles.quote.font,
+                            fontSize: `${currentStyle.styles.quote.sizePt}pt`,
+                            lineHeight: currentStyle.styles.quote.lineSpacing,
+                            marginLeft: `${currentStyle.styles.quote.indentLeftCm}cm`,
+                            paddingLeft: currentStyle.styles.quote.borderLeft ? "12px" : "0",
+                            borderLeft: currentStyle.styles.quote.borderLeft ? `3px solid ${currentStyle.preview.primaryColor}` : "none",
+                            color: "#555",
+                          }}
+                        >
+                          "根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。"
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            </TabsContent>
+
             {/* TOC Tab - Real Data */}
             <TabsContent value="toc" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">

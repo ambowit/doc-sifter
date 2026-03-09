@@ -939,7 +939,7 @@ export function getEquityStructureFromKG() {
         notes: e.aliases?.[0],
       })),
     notes: [
-      "以上股权结构信息来源于公司章程及股东会决议",
+      "以上股权结构信息来源于公司章程及股东会决��",
       "员工持股平台为有限合伙企业，实际控制人为张明",
       "截至2025年12月31日，股权无质押、冻结情况",
     ],
@@ -959,4 +959,473 @@ export function getDefinitionsFromKG() {
       pageRef: r.loc,
     })),
   }));
+}
+
+// =============================================================================
+// TEMPLATE STYLES (多模板样式支持)
+// =============================================================================
+
+/** 模板样式类型 */
+export interface TemplateStyle {
+  id: string;
+  name: string;
+  description: string;
+  preview: {
+    primaryColor: string;
+    accentColor: string;
+    fontFamily: string;
+    headerStyle: "classic" | "modern" | "minimal";
+  };
+  styles: typeof mockTemplateFingerprint.styles;
+  tables: typeof mockTemplateFingerprint.tables;
+  page: typeof mockTemplateFingerprint.page;
+}
+
+/** 预设模板样式列表 */
+export const templateStyles: TemplateStyle[] = [
+  {
+    id: "classic-songti",
+    name: "经典宋体",
+    description: "传统法律文书风格，使用宋体字体，正式规范",
+    preview: {
+      primaryColor: "#000000",
+      accentColor: "#333333",
+      fontFamily: "宋体",
+      headerStyle: "classic",
+    },
+    styles: mockTemplateFingerprint.styles,
+    tables: mockTemplateFingerprint.tables,
+    page: mockTemplateFingerprint.page,
+  },
+  {
+    id: "modern-heiti",
+    name: "现代黑体",
+    description: "现代商务风格，使用黑体字体，简洁大方",
+    preview: {
+      primaryColor: "#1a1a2e",
+      accentColor: "#16213e",
+      fontFamily: "黑体",
+      headerStyle: "modern",
+    },
+    styles: {
+      h1: {
+        font: "黑体",
+        sizePt: 18,
+        bold: true,
+        spaceBeforePt: 16,
+        spaceAfterPt: 8,
+        lineSpacing: 1.3,
+        color: "#1a1a2e",
+      },
+      h2: {
+        font: "黑体",
+        sizePt: 14,
+        bold: true,
+        spaceBeforePt: 12,
+        spaceAfterPt: 6,
+        lineSpacing: 1.3,
+        color: "#1a1a2e",
+      },
+      h3: {
+        font: "黑体",
+        sizePt: 12,
+        bold: true,
+        spaceBeforePt: 10,
+        spaceAfterPt: 4,
+        lineSpacing: 1.3,
+        color: "#333333",
+      },
+      body: {
+        font: "仿宋",
+        sizePt: 11,
+        bold: false,
+        spaceBeforePt: 0,
+        spaceAfterPt: 8,
+        lineSpacing: 1.6,
+        firstLineIndentCm: 0.85,
+        align: "justify",
+      },
+      quote: {
+        font: "仿宋",
+        sizePt: 10.5,
+        bold: false,
+        spaceBeforePt: 6,
+        spaceAfterPt: 6,
+        lineSpacing: 1.4,
+        indentLeftCm: 1,
+        borderLeft: true,
+      },
+      caption: {
+        font: "黑体",
+        sizePt: 10,
+        bold: false,
+        spaceBeforePt: 4,
+        spaceAfterPt: 8,
+        lineSpacing: 1.2,
+        align: "center",
+      },
+      footnote: {
+        font: "仿宋",
+        sizePt: 8,
+      },
+    },
+    tables: {
+      default: {
+        border: "single",
+        borderSizePt: 0.75,
+        headerFill: "#e8e8e8",
+        cellPaddingPt: 5,
+        headerBold: true,
+        align: "center",
+        font: "仿宋",
+        sizePt: 10,
+        borderColor: "#333333",
+      },
+      threeLines: {
+        border: "threeLines",
+        borderSizePt: 1.5,
+        headerFill: "transparent",
+        cellPaddingPt: 5,
+        headerBold: true,
+        align: "center",
+        font: "仿宋",
+        sizePt: 10,
+        borderColor: "#1a1a2e",
+      },
+    },
+    page: {
+      ...mockTemplateFingerprint.page,
+      margin: {
+        top: 2.54,
+        bottom: 2.54,
+        left: 3.17,
+        right: 3.17,
+        unit: "cm",
+      },
+    },
+  },
+  {
+    id: "elegant-kaiti",
+    name: "优雅楷体",
+    description: "文雅书卷风格，使用楷体字体，适合高端客户",
+    preview: {
+      primaryColor: "#2c3e50",
+      accentColor: "#34495e",
+      fontFamily: "楷体",
+      headerStyle: "classic",
+    },
+    styles: {
+      h1: {
+        font: "楷体",
+        sizePt: 18,
+        bold: true,
+        spaceBeforePt: 14,
+        spaceAfterPt: 8,
+        lineSpacing: 1.4,
+        color: "#2c3e50",
+      },
+      h2: {
+        font: "楷体",
+        sizePt: 15,
+        bold: true,
+        spaceBeforePt: 12,
+        spaceAfterPt: 6,
+        lineSpacing: 1.4,
+        color: "#2c3e50",
+      },
+      h3: {
+        font: "楷体",
+        sizePt: 12,
+        bold: true,
+        spaceBeforePt: 10,
+        spaceAfterPt: 4,
+        lineSpacing: 1.4,
+        color: "#34495e",
+      },
+      body: {
+        font: "楷体",
+        sizePt: 11.5,
+        bold: false,
+        spaceBeforePt: 0,
+        spaceAfterPt: 6,
+        lineSpacing: 1.7,
+        firstLineIndentCm: 0.74,
+        align: "justify",
+      },
+      quote: {
+        font: "楷体",
+        sizePt: 10.5,
+        bold: false,
+        spaceBeforePt: 4,
+        spaceAfterPt: 4,
+        lineSpacing: 1.5,
+        indentLeftCm: 0.8,
+        borderLeft: true,
+      },
+      caption: {
+        font: "楷体",
+        sizePt: 10,
+        bold: false,
+        spaceBeforePt: 4,
+        spaceAfterPt: 8,
+        lineSpacing: 1.3,
+        align: "center",
+      },
+      footnote: {
+        font: "楷体",
+        sizePt: 9,
+      },
+    },
+    tables: {
+      default: {
+        border: "single",
+        borderSizePt: 0.5,
+        headerFill: "#ecf0f1",
+        cellPaddingPt: 5,
+        headerBold: true,
+        align: "center",
+        font: "楷体",
+        sizePt: 10,
+        borderColor: "#2c3e50",
+      },
+      threeLines: {
+        border: "threeLines",
+        borderSizePt: 1,
+        headerFill: "transparent",
+        cellPaddingPt: 5,
+        headerBold: true,
+        align: "center",
+        font: "楷体",
+        sizePt: 10,
+        borderColor: "#2c3e50",
+      },
+    },
+    page: mockTemplateFingerprint.page,
+  },
+  {
+    id: "minimal-clean",
+    name: "简约清新",
+    description: "极简设计风格，留白充足，阅读舒适",
+    preview: {
+      primaryColor: "#2d3436",
+      accentColor: "#636e72",
+      fontFamily: "微软雅黑",
+      headerStyle: "minimal",
+    },
+    styles: {
+      h1: {
+        font: "微软雅黑",
+        sizePt: 16,
+        bold: true,
+        spaceBeforePt: 18,
+        spaceAfterPt: 10,
+        lineSpacing: 1.5,
+        color: "#2d3436",
+      },
+      h2: {
+        font: "微软雅黑",
+        sizePt: 13,
+        bold: true,
+        spaceBeforePt: 14,
+        spaceAfterPt: 8,
+        lineSpacing: 1.5,
+        color: "#2d3436",
+      },
+      h3: {
+        font: "微软雅黑",
+        sizePt: 11,
+        bold: true,
+        spaceBeforePt: 10,
+        spaceAfterPt: 6,
+        lineSpacing: 1.5,
+        color: "#636e72",
+      },
+      body: {
+        font: "微软雅黑",
+        sizePt: 10.5,
+        bold: false,
+        spaceBeforePt: 0,
+        spaceAfterPt: 8,
+        lineSpacing: 1.8,
+        firstLineIndentCm: 0,
+        align: "left",
+      },
+      quote: {
+        font: "微软雅黑",
+        sizePt: 10,
+        bold: false,
+        spaceBeforePt: 8,
+        spaceAfterPt: 8,
+        lineSpacing: 1.6,
+        indentLeftCm: 1.2,
+        borderLeft: true,
+      },
+      caption: {
+        font: "微软雅黑",
+        sizePt: 9,
+        bold: false,
+        spaceBeforePt: 6,
+        spaceAfterPt: 10,
+        lineSpacing: 1.4,
+        align: "center",
+      },
+      footnote: {
+        font: "微软雅黑",
+        sizePt: 8,
+      },
+    },
+    tables: {
+      default: {
+        border: "single",
+        borderSizePt: 0.25,
+        headerFill: "#f5f6fa",
+        cellPaddingPt: 6,
+        headerBold: true,
+        align: "left",
+        font: "微软雅黑",
+        sizePt: 9.5,
+        borderColor: "#dcdde1",
+      },
+      threeLines: {
+        border: "threeLines",
+        borderSizePt: 0.75,
+        headerFill: "transparent",
+        cellPaddingPt: 6,
+        headerBold: true,
+        align: "left",
+        font: "微软雅黑",
+        sizePt: 9.5,
+        borderColor: "#2d3436",
+      },
+    },
+    page: {
+      ...mockTemplateFingerprint.page,
+      margin: {
+        top: 3,
+        bottom: 3,
+        left: 3,
+        right: 3,
+        unit: "cm",
+      },
+    },
+  },
+  {
+    id: "professional-times",
+    name: "专业英文",
+    description: "国际化专业风格，适合涉外法律文书",
+    preview: {
+      primaryColor: "#1e3a5f",
+      accentColor: "#3d5a80",
+      fontFamily: "Times New Roman",
+      headerStyle: "modern",
+    },
+    styles: {
+      h1: {
+        font: "Times New Roman",
+        sizePt: 16,
+        bold: true,
+        spaceBeforePt: 14,
+        spaceAfterPt: 8,
+        lineSpacing: 1.2,
+        color: "#1e3a5f",
+      },
+      h2: {
+        font: "Times New Roman",
+        sizePt: 14,
+        bold: true,
+        spaceBeforePt: 12,
+        spaceAfterPt: 6,
+        lineSpacing: 1.2,
+        color: "#1e3a5f",
+      },
+      h3: {
+        font: "Times New Roman",
+        sizePt: 12,
+        bold: true,
+        spaceBeforePt: 10,
+        spaceAfterPt: 4,
+        lineSpacing: 1.2,
+        color: "#3d5a80",
+      },
+      body: {
+        font: "Times New Roman",
+        sizePt: 11,
+        bold: false,
+        spaceBeforePt: 0,
+        spaceAfterPt: 6,
+        lineSpacing: 1.5,
+        firstLineIndentCm: 1.27,
+        align: "justify",
+      },
+      quote: {
+        font: "Times New Roman",
+        sizePt: 10,
+        bold: false,
+        spaceBeforePt: 4,
+        spaceAfterPt: 4,
+        lineSpacing: 1.3,
+        indentLeftCm: 1.27,
+        borderLeft: false,
+      },
+      caption: {
+        font: "Times New Roman",
+        sizePt: 10,
+        bold: false,
+        spaceBeforePt: 4,
+        spaceAfterPt: 8,
+        lineSpacing: 1.2,
+        align: "center",
+      },
+      footnote: {
+        font: "Times New Roman",
+        sizePt: 9,
+      },
+    },
+    tables: {
+      default: {
+        border: "single",
+        borderSizePt: 0.5,
+        headerFill: "#e8f4f8",
+        cellPaddingPt: 4,
+        headerBold: true,
+        align: "center",
+        font: "Times New Roman",
+        sizePt: 10,
+        borderColor: "#1e3a5f",
+      },
+      threeLines: {
+        border: "threeLines",
+        borderSizePt: 1,
+        headerFill: "transparent",
+        cellPaddingPt: 4,
+        headerBold: true,
+        align: "center",
+        font: "Times New Roman",
+        sizePt: 10,
+        borderColor: "#1e3a5f",
+      },
+    },
+    page: {
+      size: "Letter",
+      orientation: "portrait",
+      margin: {
+        top: 2.54,
+        bottom: 2.54,
+        left: 2.54,
+        right: 2.54,
+        unit: "cm",
+      },
+      headerFooter: mockTemplateFingerprint.page.headerFooter,
+    },
+  },
+];
+
+/** 获取模板样式 */
+export function getTemplateStyle(styleId: string): TemplateStyle | undefined {
+  return templateStyles.find(s => s.id === styleId);
+}
+
+/** 获取默认模板样式 */
+export function getDefaultTemplateStyle(): TemplateStyle {
+  return templateStyles[0];
 }

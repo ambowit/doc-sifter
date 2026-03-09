@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,15 @@ import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/use
 import { EquityChart } from "@/components/desktop/EquityChart";
 import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { supabase } from "@/integrations/supabase/client";
+import { templateStyles, type TemplateStyle } from "@/lib/reportMockData";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Palette } from "lucide-react";
 
 // Types for AI-generated content
 interface ReportSection {
@@ -236,6 +245,7 @@ function SectionRenderer({
   definitions,
   onRetry,
   isRetrying,
+  templateStyle,
 }: {
   section: ReportSection;
   mappedFiles: Array<{ name: string; id: string }>;
@@ -245,6 +255,7 @@ function SectionRenderer({
   definitions?: Definition[];
   onRetry?: (sectionId: string, sectionTitle: string) => void;
   isRetrying?: boolean;
+  templateStyle?: TemplateStyle;
 }) {
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
@@ -258,6 +269,10 @@ function SectionRenderer({
   const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义") || section.title === "定义";
   const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
 
+  // Get styles from template or use defaults
+  const styles = templateStyle?.styles;
+  const headerColor = templateStyle?.preview.primaryColor || "#000";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -266,9 +281,16 @@ function SectionRenderer({
       className="bg-card border border-border rounded shadow-sm p-10"
     >
       {/* Section Header */}
-      <div className="mb-6 pb-4 border-b-2 border-foreground">
+      <div className="mb-6 pb-4 border-b-2" style={{ borderColor: headerColor }}>
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-foreground">
+          <h2 
+            className="font-bold text-foreground"
+            style={{
+              fontFamily: styles?.h1.font || "inherit",
+              fontSize: styles ? `${styles.h1.sizePt}pt` : "1.25rem",
+              color: styles?.h1.color || "inherit",
+            }}
+          >
             {section.number && section.number !== section.title && `${section.number} `}
             {section.title}
           </h2>
@@ -338,7 +360,16 @@ function SectionRenderer({
             </div>
           </div>
         ) : (
-          <div className="text-[13px] leading-relaxed text-foreground/90 text-justify whitespace-pre-wrap">
+          <div 
+            className="text-foreground/90 whitespace-pre-wrap"
+            style={{
+              fontFamily: styles?.body.font || "inherit",
+              fontSize: styles ? `${styles.body.sizePt}pt` : "13px",
+              lineHeight: styles?.body.lineSpacing || 1.6,
+              textIndent: styles ? `${styles.body.firstLineIndentCm}cm` : "0",
+              textAlign: (styles?.body.align as "justify" | "left" | "center" | "right") || "justify",
+            }}
+          >
             {section.content}
           </div>
         )}
@@ -532,6 +563,12 @@ export default function ReportPreview() {
   const [exportFormat, setExportFormat] = useState<"docx" | "pdf" | "html">("docx");
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
+  
+  // Template style state
+  const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
+  const currentStyle = useMemo(() => {
+    return templateStyles.find(s => s.id === selectedStyleId) || templateStyles[0];
+  }, [selectedStyleId]);
   
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
@@ -771,6 +808,30 @@ export default function ReportPreview() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Style Switcher */}
+          {hasGenerated && (
+            <div className="flex items-center gap-2 mr-2">
+              <Palette className="w-4 h-4 text-muted-foreground" />
+              <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
+                <SelectTrigger className="w-32 h-8 text-[12px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {templateStyles.map(style => (
+                    <SelectItem key={style.id} value={style.id} className="text-[12px]">
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-3 h-3 rounded-full border" 
+                          style={{ backgroundColor: style.preview.primaryColor }}
+                        />
+                        {style.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -1034,6 +1095,7 @@ export default function ReportPreview() {
                         definitions={definitions}
                         onRetry={handleRetrySection}
                         isRetrying={retryingSectionId === activeSection.id}
+                        templateStyle={currentStyle}
                       />
                     )}
                   </AnimatePresence>
