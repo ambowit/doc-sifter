@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+﻿import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
 import { useFiles } from "@/hooks/useFiles";
 import { useDefinitions, Definition } from "@/hooks/useDefinitions";
+import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/useGeneratedReports";
 import { EquityChart } from "@/components/desktop/EquityChart";
 import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { supabase } from "@/integrations/supabase/client";
@@ -430,7 +431,8 @@ export default function ReportPreview() {
   const { data: flatChapters = [], isLoading: isChaptersLoading } = useFlatChapters(projectId);
   const { data: files = [], isLoading: isFilesLoading } = useFiles(projectId);
   const { data: definitions = [] } = useDefinitions(projectId);
-  // Removed: mappings dependency - AI now auto-analyzes all files
+  const { data: latestReport, isLoading: isReportLoading } = useLatestGeneratedReport(projectId);
+  const persistGeneratedReport = usePersistGeneratedReport();
 
   // Report generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -440,55 +442,52 @@ export default function ReportPreview() {
   const [metadata, setMetadata] = useState<ReportMetadata | null>(null);
   const [hasGenerated, setHasGenerated] = useState(false);
 
-  // Restore saved report data on mount - check both storage keys
+  // Restore persisted report data from database
   useEffect(() => {
-    if (!projectId || flatChapters.length === 0) return;
-    
-    // Try project-specific key first
-    const storageKey = `report_${projectId}`;
-    let saved = localStorage.getItem(storageKey);
-    
-    if (saved) {
-      try {
-        const { sections: savedSections, metadata: savedMetadata, generatedAt } = JSON.parse(saved);
-        // Only restore if data is less than 24 hours old
-        const isRecent = Date.now() - generatedAt < 24 * 60 * 60 * 1000;
-        if (isRecent && savedSections?.length > 0) {
-          // Sort sections by chapter order before restoring
-          const sortedSections = sortSectionsByChapterOrder(savedSections);
-          setSections(sortedSections);
-          setMetadata(savedMetadata);
-          setHasGenerated(true);
-          console.log("[ReportPreview] Restored saved report data from project key");
-          return;
-        }
-      } catch (err) {
-        console.warn("[ReportPreview] Failed to restore from project key:", err);
+    if (!latestReport || flatChapters.length === 0) {
+      if (!latestReport) {
+        setSections([]);
+        setMetadata(null);
+        setHasGenerated(false);
+      }
+      return;
+    }
+
+    const reportJson = (latestReport.reportJson || {}) as Record<string, unknown>;
+    const rawSections = Array.isArray(reportJson.sections)
+      ? (reportJson.sections as ReportSection[])
+      : Array.isArray((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections)
+        ? ((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections as ReportSection[])
+        : [];
+
+    const normalizedSections: ReportSection[] = rawSections.map((section) => ({
+      id: section.id,
+      title: section.title || "",
+      number: section.number || "",
+      content: section.content || "",
+      findings: Array.isArray(section.findings) ? section.findings : [],
+      issues: Array.isArray(section.issues) ? section.issues : [],
+      sourceFiles: Array.isArray(section.sourceFiles) ? section.sourceFiles : [],
+    }));
+
+    let loadedMetadata: ReportMetadata | null = null;
+    if (reportJson.metadata && typeof reportJson.metadata === "object") {
+      loadedMetadata = reportJson.metadata as ReportMetadata;
+    } else {
+      const legacy = reportJson as { equityStructure?: ReportMetadata["equityStructure"]; definitions?: ReportMetadata["definitions"] };
+      if (legacy.equityStructure || legacy.definitions) {
+        loadedMetadata = {
+          equityStructure: legacy.equityStructure || { companyName: "", shareholders: [], notes: [] },
+          definitions: legacy.definitions || [],
+        };
       }
     }
-    
-    // Fallback: try legacy global key (dd-ai-report)
-    const legacySaved = localStorage.getItem("dd-ai-report");
-    if (legacySaved) {
-      try {
-        const report = JSON.parse(legacySaved);
-        // Check if this report matches current project
-        if (report.projectId === projectId && report.content?.sections?.length > 0) {
-          // Sort sections by chapter order before restoring
-          const sortedSections = sortSectionsByChapterOrder(report.content.sections);
-          setSections(sortedSections);
-          setMetadata({
-            equityStructure: report.equityStructure,
-            definitions: report.definitions,
-          });
-          setHasGenerated(true);
-          console.log("[ReportPreview] Restored saved report data from legacy key");
-        }
-      } catch (err) {
-        console.warn("[ReportPreview] Failed to restore from legacy key:", err);
-      }
-    }
-  }, [projectId, flatChapters]);
+
+    const sortedSections = sortSectionsByChapterOrder(normalizedSections);
+    setSections(sortedSections);
+    setMetadata(loadedMetadata);
+    setHasGenerated(sortedSections.length > 0);
+  }, [latestReport, flatChapters]);
 
   // Helper function to sort sections by chapter order
   const sortSectionsByChapterOrder = (sectionsToSort: ReportSection[]): ReportSection[] => {
@@ -501,22 +500,27 @@ export default function ReportPreview() {
     });
   };
 
-  // Save report data when generated
-  const saveReportData = (newSections: ReportSection[], newMetadata: ReportMetadata | null) => {
-    if (!projectId || newSections.length === 0) return;
-    
-    const storageKey = `report_${projectId}`;
-    const dataToSave = {
+  // Persist report data to database
+  const saveReportData = async (newSections: ReportSection[], newMetadata: ReportMetadata | null) => {
+    if (!projectId || !latestReport) return;
+
+    const baseJson = (latestReport.reportJson || {}) as Record<string, unknown>;
+    const nextReportJson = {
+      ...baseJson,
       sections: newSections,
       metadata: newMetadata,
-      generatedAt: Date.now(),
+      generatedAt: new Date().toISOString(),
     };
-    
+
     try {
-      localStorage.setItem(storageKey, JSON.stringify(dataToSave));
-      console.log("[ReportPreview] Saved report data to localStorage");
+      await persistGeneratedReport.mutateAsync({
+        reportId: latestReport.id,
+        projectId,
+        reportJson: nextReportJson,
+        summaryJson: latestReport.summaryJson,
+      });
     } catch (err) {
-      console.warn("[ReportPreview] Failed to save report data:", err);
+      console.warn("[ReportPreview] Failed to persist report data:", err);
     }
   };
 
@@ -634,15 +638,14 @@ export default function ReportPreview() {
           issues: Array.isArray(data.section.issues) ? data.section.issues : [],
           sourceFiles: Array.isArray(data.section.sourceFiles) ? data.section.sourceFiles : [],
         };
-        
-        // Update the section in state using functional update to avoid stale closure
-        setSections(prevSections => 
-          prevSections.map(s => s.id === sectionId ? newSection : s)
-        );
-        
-        // Save to localStorage (use the new section directly)
-        const updatedSections = sections.map(s => s.id === sectionId ? newSection : s);
-        saveReportData(updatedSections, metadata);
+        // Update section and persist to database
+        let updatedSections: ReportSection[] = [];
+        setSections(prevSections => {
+          updatedSections = prevSections.map(s => s.id === sectionId ? newSection : s);
+          return updatedSections;
+        });
+
+        await saveReportData(updatedSections, metadata);
         
         toast.success(`「${sectionTitle}」生成成功`);
         console.log("[ReportPreview] Retry completed successfully");
@@ -660,282 +663,7 @@ export default function ReportPreview() {
     }
   };
 
-  // Clear cached report data for this project
-  const clearReportCache = () => {
-    if (!projectId) return;
-    
-    // Clear project-specific cache
-    localStorage.removeItem(`report_${projectId}`);
-    // Clear legacy global cache
-    localStorage.removeItem("dd-ai-report");
-    
-    console.log("[ReportPreview] Cleared report cache for project:", projectId);
-  };
-
-  // Generate report
-  const handleGenerateReport = async () => {
-    if (!projectId) return;
-
-    // Clear cached data before regenerating
-    clearReportCache();
-    
-    setIsGenerating(true);
-    setGenerationProgress(0);
-    setGenerationStatus("正在准备数据...");
-    setSections([]);
-    setHasGenerated(false); // Reset generated state
-    setMetadata(null);
-
-    try {
-      // Get current session for JWT auth
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error("请重新登录后再试");
-      }
-      
-      // Step 1: Generate metadata (equity structure, definitions)
-      setGenerationStatus("正在提取股权结构和定义表...");
-      setGenerationProgress(10);
-
-      const { data: metadataResult, error: metadataError } = await supabase.functions.invoke(
-        "generate-report",
-        {
-          body: { projectId, mode: "metadata" },
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        }
-      );
-
-      if (metadataError) throw metadataError;
-      let currentMetadata: ReportMetadata | null = null;
-      if (metadataResult?.metadata) {
-        currentMetadata = metadataResult.metadata;
-        setMetadata(currentMetadata);
-      }
-
-      setGenerationProgress(20);
-
-      // Step 2: Generate content in batches (smaller batches for faster response)
-      const totalChapters = flatChapters.length;
-      const CHAPTERS_PER_BATCH = 2; // Reduced for stability with detailed content generation
-      const totalBatches = Math.ceil(totalChapters / CHAPTERS_PER_BATCH);
-      const sectionsMap = new Map<string, ReportSection>(); // Use map for deduplication
-      
-      // Track failed batches for proper error handling
-      let failedBatchCount = 0;
-      let lastBatchError: Error | null = null;
-
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        setGenerationStatus(`正在生成章节内容 (${batchIndex + 1}/${totalBatches})...`);
-        setGenerationProgress(20 + Math.round((batchIndex / totalBatches) * 70));
-
-        // Retry logic for network stability
-        let batchResult = null;
-        let lastError: Error | null = null;
-        const MAX_RETRIES = 2;
-        
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-          try {
-            if (attempt > 0) {
-              setGenerationStatus(`正在重试章节 ${batchIndex + 1}/${totalBatches} (尝试 ${attempt + 1})...`);
-              await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
-            }
-            
-            // Re-fetch session for each batch (token might have been refreshed)
-            const { data: { session: batchSession } } = await supabase.auth.getSession();
-            if (!batchSession?.access_token) {
-              throw new Error("请重新登录后再试");
-            }
-            
-            const { data, error } = await supabase.functions.invoke(
-              "generate-report",
-              {
-                body: { 
-                  projectId, 
-                  mode: "batch", 
-                  batchIndex, 
-                  totalBatches 
-                },
-                headers: { Authorization: `Bearer ${batchSession.access_token}` },
-              }
-            );
-
-            if (error) {
-              // Classify error type
-              const errorMsg = error.message || String(error);
-              if (errorMsg.includes("401") || errorMsg.includes("Unauthorized") || errorMsg.includes("JWT")) {
-                lastError = new Error("鉴权失败，请重新登录");
-              } else if (errorMsg.includes("timeout") || errorMsg.includes("504") || errorMsg.includes("502")) {
-                lastError = new Error("AI服务超时，请稍后重试");
-              } else {
-                lastError = new Error(errorMsg);
-              }
-              console.warn(`Batch ${batchIndex} attempt ${attempt + 1} failed:`, error);
-              continue;
-            }
-            
-            // Check if response indicates failure
-            if (data && data.success === false) {
-              const errorCode = data.errorCode || "UNKNOWN";
-              const errorMessage = data.errorMessage || data.error || "未知错误";
-              if (errorCode === "NO_CHAPTERS") {
-                lastError = new Error("无章节数据");
-              } else if (errorCode === "AUTH_FAILED") {
-                lastError = new Error("鉴权失败，请重新登录");
-              } else {
-                lastError = new Error(errorMessage);
-              }
-              console.warn(`Batch ${batchIndex} returned error:`, data);
-              continue;
-            }
-            
-            batchResult = data;
-            break; // Success, exit retry loop
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("JWT")) {
-              lastError = new Error("鉴权失败，请重新登录");
-            } else if (errMsg.includes("timeout") || errMsg.includes("504") || errMsg.includes("502")) {
-              lastError = new Error("AI服务超时，请稍后重试");
-            } else {
-              lastError = err instanceof Error ? err : new Error(errMsg);
-            }
-            console.warn(`Batch ${batchIndex} attempt ${attempt + 1} exception:`, err);
-          }
-        }
-        
-        if (!batchResult) {
-          console.error(`Batch ${batchIndex} failed after ${MAX_RETRIES + 1} attempts`);
-          failedBatchCount++;
-          lastBatchError = lastError;
-          // Continue with next batch instead of failing entirely
-          continue;
-        }
-        
-        if (batchResult?.sections && batchResult.sections.length > 0) {
-          // Deduplicate sections by ID
-          for (const section of batchResult.sections) {
-            sectionsMap.set(section.id, section);
-          }
-          setSections(Array.from(sectionsMap.values()));
-        }
-      }
-      
-      // Sort sections by flatChapters order
-      const chapterOrderMap = new Map(flatChapters.map((ch, idx) => [ch.id, idx]));
-      const allSections = Array.from(sectionsMap.values()).sort((a, b) => {
-        const orderA = chapterOrderMap.get(a.id) ?? Infinity;
-        const orderB = chapterOrderMap.get(b.id) ?? Infinity;
-        return orderA - orderB;
-      });
-      setSections(allSections);
-      
-      // Validate results - must have at least some sections
-      if (totalBatches > 0 && allSections.length === 0) {
-        // All batches failed or returned no sections
-        if (failedBatchCount === totalBatches) {
-          // All batches failed
-          const errorMsg = lastBatchError?.message || "所有批次均失败";
-          throw new Error(`报告生成失败: ${errorMsg}`);
-        } else {
-          // Batches succeeded but no sections returned
-          throw new Error("报告生成失败: 无章节数据，请检查项目是否已配置章节");
-        }
-      }
-
-      setGenerationProgress(95);
-      setGenerationStatus("正在整理报告...");
-
-      // Step 3: Analyze and finalize
-      // Re-fetch session for final step
-      const { data: { session: finalSession } } = await supabase.auth.getSession();
-      const { data: analyzeResult } = await supabase.functions.invoke(
-        "generate-report",
-        {
-          body: { 
-            projectId, 
-            mode: "analyze", 
-            previousSections: allSections 
-          },
-          headers: finalSession?.access_token 
-            ? { Authorization: `Bearer ${finalSession.access_token}` }
-            : undefined,
-        }
-      );
-
-      setGenerationProgress(100);
-      setGenerationStatus("报告生成完成");
-      
-      // Quality gate: Check citation coverage on frontend
-      const sectionsWithCitations = allSections.filter(
-        (s: ReportSection) => s.sourceFiles && s.sourceFiles.length > 0
-      );
-      const allSourceFilesEmpty = allSections.length > 0 && sectionsWithCitations.length === 0;
-      const totalIssues = allSections.reduce((acc, s) => acc + (s.issues?.length || 0), 0);
-      
-      // Log quality metrics
-      console.log("[v0] Report quality check:", {
-        totalSections: allSections.length,
-        sectionsWithCitations: sectionsWithCitations.length,
-        citationCoverage: allSections.length > 0 
-          ? ((sectionsWithCitations.length / allSections.length) * 100).toFixed(1) + "%" 
-          : "0%",
-        totalIssues,
-      });
-      
-      // Quality gate: Reject if all sections have empty sourceFiles
-      if (allSourceFilesEmpty) {
-        throw new Error("生成失败（无证据引用），请先完成文件 OCR 解析后重试");
-      }
-      
-      // Quality gate: Warn if no issues found and low citation coverage
-      if (totalIssues === 0 && sectionsWithCitations.length < allSections.length * 0.5) {
-        throw new Error("结果质量不足，请先完成 OCR 并重试");
-      }
-      
-      // Only mark as generated if we have actual sections with citations
-      if (allSections.length > 0 && sectionsWithCitations.length > 0) {
-        setHasGenerated(true);
-        
-        // Save report data to localStorage for persistence
-        saveReportData(allSections, currentMetadata);
-
-        const warningMsg = failedBatchCount > 0 
-          ? `（${failedBatchCount} 个批次失败）` 
-          : "";
-        toast.success("报告生成完成", {
-          description: `共生成 ${allSections.length} 个章节${warningMsg}`,
-        });
-
-        // Set first section as active
-        setActiveSectionId(allSections[0].id);
-      } else {
-        throw new Error("报告生成失败: 未能生成任何章节内容");
-      }
-    } catch (error) {
-      console.error("Report generation error:", error);
-      const errMsg = error instanceof Error ? error.message : "请稍后重试";
-      // Classify error for user-friendly message
-      let description = errMsg;
-      if (errMsg.includes("鉴权") || errMsg.includes("登录") || errMsg.includes("401")) {
-        description = "鉴权失败，请重新登录后再试";
-      } else if (errMsg.includes("超时") || errMsg.includes("timeout") || errMsg.includes("502") || errMsg.includes("504")) {
-        description = "AI服务超时，请稍后重试";
-      } else if (errMsg.includes("无章节") || errMsg.includes("NO_CHAPTERS")) {
-        description = "无章节数据，请先在章节映射中配置章节";
-      } else if (errMsg.includes("NO_EVIDENCE") || errMsg.includes("证据文件不足")) {
-        description = "证据文件不足，请先完成文件 OCR 解析";
-      } else if (errMsg.includes("EMPTY_CITATIONS") || errMsg.includes("无证据引用")) {
-        description = "生成失败（无证据引用），请先完成 OCR 解析后重试";
-      } else if (errMsg.includes("质量不足")) {
-        description = "结果质量不足，请先完成 OCR 并重试";
-      }
-      toast.error("报告生成失败", {
-        description,
-      });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  // Report generation is handled in AI 智能分析 (mapping) via async jobs.
 
   // Export handler
   const handleExport = async () => {
@@ -982,7 +710,7 @@ export default function ReportPreview() {
   };
 
   // Loading state
-  const isDataLoading = isProjectLoading || isChaptersLoading || isFilesLoading;
+  const isDataLoading = isProjectLoading || isChaptersLoading || isFilesLoading || isReportLoading;
 
   if (isDataLoading) {
     return (
@@ -1815,3 +1543,20 @@ function generateReportHTML(
 
   return html;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
