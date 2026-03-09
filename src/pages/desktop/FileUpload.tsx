@@ -474,7 +474,7 @@ export default function FileUpload() {
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
-      return `文件大小超过 500MB 限制`;
+      return `文件大小���过 500MB 限制`;
     }
     if (ALLOWED_TYPES.includes(file.type)) {
       return null;
@@ -1793,7 +1793,7 @@ export default function FileUpload() {
                                               )}
                                             </div>
                                           </div>
-                                        )))}
+                                        ))}
                                       </div>
                                     </motion.div>
                                   )}
