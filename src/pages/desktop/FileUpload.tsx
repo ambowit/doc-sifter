@@ -375,7 +375,7 @@ export default function FileUpload() {
       const unmappedFiles = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
 
       if (unmappedFiles.length === 0) {
-        toast.info("所有文件已有章节归属");
+        toast.info("所有文件已有章节��属");
         setIsAutoMatching(false);
         return;
       }
@@ -1779,7 +1779,7 @@ export default function FileUpload() {
                                     <CommandEmpty>没有可添加的文件</CommandEmpty>
                                     <CommandGroup>
                                       {uploadedFiles
-                                        .filter(f => f.id && !isFileMappedToChapter(f.id, selectedChapterId))
+                                        .filter(f => f.id && selectedChapterId && !isFileMappedToChapter(f.id, selectedChapterId))
                                         .map((file) => (
                                           <CommandItem
                                             key={file.id}
