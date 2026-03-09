@@ -38,7 +38,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Upload,
@@ -65,10 +65,6 @@ import {
   Plus,
   BookOpen,
   Check,
-  List,
-  Layers,
-  ChevronDown,
-  ChevronUp,
   Unlink,
 } from "lucide-react";
 import {
@@ -151,13 +147,9 @@ export default function FileUpload() {
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
   
-  // View mode: 'files' (flat list) or 'chapters' (grouped by chapter)
-  // Default to 'chapters' view to clearly show file-chapter relationships
-  const [viewMode, setViewMode] = useState<'files' | 'chapters'>('chapters');
-  
-  // Expanded chapters in chapter view - default to all expanded
-  const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
-  const [hasInitializedExpanded, setHasInitializedExpanded] = useState(false);
+  // Selected chapter for left-right panel view
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [hasInitializedChapter, setHasInitializedChapter] = useState(false);
   
   const [dataRoomDragOver, setDataRoomDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
@@ -234,55 +226,29 @@ export default function FileUpload() {
     return mappings.some(m => m.fileId === fileId && m.chapterId === chapterId);
   }, [mappings]);
 
-  // Get files grouped by chapter - show all chapters, even empty ones
-  const filesGroupedByChapter = useMemo(() => {
-    const groups: { chapter: Chapter | null; files: typeof uploadedFiles }[] = [];
+  // Get files for the selected chapter
+  const selectedChapterFiles = useMemo(() => {
+    if (!selectedChapterId) return [];
+    
+    if (selectedChapterId === 'unassigned') {
+      // Get files not mapped to any chapter
+      const mappedFileIds = new Set(mappings.map(m => m.fileId));
+      return uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
+    }
+    
+    // Get files mapped to selected chapter
+    const chapterMappings = mappings.filter(m => m.chapterId === selectedChapterId);
     const fileIdToFile = new Map(uploadedFiles.filter(f => f.id).map(f => [f.id!, f]));
-    const assignedFileIds = new Set<string>();
+    return chapterMappings
+      .map(m => fileIdToFile.get(m.fileId))
+      .filter((f): f is NonNullable<typeof f> => f !== undefined);
+  }, [selectedChapterId, mappings, uploadedFiles]);
 
-    // Group files by chapter - show ALL chapters
-    for (const chapter of chapters) {
-      const chapterMappings = mappings.filter(m => m.chapterId === chapter.id);
-      const chapterFiles = chapterMappings
-        .map(m => fileIdToFile.get(m.fileId))
-        .filter((f): f is NonNullable<typeof f> => f !== undefined);
-      
-      // Always show the chapter, even if it has no files
-      groups.push({ chapter, files: chapterFiles });
-      chapterFiles.forEach(f => f.id && assignedFileIds.add(f.id));
-    }
-
-    // Files without chapter assignment - put at the top for visibility
-    const unassignedFiles = uploadedFiles.filter(f => f.id && !assignedFileIds.has(f.id));
-    if (unassignedFiles.length > 0) {
-      groups.unshift({ chapter: null, files: unassignedFiles });
-    }
-
-    return groups;
-  }, [chapters, mappings, uploadedFiles]);
-
-  // Toggle chapter expansion
-  const toggleChapterExpansion = useCallback((chapterId: string) => {
-    setExpandedChapters(prev => {
-      const next = new Set(prev);
-      if (next.has(chapterId)) {
-        next.delete(chapterId);
-      } else {
-        next.add(chapterId);
-      }
-      return next;
-    });
-  }, []);
-
-  // Expand all chapters
-  const expandAllChapters = useCallback(() => {
-    setExpandedChapters(new Set(chapters.map(c => c.id).concat(['unassigned'])));
-  }, [chapters]);
-
-  // Collapse all chapters
-  const collapseAllChapters = useCallback(() => {
-    setExpandedChapters(new Set());
-  }, []);
+  // Get selected chapter info
+  const selectedChapter = useMemo(() => {
+    if (!selectedChapterId || selectedChapterId === 'unassigned') return null;
+    return chapters.find(c => c.id === selectedChapterId) || null;
+  }, [selectedChapterId, chapters]);
 
   // State for auto-matching
   const [isAutoMatching, setIsAutoMatching] = useState(false);
@@ -387,14 +353,18 @@ export default function FileUpload() {
     }
   }, [uploadedFiles, chapters, mappings, createMappingMutation]);
 
-  // Auto-expand all chapters on initial load for better visibility
+  // Auto-select first chapter on initial load
   useEffect(() => {
-    if (!hasInitializedExpanded && filesGroupedByChapter.length > 0) {
-      const allChapterIds = filesGroupedByChapter.map(g => g.chapter?.id || 'unassigned');
-      setExpandedChapters(new Set(allChapterIds));
-      setHasInitializedExpanded(true);
+    if (!hasInitializedChapter && chapters.length > 0) {
+      // Check if there are unassigned files
+      const mappedFileIds = new Set(mappings.map(m => m.fileId));
+      const hasUnassigned = uploadedFiles.some(f => f.id && !mappedFileIds.has(f.id));
+      
+      // Select unassigned section if there are unassigned files, otherwise first chapter
+      setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
+      setHasInitializedChapter(true);
     }
-  }, [filesGroupedByChapter, hasInitializedExpanded]);
+  }, [chapters, mappings, uploadedFiles, hasInitializedChapter]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -474,7 +444,7 @@ export default function FileUpload() {
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
-      return `文件大小���过 500MB 限制`;
+      return `文件大小�����过 500MB 限制`;
     }
     if (ALLOWED_TYPES.includes(file.type)) {
       return null;
@@ -960,7 +930,7 @@ export default function FileUpload() {
           
           if (extractionResult.success && extractionResult.files.length > 0) {
             console.log(`[FileUpload] Extracted ${extractionResult.files.length} files from ${file.name}`);
-            toast.success(`从 ${file.name} 提取了 ${extractionResult.files.length} 个文件`);
+            toast.success(`从 ${file.name} 提取了 ${extractionResult.files.length} 个文��`);
             
             for (const extractedFile of extractionResult.files) {
               const error = validateFile(extractedFile.file);
@@ -1474,77 +1444,15 @@ export default function FileUpload() {
                     </motion.div>
                   )}
 
-                  {/* File List Header */}
-                  <div className="flex items-center justify-between mb-2">
+                  {/* Header with actions */}
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      {viewMode === 'files' && (
-                        <input
-                          type="checkbox"
-                          checked={selectedFiles.size === uploadedFiles.length && uploadedFiles.length > 0}
-                          onChange={handleSelectAllFiles}
-                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                          title="全选"
-                        />
-                      )}
                       <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        文件清单 ({uploadedFiles.length})
+                        文件与章节对照
                       </div>
-                      {viewMode === 'files' && selectedFiles.size > 0 && (
-                        <span className="text-[11px] text-primary">
-                          已选 {selectedFiles.size} 项
-                        </span>
-                      )}
-                      
-                      {/* View Mode Toggle */}
-                      <div className="flex items-center gap-0.5 ml-2 bg-muted rounded-md p-0.5">
-                        <button
-                          onClick={() => setViewMode('files')}
-                          className={cn(
-                            "px-2 py-1 rounded text-[10px] transition-colors flex items-center gap-1",
-                            viewMode === 'files' 
-                              ? "bg-background text-foreground shadow-sm" 
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          title="按文件显示"
-                        >
-                          <List className="w-3 h-3" />
-                          <span className="hidden sm:inline">文件</span>
-                        </button>
-                        <button
-                          onClick={() => setViewMode('chapters')}
-                          className={cn(
-                            "px-2 py-1 rounded text-[10px] transition-colors flex items-center gap-1",
-                            viewMode === 'chapters' 
-                              ? "bg-background text-foreground shadow-sm" 
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          title="按章节分组"
-                        >
-                          <Layers className="w-3 h-3" />
-                          <span className="hidden sm:inline">章节</span>
-                        </button>
-                      </div>
-                      
-                      {/* Expand/Collapse All (only in chapter view) */}
-                      {viewMode === 'chapters' && (
-                        <div className="flex items-center gap-1 ml-1">
-                          <button
-                            onClick={expandAllChapters}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
-                            title="展开全部"
-                          >
-                            展开
-                          </button>
-                          <span className="text-muted-foreground">/</span>
-                          <button
-                            onClick={collapseAllChapters}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
-                            title="收起全部"
-                          >
-                            收起
-                          </button>
-                        </div>
-                      )}
+                      <Badge variant="secondary" className="text-[10px]">
+                        {uploadedFiles.length} 个文件
+                      </Badge>
                       
                       {/* Auto-match Button */}
                       <Button
@@ -1563,43 +1471,19 @@ export default function FileUpload() {
                         自动匹配
                       </Button>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {selectedFiles.size > 0 && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-[11px]"
-                            onClick={handleOcrSelectedFiles}
-                            disabled={batchOcrMutation.isPending || ocrProcessingIds.size > 0}
-                          >
-                            <ScanText className="w-3.5 h-3.5 mr-1" />
-                            {batchOcrMutation.isPending ? "提取中..." : "提取文字"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={handleDeleteSelectedFiles}
-                            disabled={deleteFileMutation.isPending}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
-                            删除选中
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-[11px]"
-                        onClick={() => dataRoomInputRef.current?.click()}
-                      >
-                        添加更多
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      onClick={() => dataRoomInputRef.current?.click()}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      添加文件
+                    </Button>
                   </div>
-                  <div
-                    className="space-y-1 max-h-[400px] overflow-auto"
+                  {/* Split Panel Layout: Left=章节目录, Right=文件列表 */}
+                  <div 
+                    className="flex gap-4 h-[450px] border rounded-lg overflow-hidden"
                     onDragOver={(e) => {
                       e.preventDefault();
                       setDataRoomDragOver(true);
@@ -1607,408 +1491,235 @@ export default function FileUpload() {
                     onDragLeave={() => setDataRoomDragOver(false)}
                     onDrop={handleDataRoomDrop}
                   >
-                    {/* Chapter Grouped View */}
-                    {viewMode === 'chapters' && (
-                      <div className="space-y-2">
-                        {filesGroupedByChapter.length === 0 ? (
-                          <div className="text-center py-6 text-muted-foreground text-sm">
-                            暂无文件
-                          </div>
-                        ) : (
-                          filesGroupedByChapter.map((group) => {
-                            const chapterId = group.chapter?.id || 'unassigned';
-                            const isExpanded = expandedChapters.has(chapterId);
+                    {/* Left Panel: 章节目录 */}
+                    <div className="w-[280px] flex-shrink-0 border-r bg-muted/30 overflow-y-auto">
+                      <div className="p-2 border-b bg-muted/50 sticky top-0">
+                        <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          章节目录
+                        </div>
+                      </div>
+                      <div className="p-1">
+                        {/* Unassigned files section */}
+                        {(() => {
+                          const mappedFileIds = new Set(mappings.map(m => m.fileId));
+                          const unassignedCount = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id)).length;
+                          if (unassignedCount > 0) {
                             return (
-                              <div key={chapterId} className={cn(
-                                "border rounded-lg overflow-hidden",
-                                !group.chapter && group.files.length > 0 && "border-amber-500/50 bg-amber-50/30 dark:bg-amber-950/10"
-                              )}>
-                                {/* Chapter Header */}
-                                <button
-                                  onClick={() => toggleChapterExpansion(chapterId)}
-                                  className={cn(
-                                    "w-full flex items-center gap-2 px-3 py-2 hover:bg-muted transition-colors text-left",
-                                    !group.chapter ? "bg-amber-100/50 dark:bg-amber-900/20" : "bg-muted/50"
-                                  )}
-                                >
-                                  {isExpanded ? (
-                                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                                  ) : (
-                                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                                  )}
-                                  {group.chapter ? (
-                                    <>
-                                      <BookOpen className="w-4 h-4 text-primary" />
-                                      <span className="text-[11px] font-medium text-muted-foreground min-w-[40px]">
-                                        {group.chapter.number || "-"}
-                                      </span>
-                                      <span className="flex-1 text-[13px] font-medium truncate">
-                                        {group.chapter.title}
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                      <span className="flex-1 text-[13px] font-medium text-amber-700 dark:text-amber-400">
-                                        未分配章节 - 请为以下文件分配章节
-                                      </span>
-                                    </>
-                                  )}
-                                  <Badge 
-                                    variant={group.files.length > 0 ? "secondary" : "outline"} 
-                                    className={cn(
-                                      "text-[10px] h-5",
-                                      !group.chapter && group.files.length > 0 && "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400"
-                                    )}
-                                  >
-                                    {group.files.length} 个文件
-                                  </Badge>
-                                </button>
-                                
-                                {/* Chapter Files */}
-                                <AnimatePresence>
-                                  {isExpanded && (
-                                    <motion.div
-                                      initial={{ height: 0, opacity: 0 }}
-                                      animate={{ height: "auto", opacity: 1 }}
-                                      exit={{ height: 0, opacity: 0 }}
-                                      transition={{ duration: 0.2 }}
-                                      className="overflow-hidden"
-                                    >
-                                      <div className="divide-y divide-border/50">
-                                        {group.files.length === 0 ? (
-                                          <div className="py-4 px-3 text-center text-[12px] text-muted-foreground">
-                                            暂无文件归属此章节
-                                          </div>
-                                        ) : group.files.map((file) => (
-                                          <div
-                                            key={file.storagePath}
-                                            className="flex items-center gap-2 py-2 px-3 hover:bg-muted/30 text-[13px] group border-b border-border/30 last:border-b-0"
-                                          >
-                                            {getFileIcon(file.name)}
-                                            <span className="flex-1 truncate" title={file.name}>{file.name}</span>
-                                            
-                                            <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
-                                              {file.type}
-                                            </span>
-                                            <span className="text-[10px] text-muted-foreground font-mono">
-                                              {formatFileSize(file.size)}
-                                            </span>
-                                            
-                                            {/* File Actions - Always visible */}
-                                            <div className="flex items-center gap-0.5 ml-1">
-                                              <button
-                                                onClick={() => handlePreviewFile(file)}
-                                                className="p-1.5 hover:bg-muted rounded"
-                                                title="预览"
-                                              >
-                                                <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                                              </button>
-                                              <button
-                                                onClick={async () => {
-                                                  let url = file.downloadUrl;
-                                                  if (!url) {
-                                                    try {
-                                                      url = await getFileDownloadUrl(file.storagePath);
-                                                    } catch (error) {
-                                                      toast.error("获取下载链接失败");
-                                                      return;
-                                                    }
-                                                  }
-                                                  if (url) window.open(url, "_blank");
-                                                }}
-                                                className="p-1.5 hover:bg-muted rounded"
-                                                title="下载"
-                                              >
-                                                <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                                              </button>
-                                            
-                                              {/* Edit Chapter Assignment */}
-                                              {file.id && (
-                                                <Popover>
-                                                  <PopoverTrigger asChild>
-                                                    <button
-                                                      className="p-1.5 hover:bg-primary/10 rounded"
-                                                      title="编辑章节归属"
-                                                    >
-                                                      <BookOpen className="w-3.5 h-3.5 text-primary" />
-                                                    </button>
-                                                  </PopoverTrigger>
-                                                  <PopoverContent className="w-72 p-0" align="end">
-                                                    <div className="p-2 border-b bg-muted/30">
-                                                      <div className="text-[11px] font-medium">选择章节归属</div>
-                                                      <div className="text-[10px] text-muted-foreground truncate">{file.name}</div>
-                                                    </div>
-                                                    <Command>
-                                                      <CommandInput placeholder="搜索章节..." />
-                                                      <CommandList className="max-h-[200px]">
-                                                        <CommandEmpty>未找到章节</CommandEmpty>
-                                                        <CommandGroup>
-                                                          {chapters.map((chapter) => {
-                                                            const isMapped = isFileMappedToChapter(file.id!, chapter.id);
-                                                            return (
-                                                              <CommandItem
-                                                                key={chapter.id}
-                                                                value={`${chapter.number} ${chapter.title}`}
-                                                                onSelect={() => {
-                                                                  if (isMapped) {
-                                                                    const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);
-                                                                    if (mapping) handleRemoveMapping(mapping.id);
-                                                                  } else {
-                                                                    handleAddMapping(file.id!, chapter.id);
-                                                                  }
-                                                                }}
-                                                                className="flex items-center gap-2 cursor-pointer"
-                                                              >
-                                                                <Checkbox checked={isMapped} className="w-3.5 h-3.5" />
-                                                                <span className="text-[11px] text-muted-foreground min-w-[32px]">
-                                                                  {chapter.number || "-"}
-                                                                </span>
-                                                                <span className="flex-1 truncate text-[12px]">
-                                                                  {chapter.title}
-                                                                </span>
-                                                                {isMapped && <Check className="w-3.5 h-3.5 text-primary" />}
-                                                              </CommandItem>
-                                                            );
-                                                          })}
-                                                        </CommandGroup>
-                                                      </CommandList>
-                                                    </Command>
-                                                  </PopoverContent>
-                                                </Popover>
-                                              )}
-                                              
-                                              {/* Remove from chapter */}
-                                              {group.chapter && file.id && (
-                                                <button
-                                                  onClick={() => {
-                                                    const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === group.chapter!.id);
-                                                    if (mapping) handleRemoveMapping(mapping.id);
-                                                  }}
-                                                  className="p-1.5 hover:bg-destructive/10 rounded"
-                                                  title="从此章节移除"
-                                                >
-                                                  <X className="w-3.5 h-3.5 text-destructive" />
-                                                </button>
-                                              )}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
+                              <button
+                                onClick={() => setSelectedChapterId('unassigned')}
+                                className={cn(
+                                  "w-full flex items-center gap-2 px-2 py-2 rounded text-left transition-colors mb-1",
+                                  selectedChapterId === 'unassigned' 
+                                    ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300" 
+                                    : "hover:bg-muted text-amber-700 dark:text-amber-400"
+                                )}
+                              >
+                                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                                <span className="flex-1 text-[12px] font-medium truncate">未分配章节</span>
+                                <Badge variant="secondary" className="text-[9px] h-4 bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200">
+                                  {unassignedCount}
+                                </Badge>
+                              </button>
                             );
-                          })
+                          }
+                          return null;
+                        })()}
+                        
+                        {/* Chapter list */}
+                        {chapters.map((chapter) => {
+                          const fileCount = mappings.filter(m => m.chapterId === chapter.id).length;
+                          const isSelected = selectedChapterId === chapter.id;
+                          return (
+                            <button
+                              key={chapter.id}
+                              onClick={() => setSelectedChapterId(chapter.id)}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
+                                isSelected 
+                                  ? "bg-primary/10 text-primary" 
+                                  : "hover:bg-muted text-foreground"
+                              )}
+                            >
+                              {isSelected ? (
+                                <ChevronRight className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                              ) : (
+                                <BookOpen className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                              )}
+                              <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
+                                {chapter.number || "-"}
+                              </span>
+                              <span className="flex-1 text-[12px] truncate">
+                                {chapter.title}
+                              </span>
+                              <Badge 
+                                variant={fileCount > 0 ? "secondary" : "outline"} 
+                                className={cn(
+                                  "text-[9px] h-4 min-w-[18px] justify-center",
+                                  fileCount === 0 && "text-muted-foreground"
+                                )}
+                              >
+                                {fileCount}
+                              </Badge>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    
+                    {/* Right Panel: 文件列表 */}
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {/* Right Panel Header */}
+                      <div className="p-2 border-b bg-muted/30 flex items-center justify-between sticky top-0">
+                        <div className="flex items-center gap-2">
+                          {selectedChapterId === 'unassigned' ? (
+                            <>
+                              <AlertTriangle className="w-4 h-4 text-amber-500" />
+                              <span className="text-[12px] font-medium text-amber-700 dark:text-amber-400">
+                                未分配章节的文件
+                              </span>
+                            </>
+                          ) : selectedChapter ? (
+                            <>
+                              <BookOpen className="w-4 h-4 text-primary" />
+                              <span className="text-[11px] text-muted-foreground">{selectedChapter.number}</span>
+                              <span className="text-[12px] font-medium">{selectedChapter.title}</span>
+                            </>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground">请从左侧选择章节查看文件</span>
+                          )}
+                        </div>
+                        {selectedChapterId && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {selectedChapterFiles.length} 个文件
+                          </Badge>
                         )}
                       </div>
-                    )}
-                    
-                    {/* Flat File List View */}
-                    {viewMode === 'files' && uploadedFiles.map((file, index) => (
-                      <motion.div
-                        key={index}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.02 }}
-                        className={cn(
-                          "flex items-center gap-2 py-1.5 px-2 hover:bg-muted/50 rounded text-[13px] group",
-                          selectedFiles.has(file.storagePath) && "bg-primary/5"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedFiles.has(file.storagePath)}
-                          onChange={() => handleToggleFileSelection(file.storagePath)}
-                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        {getFileIcon(file.name)}
-                        <span className="flex-1 truncate" title={file.name}>{file.name}</span>
-                        
-                        {/* Chapter Badges */}
-                        {file.id && (
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {getFileMappings(file.id).map((mapping) => {
-                              const chapter = getChapterById(mapping.chapterId);
-                              if (!chapter) return null;
-                              return (
-                                <Badge
-                                  key={mapping.id}
-                                  variant="secondary"
-                                  className="text-[10px] h-5 px-1.5 gap-1 cursor-pointer hover:bg-destructive/20 group/badge"
-                                  title={`${chapter.number} ${chapter.title} - 点击取消关联`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveMapping(mapping.id);
-                                  }}
-                                >
-                                  <BookOpen className="w-2.5 h-2.5" />
-                                  <span className="max-w-[60px] truncate">{chapter.number || chapter.title.slice(0, 4)}</span>
-                                  <X className="w-2.5 h-2.5 opacity-0 group-hover/badge:opacity-100 transition-opacity" />
-                                </Badge>
-                              );
-                            })}
-                            
-                            {/* Add Chapter Button */}
-                            <Popover 
-                              open={chapterSelectorFileId === file.id} 
-                              onOpenChange={(open) => setChapterSelectorFileId(open ? file.id! : null)}
-                            >
-                              <PopoverTrigger asChild>
-                                <button
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-5 h-5 rounded bg-muted hover:bg-primary/10 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
-                                  title="关联章节"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-64 p-0" align="end" onClick={(e) => e.stopPropagation()}>
-                                <Command>
-                                  <CommandInput placeholder="搜索章节..." />
-                                  <CommandList>
-                                    <CommandEmpty>未找到章节</CommandEmpty>
-                                    <CommandGroup>
-                                      {chapters.map((chapter) => {
-                                        const isMapped = isFileMappedToChapter(file.id!, chapter.id);
-                                        return (
-                                          <CommandItem
-                                            key={chapter.id}
-                                            value={`${chapter.number} ${chapter.title}`}
-                                            onSelect={() => {
-                                              if (!isMapped) {
-                                                handleAddMapping(file.id!, chapter.id);
-                                              }
-                                              setChapterSelectorFileId(null);
-                                            }}
-                                            className="flex items-center gap-2"
-                                          >
-                                            <Checkbox
-                                              checked={isMapped}
-                                              className="w-3.5 h-3.5"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isMapped) {
-                                                  const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);
-                                                  if (mapping) handleRemoveMapping(mapping.id);
-                                                } else {
-                                                  handleAddMapping(file.id!, chapter.id);
-                                                }
-                                              }}
-                                            />
-                                            <span className="text-[11px] text-muted-foreground min-w-[32px]">
-                                              {chapter.number || "-"}
-                                            </span>
-                                            <span className="flex-1 truncate text-[12px]">
-                                              {chapter.title}
-                                            </span>
-                                            {isMapped && <Check className="w-3.5 h-3.5 text-primary" />}
-                                          </CommandItem>
-                                        );
-                                      })}
-                                    </CommandGroup>
-                                  </CommandList>
-                                </Command>
-                              </PopoverContent>
-                            </Popover>
+                      
+                      {/* File List */}
+                      <div className="flex-1 overflow-y-auto">
+                        {!selectedChapterId ? (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                            <FolderOpen className="w-12 h-12 mb-2 opacity-30" />
+                            <p className="text-[13px]">请从左侧选择章节</p>
+                            <p className="text-[11px] mt-1">查看该章节下的文件列表</p>
+                          </div>
+                        ) : selectedChapterFiles.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                            <FileText className="w-12 h-12 mb-2 opacity-30" />
+                            <p className="text-[13px]">该章节暂无文件</p>
+                            <p className="text-[11px] mt-1">可以通过自动匹配或手动添加文件</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y">
+                            {/* Table Header */}
+                            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0">
+                              <span className="flex-1">文件名称</span>
+                              <span className="w-16 text-center">类型</span>
+                              <span className="w-20 text-right">大小</span>
+                              <span className="w-24 text-center">操作</span>
+                            </div>
+                            {selectedChapterFiles.map((file) => (
+                              <div
+                                key={file.storagePath}
+                                className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 text-[13px] group"
+                              >
+                                {getFileIcon(file.name)}
+                                <span className="flex-1 truncate" title={file.name}>{file.name}</span>
+                                
+                                <span className="w-16 text-center text-[10px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
+                                  {file.type}
+                                </span>
+                                <span className="w-20 text-right text-[10px] text-muted-foreground font-mono">
+                                  {formatFileSize(file.size)}
+                                </span>
+                                
+                                {/* File Actions */}
+                                <div className="w-24 flex items-center justify-center gap-0.5">
+                                  {/* Edit Chapter Assignment */}
+                                  {file.id && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          className="p-1.5 hover:bg-primary/10 rounded"
+                                          title="编辑章节归属"
+                                        >
+                                          <BookOpen className="w-3.5 h-3.5 text-primary" />
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-72 p-0" align="end">
+                                        <div className="p-2 border-b bg-muted/30">
+                                          <div className="text-[11px] font-medium">选择章节归属</div>
+                                          <div className="text-[10px] text-muted-foreground truncate">{file.name}</div>
+                                        </div>
+                                        <Command>
+                                          <CommandInput placeholder="搜索章节..." />
+                                          <CommandList className="max-h-[200px]">
+                                            <CommandEmpty>未找到章节</CommandEmpty>
+                                            <CommandGroup>
+                                              {chapters.map((chapter) => {
+                                                const isMapped = isFileMappedToChapter(file.id!, chapter.id);
+                                                return (
+                                                  <CommandItem
+                                                    key={chapter.id}
+                                                    value={`${chapter.number} ${chapter.title}`}
+                                                    onSelect={() => {
+                                                      if (isMapped) {
+                                                        const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);
+                                                        if (mapping) handleRemoveMapping(mapping.id);
+                                                      } else {
+                                                        handleAddMapping(file.id!, chapter.id);
+                                                      }
+                                                    }}
+                                                    className="flex items-center gap-2 cursor-pointer"
+                                                  >
+                                                    <Checkbox checked={isMapped} className="w-3.5 h-3.5" />
+                                                    <span className="text-[11px] text-muted-foreground min-w-[32px]">
+                                                      {chapter.number || "-"}
+                                                    </span>
+                                                    <span className="flex-1 truncate text-[12px]">
+                                                      {chapter.title}
+                                                    </span>
+                                                    {isMapped && <Check className="w-3.5 h-3.5 text-primary" />}
+                                                  </CommandItem>
+                                                );
+                                              })}
+                                            </CommandGroup>
+                                          </CommandList>
+                                        </Command>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
+                                  
+                                  {/* Remove from current chapter */}
+                                  {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
+                                    <button
+                                      onClick={() => {
+                                        const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === selectedChapterId);
+                                        if (mapping) handleRemoveMapping(mapping.id);
+                                      }}
+                                      className="p-1.5 hover:bg-destructive/10 rounded"
+                                      title="从此章节移除"
+                                    >
+                                      <X className="w-3.5 h-3.5 text-destructive" />
+                                    </button>
+                                  )}
+                                  
+                                  {/* Delete file */}
+                                  <button
+                                    onClick={() => handleDeleteFile(file)}
+                                    className="p-1.5 hover:bg-destructive/10 rounded"
+                                    title="删除文件"
+                                    disabled={deleteFileMutation.isPending}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-destructive/70 hover:text-destructive" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
-                        
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePreviewFile(file);
-                            }}
-                            className="p-1 hover:bg-muted rounded"
-                            title={canPreviewFile(file.name) ? "预览" : "查看/下载"}
-                          >
-                            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                          </button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              let url = file.downloadUrl;
-                              if (!url) {
-                                try {
-                                  url = await getFileDownloadUrl(file.storagePath);
-                                } catch (error) {
-                                  console.error("[FileUpload] Failed to get download URL:", error);
-                                  toast.error("获取下载链接失败");
-                                  return;
-                                }
-                              }
-                              if (url) {
-                                window.open(url, "_blank");
-                              } else {
-                                toast.error("无法获取下载链接");
-                              }
-                            }}
-                            className="p-1 hover:bg-muted rounded"
-                            title="下载"
-                          >
-                            <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteFile(file);
-                            }}
-                            className="p-1 hover:bg-destructive/10 rounded"
-                            title="删除"
-                            disabled={deleteFileMutation.isPending}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-destructive/70 hover:text-destructive" />
-                          </button>
-                        </div>
-                        {/* OCR Status Indicator */}
-                        {file.mimeType && canOcrFile(file.mimeType) && (
-                          ocrProcessingIds.has(file.id || "") ? (
-                            <span className="text-[10px] text-primary px-1.5 py-0.5 bg-primary/10 rounded flex items-center gap-1">
-                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              提取中
-                            </span>
-                          ) : file.ocrProcessed ? (
-                            <span className="text-[10px] text-status-success px-1.5 py-0.5 bg-status-success/10 rounded flex items-center gap-1">
-                              <CheckCircle className="w-2.5 h-2.5" />
-                              已提取
-                            </span>
-                          ) : ocrFailedIds.has(file.id || "") ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSingleFileRetry(file);
-                              }}
-                              className="text-[10px] text-destructive px-1.5 py-0.5 bg-destructive/10 rounded flex items-center gap-1 hover:bg-destructive/20 transition-colors cursor-pointer"
-                              title="点击重新提取"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              提取失败·重试
-                            </button>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSingleFileRetry(file);
-                              }}
-                              className="text-[10px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
-                              title="点击提取文字"
-                            >
-                              <ScanText className="w-2.5 h-2.5" />
-                              未提取
-                            </button>
-                          )
-                        )}
-                        <span className="text-[11px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
-                          {file.type}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground font-mono">
-                          {formatFileSize(file.size)}
-                        </span>
-                      </motion.div>
-                    ))}
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
