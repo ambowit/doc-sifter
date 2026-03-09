@@ -255,15 +255,67 @@ export default function FileUpload() {
   }, [selectedChapterId, chapters]);
 
   // Organize chapters by hierarchy (parent -> children)
+  // Uses chapter number to determine hierarchy (e.g., "1" is parent, "1.1", "1.2" are children)
   const chaptersHierarchy = useMemo(() => {
-    const parentChapters = chapters.filter(c => c.level === 1 || !c.parentId);
+    // First try to use parentId if available
+    const hasParentIdRelations = chapters.some(c => c.parentId);
+    
+    if (hasParentIdRelations) {
+      // Use parentId-based hierarchy
+      const parentChapters = chapters.filter(c => !c.parentId);
+      const childrenMap = new Map<string, typeof chapters>();
+      
+      chapters.forEach(c => {
+        if (c.parentId) {
+          const children = childrenMap.get(c.parentId) || [];
+          children.push(c);
+          childrenMap.set(c.parentId, children);
+        }
+      });
+      
+      return { parentChapters, childrenMap };
+    }
+    
+    // Fallback: Use chapter number to determine hierarchy
+    // Parent chapters have single number (e.g., "1", "2", "3") or "第X章" format
+    // Child chapters have dot notation (e.g., "1.1", "1.2", "2.1")
+    const isParentNumber = (num: string | null): boolean => {
+      if (!num) return true;
+      // "第X章" format is a parent
+      if (/^第.+章$/.test(num)) return true;
+      // Single number without dots is a parent
+      return !num.includes('.');
+    };
+    
+    const getParentNumber = (num: string | null): string | null => {
+      if (!num || !num.includes('.')) return null;
+      const parts = num.split('.');
+      return parts.slice(0, -1).join('.');
+    };
+    
+    const parentChapters = chapters.filter(c => isParentNumber(c.number));
     const childrenMap = new Map<string, typeof chapters>();
     
+    // Build a map from parent number to parent chapter id
+    const numberToParentId = new Map<string, string>();
+    parentChapters.forEach(p => {
+      if (p.number) {
+        numberToParentId.set(p.number, p.id);
+      }
+    });
+    
+    // Group children by their parent's number
     chapters.forEach(c => {
-      if (c.parentId) {
-        const children = childrenMap.get(c.parentId) || [];
-        children.push(c);
-        childrenMap.set(c.parentId, children);
+      if (!isParentNumber(c.number)) {
+        const parentNum = getParentNumber(c.number);
+        if (parentNum) {
+          const parentId = numberToParentId.get(parentNum);
+          if (parentId) {
+            const children = childrenMap.get(parentId) || [];
+            children.push(c);
+            childrenMap.set(parentId, children);
+          }
+        }
       }
     });
     
@@ -709,7 +761,7 @@ export default function FileUpload() {
         const errorSummary = uniqueErrors.length > 0 
           ? `（${uniqueErrors.slice(0, 2).join("；")}${uniqueErrors.length > 2 ? "等" : ""}）`
           : "";
-        toast.warning(`${result.failed} 个文件分析失败${errorSummary}`, { duration: 5000 });
+        toast.warning(`${result.failed} 个文件分析���败${errorSummary}`, { duration: 5000 });
       }
     } catch (error) {
       console.error("[FileUpload] OCR batch processing error:", error);
