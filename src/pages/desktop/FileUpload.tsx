@@ -232,20 +232,26 @@ export default function FileUpload() {
 
   // Get files for the selected chapter
   const selectedChapterFiles = useMemo(() => {
+    console.log("[v0] selectedChapterFiles - selectedChapterId:", selectedChapterId, "mappings:", mappings.length, "uploadedFiles:", uploadedFiles.length);
     if (!selectedChapterId) return [];
     
     if (selectedChapterId === 'unassigned') {
       // Get files not mapped to any chapter
       const mappedFileIds = new Set(mappings.map(m => m.fileId));
-      return uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
+      const unassigned = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
+      console.log("[v0] unassigned files:", unassigned.length);
+      return unassigned;
     }
     
     // Get files mapped to selected chapter
     const chapterMappings = mappings.filter(m => m.chapterId === selectedChapterId);
+    console.log("[v0] chapterMappings for", selectedChapterId, ":", chapterMappings.length);
     const fileIdToFile = new Map(uploadedFiles.filter(f => f.id).map(f => [f.id!, f]));
-    return chapterMappings
+    const result = chapterMappings
       .map(m => fileIdToFile.get(m.fileId))
       .filter((f): f is NonNullable<typeof f> => f !== undefined);
+    console.log("[v0] selectedChapterFiles result:", result.length);
+    return result;
   }, [selectedChapterId, mappings, uploadedFiles]);
 
   // Get selected chapter info
@@ -255,16 +261,13 @@ export default function FileUpload() {
   }, [selectedChapterId, chapters]);
 
   // Organize chapters by hierarchy (parent -> children)
-  // Uses chapter number to determine hierarchy (e.g., "1" is parent, "1.1", "1.2" are children)
+  // Supports multiple formats: parentId relations, level field, or number-based hierarchy
   const chaptersHierarchy = useMemo(() => {
-    // First try to use parentId if available
+    // Method 1: Use parentId if available
     const hasParentIdRelations = chapters.some(c => c.parentId);
-    
     if (hasParentIdRelations) {
-      // Use parentId-based hierarchy
       const parentChapters = chapters.filter(c => !c.parentId);
       const childrenMap = new Map<string, typeof chapters>();
-      
       chapters.forEach(c => {
         if (c.parentId) {
           const children = childrenMap.get(c.parentId) || [];
@@ -272,19 +275,38 @@ export default function FileUpload() {
           childrenMap.set(c.parentId, children);
         }
       });
-      
       return { parentChapters, childrenMap };
     }
     
-    // Fallback: Use chapter number to determine hierarchy
-    // Parent chapters have single number (e.g., "1", "2", "3") or "第X章" format
-    // Child chapters have dot notation (e.g., "1.1", "1.2", "2.1")
-    const isParentNumber = (num: string | null): boolean => {
-      if (!num) return true;
-      // "第X章" format is a parent
-      if (/^第.+章$/.test(num)) return true;
-      // Single number without dots is a parent
-      return !num.includes('.');
+    // Method 2: Use level field if available
+    const hasLevelField = chapters.some(c => c.level && c.level > 1);
+    if (hasLevelField) {
+      const parentChapters = chapters.filter(c => c.level === 1);
+      const childrenMap = new Map<string, typeof chapters>();
+      
+      // For level-based, we need to determine parent by order
+      let currentParentId: string | null = null;
+      chapters.forEach(c => {
+        if (c.level === 1) {
+          currentParentId = c.id;
+        } else if (c.level === 2 && currentParentId) {
+          const children = childrenMap.get(currentParentId) || [];
+          children.push(c);
+          childrenMap.set(currentParentId, children);
+        }
+      });
+      return { parentChapters, childrenMap };
+    }
+    
+    // Method 3: Use chapter number to determine hierarchy
+    // Count dots in number to determine level
+    const getLevel = (num: string | null): number => {
+      if (!num) return 1;
+      // "第X章" format is level 1
+      if (/^第.+章$/.test(num)) return 1;
+      // Count dots: "1" = level 1, "1.1" = level 2, "1.1.1" = level 3
+      const dotCount = (num.match(/\./g) || []).length;
+      return dotCount + 1;
     };
     
     const getParentNumber = (num: string | null): string | null => {
@@ -293,7 +315,7 @@ export default function FileUpload() {
       return parts.slice(0, -1).join('.');
     };
     
-    const parentChapters = chapters.filter(c => isParentNumber(c.number));
+    const parentChapters = chapters.filter(c => getLevel(c.number) === 1);
     const childrenMap = new Map<string, typeof chapters>();
     
     // Build a map from parent number to parent chapter id
@@ -306,7 +328,7 @@ export default function FileUpload() {
     
     // Group children by their parent's number
     chapters.forEach(c => {
-      if (!isParentNumber(c.number)) {
+      if (getLevel(c.number) === 2) {
         const parentNum = getParentNumber(c.number);
         if (parentNum) {
           const parentId = numberToParentId.get(parentNum);
@@ -319,6 +341,12 @@ export default function FileUpload() {
       }
     });
     
+    // If no hierarchy found, treat all as flat list with first level
+    if (parentChapters.length === 0) {
+      return { parentChapters: chapters, childrenMap: new Map() };
+    }
+    
+    console.log("[v0] chaptersHierarchy - parents:", parentChapters.length, "childrenMap:", childrenMap.size, "chapters:", chapters.map(c => ({ num: c.number, level: c.level })));
     return { parentChapters, childrenMap };
   }, [chapters]);
 
