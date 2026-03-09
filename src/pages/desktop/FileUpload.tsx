@@ -152,10 +152,12 @@ export default function FileUpload() {
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
   
   // View mode: 'files' (flat list) or 'chapters' (grouped by chapter)
-  const [viewMode, setViewMode] = useState<'files' | 'chapters'>('files');
+  // Default to 'chapters' view to clearly show file-chapter relationships
+  const [viewMode, setViewMode] = useState<'files' | 'chapters'>('chapters');
   
-  // Expanded chapters in chapter view
+  // Expanded chapters in chapter view - default to all expanded
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
+  const [hasInitializedExpanded, setHasInitializedExpanded] = useState(false);
   
   const [dataRoomDragOver, setDataRoomDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
@@ -282,6 +284,15 @@ export default function FileUpload() {
   const collapseAllChapters = useCallback(() => {
     setExpandedChapters(new Set());
   }, []);
+
+  // Auto-expand all chapters on initial load for better visibility
+  useEffect(() => {
+    if (!hasInitializedExpanded && filesGroupedByChapter.length > 0) {
+      const allChapterIds = filesGroupedByChapter.map(g => g.chapter?.id || 'unassigned');
+      setExpandedChapters(new Set(allChapterIds));
+      setHasInitializedExpanded(true);
+    }
+  }, [filesGroupedByChapter, hasInitializedExpanded]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -1387,7 +1398,7 @@ export default function FileUpload() {
                         <button
                           onClick={() => setViewMode('files')}
                           className={cn(
-                            "px-2 py-1 rounded text-[10px] transition-colors",
+                            "px-2 py-1 rounded text-[10px] transition-colors flex items-center gap-1",
                             viewMode === 'files' 
                               ? "bg-background text-foreground shadow-sm" 
                               : "text-muted-foreground hover:text-foreground"
@@ -1395,11 +1406,12 @@ export default function FileUpload() {
                           title="按文件显示"
                         >
                           <List className="w-3 h-3" />
+                          <span className="hidden sm:inline">文件</span>
                         </button>
                         <button
                           onClick={() => setViewMode('chapters')}
                           className={cn(
-                            "px-2 py-1 rounded text-[10px] transition-colors",
+                            "px-2 py-1 rounded text-[10px] transition-colors flex items-center gap-1",
                             viewMode === 'chapters' 
                               ? "bg-background text-foreground shadow-sm" 
                               : "text-muted-foreground hover:text-foreground"
@@ -1407,6 +1419,7 @@ export default function FileUpload() {
                           title="按章节分组"
                         >
                           <Layers className="w-3 h-3" />
+                          <span className="hidden sm:inline">章节</span>
                         </button>
                       </div>
                       
