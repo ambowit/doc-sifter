@@ -499,23 +499,28 @@ export default function FileUpload() {
     type: FileType;
     downloadUrl?: string;
   }) => {
+    console.log("[v0] handlePreviewFile called with file:", file.name, file.storagePath);
     let downloadUrl = file.downloadUrl || "";
     
     if (!downloadUrl) {
+      console.log("[v0] No downloadUrl, fetching from storage path:", file.storagePath);
       try {
         downloadUrl = await getFileDownloadUrl(file.storagePath);
+        console.log("[v0] Got downloadUrl:", downloadUrl?.substring(0, 100));
       } catch (error) {
-        console.error("[FileUpload] Failed to get download URL:", error);
+        console.error("[v0] Failed to get download URL:", error);
         toast.error("获取下载链接失败");
         return;
       }
     }
     
     if (!downloadUrl) {
+      console.log("[v0] downloadUrl is still empty");
       toast.error("无法获取文件下载链接");
       return;
     }
     
+    console.log("[v0] Setting preview file with downloadUrl");
     setPreviewFile({
       ...file,
       downloadUrl,
@@ -1770,6 +1775,7 @@ export default function FileUpload() {
             {previewFile && (() => {
               const previewType = getPreviewType(previewFile.name);
               const url = previewFile.downloadUrl || "";
+              console.log("[v0] Preview dialog rendering, previewType:", previewType, "url:", url?.substring(0, 100));
               
               if (!url) {
                 return (
@@ -1798,11 +1804,19 @@ export default function FileUpload() {
               
               if (previewType === "pdf") {
                 return (
-                  <iframe
-                    src={url}
-                    className="w-full h-[60vh] rounded-lg border"
-                    title={previewFile.name}
-                  />
+                  <div className="flex flex-col h-full">
+                    <iframe
+                      src={url}
+                      className="w-full h-[60vh] rounded-lg border"
+                      title={previewFile.name}
+                      onError={() => {
+                        console.log("[v0] PDF iframe failed to load");
+                      }}
+                    />
+                    <div className="text-center text-[11px] text-muted-foreground mt-2">
+                      如果预览加载失败，请点击下方"下载文件"按钮查看
+                    </div>
+                  </div>
                 );
               }
               
