@@ -232,26 +232,20 @@ export default function FileUpload() {
 
   // Get files for the selected chapter
   const selectedChapterFiles = useMemo(() => {
-    console.log("[v0] selectedChapterFiles - selectedChapterId:", selectedChapterId, "mappings:", mappings.length, "uploadedFiles:", uploadedFiles.length);
     if (!selectedChapterId) return [];
     
     if (selectedChapterId === 'unassigned') {
       // Get files not mapped to any chapter
       const mappedFileIds = new Set(mappings.map(m => m.fileId));
-      const unassigned = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
-      console.log("[v0] unassigned files:", unassigned.length);
-      return unassigned;
+      return uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
     }
     
     // Get files mapped to selected chapter
     const chapterMappings = mappings.filter(m => m.chapterId === selectedChapterId);
-    console.log("[v0] chapterMappings for", selectedChapterId, ":", chapterMappings.length);
     const fileIdToFile = new Map(uploadedFiles.filter(f => f.id).map(f => [f.id!, f]));
-    const result = chapterMappings
+    return chapterMappings
       .map(m => fileIdToFile.get(m.fileId))
       .filter((f): f is NonNullable<typeof f> => f !== undefined);
-    console.log("[v0] selectedChapterFiles result:", result.length);
-    return result;
   }, [selectedChapterId, mappings, uploadedFiles]);
 
   // Get selected chapter info
@@ -346,7 +340,6 @@ export default function FileUpload() {
       return { parentChapters: chapters, childrenMap: new Map() };
     }
     
-    console.log("[v0] chaptersHierarchy - parents:", parentChapters.length, "childrenMap:", childrenMap.size, "chapters:", chapters.map(c => ({ num: c.number, level: c.level })));
     return { parentChapters, childrenMap };
   }, [chapters]);
 
@@ -456,7 +449,7 @@ export default function FileUpload() {
       if (matchCount > 0) {
         toast.success(`已自动匹配 ${matchCount} 个文件`);
       } else {
-        toast.info("未能自动匹配任何文件，请手动分配");
+        toast.info("未能自���匹配任何文件，请手动分配");
       }
     } catch (error) {
       console.error("[FileUpload] Auto-match error:", error);
@@ -1766,11 +1759,55 @@ export default function FileUpload() {
                             <span className="text-[12px] text-muted-foreground">请从左侧选择章节查看文件</span>
                           )}
                         </div>
-                        {selectedChapterId && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {selectedChapterFiles.length} 个文件
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {selectedChapterId && selectedChapterId !== 'unassigned' && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-6 text-[10px]">
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  添加文件
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-80 p-0" align="end">
+                                <div className="p-2 border-b bg-muted/30">
+                                  <div className="text-[11px] font-medium">选择要添加的文件</div>
+                                  <div className="text-[10px] text-muted-foreground">将文件添加到当前章节</div>
+                                </div>
+                                <Command>
+                                  <CommandInput placeholder="搜索文件..." />
+                                  <CommandList className="max-h-[250px]">
+                                    <CommandEmpty>没有可添加的文件</CommandEmpty>
+                                    <CommandGroup>
+                                      {uploadedFiles
+                                        .filter(f => f.id && !isFileMappedToChapter(f.id, selectedChapterId))
+                                        .map((file) => (
+                                          <CommandItem
+                                            key={file.id}
+                                            value={file.name}
+                                            onSelect={() => {
+                                              if (file.id) {
+                                                handleAddMapping(file.id, selectedChapterId);
+                                              }
+                                            }}
+                                            className="flex items-center gap-2 cursor-pointer"
+                                          >
+                                            {getFileIcon(file.name)}
+                                            <span className="flex-1 truncate text-[12px]">{file.name}</span>
+                                            <span className="text-[10px] text-muted-foreground">{file.type}</span>
+                                          </CommandItem>
+                                        ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                          {selectedChapterId && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {selectedChapterFiles.length} 个文件
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       
                       {/* File List */}
