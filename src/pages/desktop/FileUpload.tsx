@@ -45,6 +45,7 @@ import {
   FileText,
   FolderOpen,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
   File,
   FileArchive,
@@ -151,6 +152,9 @@ export default function FileUpload() {
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [hasInitializedChapter, setHasInitializedChapter] = useState(false);
   
+  // Expanded parent chapters in sidebar
+  const [expandedParentChapters, setExpandedParentChapters] = useState<Set<string>>(new Set());
+  
   const [dataRoomDragOver, setDataRoomDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
     name: string;
@@ -249,6 +253,35 @@ export default function FileUpload() {
     if (!selectedChapterId || selectedChapterId === 'unassigned') return null;
     return chapters.find(c => c.id === selectedChapterId) || null;
   }, [selectedChapterId, chapters]);
+
+  // Organize chapters by hierarchy (parent -> children)
+  const chaptersHierarchy = useMemo(() => {
+    const parentChapters = chapters.filter(c => c.level === 1 || !c.parentId);
+    const childrenMap = new Map<string, typeof chapters>();
+    
+    chapters.forEach(c => {
+      if (c.parentId) {
+        const children = childrenMap.get(c.parentId) || [];
+        children.push(c);
+        childrenMap.set(c.parentId, children);
+      }
+    });
+    
+    return { parentChapters, childrenMap };
+  }, [chapters]);
+
+  // Toggle parent chapter expansion
+  const toggleParentChapter = useCallback((parentId: string) => {
+    setExpandedParentChapters(prev => {
+      const next = new Set(prev);
+      if (next.has(parentId)) {
+        next.delete(parentId);
+      } else {
+        next.add(parentId);
+      }
+      return next;
+    });
+  }, []);
 
   // State for auto-matching
   const [isAutoMatching, setIsAutoMatching] = useState(false);
@@ -499,28 +532,23 @@ export default function FileUpload() {
     type: FileType;
     downloadUrl?: string;
   }) => {
-    console.log("[v0] handlePreviewFile called with file:", file.name, file.storagePath);
     let downloadUrl = file.downloadUrl || "";
     
     if (!downloadUrl) {
-      console.log("[v0] No downloadUrl, fetching from storage path:", file.storagePath);
       try {
         downloadUrl = await getFileDownloadUrl(file.storagePath);
-        console.log("[v0] Got downloadUrl:", downloadUrl?.substring(0, 100));
       } catch (error) {
-        console.error("[v0] Failed to get download URL:", error);
+        console.error("[FileUpload] Failed to get download URL:", error);
         toast.error("获取下载链接失败");
         return;
       }
     }
     
     if (!downloadUrl) {
-      console.log("[v0] downloadUrl is still empty");
       toast.error("无法获取文件下载链接");
       return;
     }
     
-    console.log("[v0] Setting preview file with downloadUrl");
     setPreviewFile({
       ...file,
       downloadUrl,
@@ -1530,42 +1558,107 @@ export default function FileUpload() {
                           return null;
                         })()}
                         
-                        {/* Chapter list */}
-                        {chapters.map((chapter) => {
-                          const fileCount = mappings.filter(m => m.chapterId === chapter.id).length;
-                          const isSelected = selectedChapterId === chapter.id;
+                        {/* Chapter list with hierarchy */}
+                        {chaptersHierarchy.parentChapters.map((parentChapter) => {
+                          const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
+                          const hasChildren = children.length > 0;
+                          const isExpanded = expandedParentChapters.has(parentChapter.id);
+                          const parentFileCount = mappings.filter(m => m.chapterId === parentChapter.id).length;
+                          const isParentSelected = selectedChapterId === parentChapter.id;
+                          
+                          // Calculate total files for parent (including children)
+                          const childFileCount = children.reduce((sum, child) => 
+                            sum + mappings.filter(m => m.chapterId === child.id).length, 0
+                          );
+                          const totalFileCount = parentFileCount + childFileCount;
+                          
                           return (
-                            <button
-                              key={chapter.id}
-                              onClick={() => setSelectedChapterId(chapter.id)}
-                              className={cn(
-                                "w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
-                                isSelected 
-                                  ? "bg-primary/10 text-primary" 
-                                  : "hover:bg-muted text-foreground"
-                              )}
-                            >
-                              {isSelected ? (
-                                <ChevronRight className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                              ) : (
-                                <BookOpen className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                              )}
-                              <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
-                                {chapter.number || "-"}
-                              </span>
-                              <span className="flex-1 text-[12px] truncate">
-                                {chapter.title}
-                              </span>
-                              <Badge 
-                                variant={fileCount > 0 ? "secondary" : "outline"} 
-                                className={cn(
-                                  "text-[9px] h-4 min-w-[18px] justify-center",
-                                  fileCount === 0 && "text-muted-foreground"
+                            <div key={parentChapter.id} className="mb-0.5">
+                              {/* Parent Chapter */}
+                              <div className="flex items-center">
+                                {hasChildren ? (
+                                  <button
+                                    onClick={() => toggleParentChapter(parentChapter.id)}
+                                    className="p-1 hover:bg-muted rounded flex-shrink-0"
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="w-5 flex-shrink-0" />
                                 )}
-                              >
-                                {fileCount}
-                              </Badge>
-                            </button>
+                                <button
+                                  onClick={() => setSelectedChapterId(parentChapter.id)}
+                                  className={cn(
+                                    "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
+                                    isParentSelected 
+                                      ? "bg-primary/10 text-primary" 
+                                      : "hover:bg-muted text-foreground"
+                                  )}
+                                >
+                                  <BookOpen className={cn(
+                                    "w-3.5 h-3.5 flex-shrink-0",
+                                    isParentSelected ? "text-primary" : "text-muted-foreground"
+                                  )} />
+                                  <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
+                                    {parentChapter.number || "-"}
+                                  </span>
+                                  <span className="flex-1 text-[12px] font-medium truncate">
+                                    {parentChapter.title}
+                                  </span>
+                                  <Badge 
+                                    variant={totalFileCount > 0 ? "secondary" : "outline"} 
+                                    className={cn(
+                                      "text-[9px] h-4 min-w-[18px] justify-center",
+                                      totalFileCount === 0 && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {totalFileCount}
+                                  </Badge>
+                                </button>
+                              </div>
+                              
+                              {/* Children Chapters */}
+                              {hasChildren && isExpanded && (
+                                <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
+                                  {children.map((child) => {
+                                    const childFileCount = mappings.filter(m => m.chapterId === child.id).length;
+                                    const isChildSelected = selectedChapterId === child.id;
+                                    return (
+                                      <button
+                                        key={child.id}
+                                        onClick={() => setSelectedChapterId(child.id)}
+                                        className={cn(
+                                          "w-full flex items-center gap-2 px-2 py-1 rounded text-left transition-colors",
+                                          isChildSelected 
+                                            ? "bg-primary/10 text-primary" 
+                                            : "hover:bg-muted text-foreground"
+                                        )}
+                                      >
+                                        <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
+                                          {child.number || "-"}
+                                        </span>
+                                        <span className="flex-1 text-[11px] truncate">
+                                          {child.title}
+                                        </span>
+                                        <Badge 
+                                          variant={childFileCount > 0 ? "secondary" : "outline"} 
+                                          className={cn(
+                                            "text-[9px] h-4 min-w-[18px] justify-center",
+                                            childFileCount === 0 && "text-muted-foreground"
+                                          )}
+                                        >
+                                          {childFileCount}
+                                        </Badge>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -1775,7 +1868,6 @@ export default function FileUpload() {
             {previewFile && (() => {
               const previewType = getPreviewType(previewFile.name);
               const url = previewFile.downloadUrl || "";
-              console.log("[v0] Preview dialog rendering, previewType:", previewType, "url:", url?.substring(0, 100));
               
               if (!url) {
                 return (
