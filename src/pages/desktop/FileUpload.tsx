@@ -1616,7 +1616,7 @@ export default function FileUpload() {
                               <span className="flex-1">文件名称</span>
                               <span className="w-16 text-center">类型</span>
                               <span className="w-20 text-right">大小</span>
-                              <span className="w-24 text-center">操作</span>
+                              <span className="w-32 text-center">操作</span>
                             </div>
                             {selectedChapterFiles.map((file) => (
                               <div
@@ -1634,7 +1634,36 @@ export default function FileUpload() {
                                 </span>
                                 
                                 {/* File Actions */}
-                                <div className="w-24 flex items-center justify-center gap-0.5">
+                                <div className="w-32 flex items-center justify-center gap-0.5">
+                                  {/* Preview */}
+                                  <button
+                                    onClick={() => handlePreviewFile(file)}
+                                    className="p-1.5 hover:bg-muted rounded"
+                                    title="预览"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </button>
+                                  
+                                  {/* Download */}
+                                  <button
+                                    onClick={async () => {
+                                      let url = file.downloadUrl;
+                                      if (!url) {
+                                        try {
+                                          url = await getFileDownloadUrl(file.storagePath);
+                                        } catch (error) {
+                                          toast.error("获取下载链接失败");
+                                          return;
+                                        }
+                                      }
+                                      if (url) window.open(url, "_blank");
+                                    }}
+                                    className="p-1.5 hover:bg-muted rounded"
+                                    title="下载"
+                                  >
+                                    <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </button>
+                                  
                                   {/* Edit Chapter Assignment */}
                                   {file.id && (
                                     <Popover>
