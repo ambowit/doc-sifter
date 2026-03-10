@@ -99,21 +99,6 @@ export default function ChapterMapping() {
   const [isCancelling, setIsCancelling] = useState(false);
   const monitoredJobIdRef = useRef<string | null>(null);
   const lastProgressRef = useRef<number | null>(null);
-  
-  // Detect if job is stuck (no progress update for 60 seconds)
-  const isJobStuck = useMemo(() => {
-    if (!job || !["queued", "running"].includes(job.status)) return false;
-    const timeSinceLastUpdate = Date.now() - lastProgressUpdate;
-    return timeSinceLastUpdate > 60000; // 60 seconds
-  }, [job, lastProgressUpdate]);
-  
-  // Track progress changes
-  useEffect(() => {
-    if (job?.progress !== undefined && job.progress !== lastProgressRef.current) {
-      lastProgressRef.current = job.progress;
-      setLastProgressUpdate(Date.now());
-    }
-  }, [job?.progress]);
 
   const flatChapters = useMemo(() => flattenChaptersWithNumbers(chapters), [chapters]);
 
@@ -148,6 +133,21 @@ export default function ChapterMapping() {
   const { data: latestReport } = useLatestGeneratedReport(currentProjectId || undefined);
   const { data: activeJob, isFetching: isDetectingJob } = useActiveReportJob(currentProjectId || undefined);
   const hasPersistedReport = !!latestReport;
+  
+  // Detect if job is stuck (no progress update for 60 seconds)
+  const isJobStuck = useMemo(() => {
+    if (!job || !["queued", "running"].includes(job.status)) return false;
+    const timeSinceLastUpdate = Date.now() - lastProgressUpdate;
+    return timeSinceLastUpdate > 60000; // 60 seconds
+  }, [job, lastProgressUpdate]);
+  
+  // Track progress changes
+  useEffect(() => {
+    if (job?.progress !== undefined && job.progress !== lastProgressRef.current) {
+      lastProgressRef.current = job.progress;
+      setLastProgressUpdate(Date.now());
+    }
+  }, [job?.progress]);
 
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) {
