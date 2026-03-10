@@ -1785,7 +1785,7 @@ export default function FileUpload() {
                                             key={file.id}
                                             value={file.name}
                                             onSelect={() => {
-                                              if (file.id) {
+                                              if (file.id && selectedChapterId) {
                                                 handleAddMapping(file.id, selectedChapterId);
                                               }
                                             }}
