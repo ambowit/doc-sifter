@@ -304,7 +304,7 @@ ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? 
     if (mode === "metadata") {
       logStep("Metadata mode: extracting equity and definitions from all files");
       
-      const systemPrompt = `你是中国顶级PE/VC投资法律尽职调查合伙人。
+      const systemPrompt = `你���中国顶级PE/VC投资法律尽职调查合伙人。
 你的任务是从数据室文件中精确提取股权结构和定义表信息，用于生成专业的投资尽调报告。
 
 =====================================================
@@ -672,7 +672,7 @@ ${allFilesContent}
     // ============ BATCH MODE - AUTO INTELLIGENT MATCHING ============
     // The key change: AI reads ALL files and intelligently decides which to use for each chapter
     
-    const CHAPTERS_PER_BATCH = 2; // Reduced for stability with detailed content generation
+    const CHAPTERS_PER_BATCH = 4; // Increased for faster generation
     const calculatedTotalBatches = Math.ceil(processedChapters.length / CHAPTERS_PER_BATCH);
     const actualTotalBatches = totalBatches || calculatedTotalBatches;
     
