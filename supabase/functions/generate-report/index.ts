@@ -891,7 +891,7 @@ ${allFilesContent}
     });
 
     try {
-      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 90000); // 90s timeout for detailed content
+      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 50000); // 50s timeout to stay within Edge Function limits
       logStep("AI response received", { length: aiContent.length });
 
       let sections: ChapterContent[] = [];
