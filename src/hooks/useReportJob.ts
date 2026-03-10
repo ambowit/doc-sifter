@@ -171,7 +171,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [stopMonitoring]);
 
   const pollJobStatus = useCallback(async (jobId: string): Promise<boolean> => {
-    console.log("[v0] pollJobStatus called for jobId:", jobId);
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job`, {
         method: "POST",
@@ -181,19 +180,16 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       });
 
       const data = await response.json();
-      console.log("[v0] pollJobStatus response:", data);
 
       if (!data.success) {
         throw new Error(data.errorMessage || "获取任务状态失败");
       }
 
       const jobData = toReportJob(data.job as Record<string, unknown>);
-      console.log("[v0] jobData status:", jobData.status, "stage:", jobData.currentStage, "progress:", jobData.progress);
       setJob(jobData);
       onProgressRef.current?.(jobData);
 
       if (jobData.status === "succeeded" && data.report) {
-        console.log("[v0] Job succeeded, report available");
         const reportData = data.report as GeneratedReport;
         setReport(reportData);
         onSuccessRef.current?.(reportData);
@@ -202,7 +198,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       }
 
       if (jobData.status === "failed" || jobData.status === "cancelled") {
-        console.log("[v0] Job failed or cancelled:", jobData.errorMessage);
         applyTerminalState(jobData);
         return true;
       }
@@ -213,15 +208,13 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         return true;
       }
 
-      console.error("[v0] Poll error:", err);
+      console.error("[useReportJob] Poll error:", err);
       return false;
     }
   }, [applyTerminalState, getAuthHeaders, stopMonitoring]);
 
   const startFallbackPolling = useCallback((jobId: string) => {
-    console.log("[v0] startFallbackPolling called for jobId:", jobId);
     if (pollIntervalRef.current) {
-      console.log("[v0] Polling already active, skipping");
       return;
     }
 
@@ -231,7 +224,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
 
     const poll = async () => {
       pollCountRef.current += 1;
-      console.log("[v0] Polling attempt:", pollCountRef.current);
 
       if (pollCountRef.current > MAX_POLL_ATTEMPTS) {
         setError("轮询超时，请刷新页面查看结果");
@@ -243,7 +235,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
 
       const shouldStop = await pollJobStatus(jobId);
       if (shouldStop) {
-        console.log("[v0] Polling stopped");
         stopMonitoring();
       }
     };

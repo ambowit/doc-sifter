@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLatestGeneratedReport } from "@/hooks/useGeneratedReports";
@@ -95,7 +95,25 @@ export default function ChapterMapping() {
   const { data: files = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
 
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [lastProgressUpdate, setLastProgressUpdate] = useState<number>(Date.now());
+  const [isCancelling, setIsCancelling] = useState(false);
   const monitoredJobIdRef = useRef<string | null>(null);
+  const lastProgressRef = useRef<number | null>(null);
+  
+  // Detect if job is stuck (no progress update for 60 seconds)
+  const isJobStuck = useMemo(() => {
+    if (!job || !["queued", "running"].includes(job.status)) return false;
+    const timeSinceLastUpdate = Date.now() - lastProgressUpdate;
+    return timeSinceLastUpdate > 60000; // 60 seconds
+  }, [job, lastProgressUpdate]);
+  
+  // Track progress changes
+  useEffect(() => {
+    if (job?.progress !== undefined && job.progress !== lastProgressRef.current) {
+      lastProgressRef.current = job.progress;
+      setLastProgressUpdate(Date.now());
+    }
+  }, [job?.progress]);
 
   const flatChapters = useMemo(() => flattenChaptersWithNumbers(chapters), [chapters]);
 
@@ -232,9 +250,39 @@ export default function ChapterMapping() {
       return;
     }
 
+    setLastProgressUpdate(Date.now());
+    lastProgressRef.current = null;
     const createdJobId = await createJob();
     if (createdJobId) {
       monitoredJobIdRef.current = createdJobId;
+    }
+  };
+  
+  const handleCancelJob = async () => {
+    if (!job?.id) return;
+    
+    setIsCancelling(true);
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { error } = await supabase
+        .from("report_generation_jobs")
+        .update({
+          status: "cancelled",
+          error_message: "用户手动取消",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+      
+      if (error) {
+        toast.error("取消失败", { description: error.message });
+      } else {
+        toast.success("任务已取消");
+        monitoredJobIdRef.current = null;
+      }
+    } catch (err) {
+      toast.error("取消失败", { description: String(err) });
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -467,10 +515,52 @@ export default function ChapterMapping() {
               })}
             </div>
 
-            {isPolling && job?.status !== "succeeded" && (
+            {isPolling && job?.status !== "succeeded" && !isJobStuck && (
               <div className="mt-3 p-3 rounded border border-blue-200 bg-blue-50 text-blue-700 text-[12px] flex items-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Realtime中断，已切换轮询兜底</span>
+              </div>
+            )}
+            
+            {isJobStuck && jobIsRunning && (
+              <div className="mt-3 p-3 rounded border border-amber-200 bg-amber-50 text-amber-800 text-[12px]">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="font-medium">任务可能已卡住</span>
+                </div>
+                <p className="text-[11px] mb-3">
+                  任务已超过 60 秒没有进度更新。可能是后台处理超时或遇到错误。
+                </p>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    onClick={handleCancelJob}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? (
+                      <>
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        取消中...
+                      </>
+                    ) : (
+                      "取消任务"
+                    )}
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    className="h-7 text-[11px]"
+                    onClick={() => {
+                      handleCancelJob().then(() => {
+                        setTimeout(() => handleStart(), 500);
+                      });
+                    }}
+                    disabled={isCancelling}
+                  >
+                    取消并重试
+                  </Button>
+                </div>
               </div>
             )}
           </div>
