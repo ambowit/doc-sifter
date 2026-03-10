@@ -83,13 +83,13 @@ async function callAI(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.2,
-        max_tokens: 16000,
+        temperature: 0.3,
+        max_tokens: 8000,
       }),
       signal: controller.signal,
     });
@@ -796,7 +796,7 @@ ${allFilesContent}
 所有问题的建议必须关联交易文件设计，包括：
 
 1. **交割条件**：将知识产权转移、资质申请、代持清理等设为交割前置条件
-2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发回购权利
+2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发��购权利
 3. **交割后义务**：要求关键人员注销体外公司、取得高校兼职审批
 4. **投资方特殊权利**：对大额关联交易的一票否决权、信息知情权、财务监督权
 5. **退出保障**：回购条款、拖带权、反稀释条款

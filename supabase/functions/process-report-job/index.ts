@@ -13,8 +13,8 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-// Reduced to 1 chapter per batch to prevent Edge Function timeout
-const CHAPTERS_PER_BATCH = 1;
+// Process 4 chapters per batch for faster generation
+const CHAPTERS_PER_BATCH = 4;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
