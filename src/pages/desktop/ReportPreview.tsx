@@ -511,12 +511,30 @@ export default function ReportPreview() {
         console.log("[v0] Section issues:", section.title, normalizedIssues);
       }
       
+      // Normalize findings - handle both string and object formats
+      const normalizedFindings = Array.isArray(section.findings) 
+        ? section.findings.map((finding) => {
+            if (typeof finding === "string") return finding;
+            if (typeof finding === "object" && finding !== null) {
+              // Handle object format like {item, detail, sourceFiles}
+              const f = finding as Record<string, unknown>;
+              if (f.item) return String(f.item);
+              if (f.detail) return String(f.detail);
+              if (f.text) return String(f.text);
+              if (f.content) return String(f.content);
+              // Fallback: convert to string
+              return JSON.stringify(finding);
+            }
+            return String(finding);
+          })
+        : [];
+      
       return {
         id: section.id,
         title: section.title || "",
         number: section.number || "",
         content: section.content || "",
-        findings: Array.isArray(section.findings) ? section.findings : [],
+        findings: normalizedFindings,
         issues: normalizedIssues,
         sourceFiles: Array.isArray(section.sourceFiles) ? section.sourceFiles : [],
       };
@@ -702,13 +720,29 @@ export default function ReportPreview() {
         
         console.log("[v0] Retry section issues:", data.section.issues, "normalized:", normalizedIssues);
 
+        // Normalize findings - handle both string and object formats
+        const normalizedFindings = Array.isArray(data.section.findings) 
+          ? data.section.findings.map((finding: unknown) => {
+              if (typeof finding === "string") return finding;
+              if (typeof finding === "object" && finding !== null) {
+                const f = finding as Record<string, unknown>;
+                if (f.item) return String(f.item);
+                if (f.detail) return String(f.detail);
+                if (f.text) return String(f.text);
+                if (f.content) return String(f.content);
+                return JSON.stringify(finding);
+              }
+              return String(finding);
+            })
+          : [];
+
         // Ensure all required fields have defaults
         const newSection: ReportSection = {
           id: sectionId,
           title: data.section.title || sectionTitle,
           number: data.section.number || "",
           content: data.section.content || "",
-          findings: Array.isArray(data.section.findings) ? data.section.findings : [],
+          findings: normalizedFindings,
           issues: normalizedIssues,
           sourceFiles: Array.isArray(data.section.sourceFiles) ? data.section.sourceFiles : [],
         };
@@ -814,7 +848,7 @@ export default function ReportPreview() {
           <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-lg font-semibold mb-2">请先选择项目</h2>
           <p className="text-muted-foreground text-sm mb-4">
-            返回仪表板选择一个项目以查看报告
+            返回仪表板��择一个项目以查看报告
           </p>
           <Button onClick={() => navigate("/")}>返回项目列表</Button>
         </div>
