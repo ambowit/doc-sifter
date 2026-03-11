@@ -493,34 +493,98 @@ export default function ReportPreview() {
 
   // Helper to normalize issue fields (handle both English and Chinese field names, and strings)
   const normalizeIssue = (issue: unknown) => {
-    // If issue is a string, convert it to an object format
+    // If issue is a string, convert it to a complete object with all three fields
     if (typeof issue === "string") {
       const str = issue.trim();
-      // Try to determine if it's a fact, risk, or suggestion based on content
-      if (str.startsWith("经核查") || str.includes("核查发现")) {
-        return { fact: str, risk: "", suggestion: "", severity: "low" as const };
-      } else if (str.includes("风险") || str.includes("问题")) {
-        return { fact: "", risk: str, suggestion: "", severity: "medium" as const };
-      } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
-        return { fact: "", risk: "", suggestion: str, severity: "low" as const };
+      
+      // Determine severity based on keywords
+      let severity: "high" | "medium" | "low" = "low";
+      if (str.includes("重大") || str.includes("严重") || str.includes("违法")) {
+        severity = "high";
+      } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
+        severity = "medium";
       }
-      // Default: treat as fact
-      return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+      
+      // For strings, we need to generate all three fields
+      // Fact: the original content (what was found)
+      // Risk: derived risk statement
+      // Suggestion: derived suggestion
+      
+      let fact = str;
+      let risk = "";
+      let suggestion = "";
+      
+      // If the string describes a fact (starts with "经核查" or similar)
+      if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
+        fact = str;
+        // Generate a risk based on the fact
+        if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
+          risk = "由于相关资料缺失，无法全面核实相关合规情况，存在潜在的法律风险";
+          suggestion = "建议补充提供相关资料以便进一步核查";
+        } else if (str.includes("无法") || str.includes("不能")) {
+          risk = "存在核查不完整的风险，可能遗漏重要法律问题";
+          suggestion = "建议进一步核实并补充相关证明文件";
+        } else {
+          risk = "上述情况可能存在潜在的法律或合规风险";
+          suggestion = "建议关注并进行进一步核查";
+        }
+      }
+      // If the string describes a risk
+      else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
+        fact = "经核查，发现以下情况";
+        risk = str;
+        if (str.includes("建议")) {
+          // Extract suggestion from the risk string if it contains one
+          const suggestionMatch = str.match(/建议[^。，]*[。，]?/);
+          if (suggestionMatch) {
+            suggestion = suggestionMatch[0];
+          } else {
+            suggestion = "建议关注上述风险并采取相应措施";
+          }
+        } else {
+          suggestion = "建议关注上述风险并采取相应的风险防控措施";
+        }
+      }
+      // If the string describes a suggestion
+      else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
+        fact = "经核查，发现需要关注的事项";
+        risk = "如不采取相应措施，可能存在潜在风险";
+        suggestion = str;
+      }
+      // Default case
+      else {
+        fact = str;
+        risk = "上述情况需要进一步关注";
+        suggestion = "建议进行详细核查并评估潜在影响";
+      }
+      
+      return { fact, risk, suggestion, severity };
     }
     
     // If issue is an object, extract fields
     if (typeof issue === "object" && issue !== null) {
       const obj = issue as Record<string, unknown>;
+      const fact = String(obj.fact || obj.事实 || obj.description || "");
+      const risk = String(obj.risk || obj.风险 || obj.问题 || obj.problem || "");
+      const suggestion = String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || "");
+      const severity = (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low";
+      
+      // If object has incomplete fields, try to fill them
       return {
-        fact: String(obj.fact || obj.事实 || obj.description || ""),
-        risk: String(obj.risk || obj.风险 || obj.问题 || obj.problem || ""),
-        suggestion: String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || ""),
-        severity: (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low",
+        fact: fact || (risk ? "经核查，发现以下情况" : ""),
+        risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
+        suggestion: suggestion || "建议关注并进行进一步核查",
+        severity,
       };
     }
     
     // Fallback
-    return { fact: String(issue), risk: "", suggestion: "", severity: "low" as const };
+    return { 
+      fact: String(issue), 
+      risk: "上述情况需要进一步关注", 
+      suggestion: "建议进行详细核查", 
+      severity: "low" as const 
+    };
   };
 
     const normalizedSections: ReportSection[] = rawSections.map((section) => {
@@ -724,28 +788,62 @@ export default function ReportPreview() {
       
       if (data?.section) {
         // Helper to normalize issue fields (handle both objects and strings)
+        // Reuse the same logic as the main normalizeIssue function
         const normalizeIssueRetry = (issue: unknown) => {
           if (typeof issue === "string") {
             const str = issue.trim();
-            if (str.startsWith("经核查") || str.includes("核查发现")) {
-              return { fact: str, risk: "", suggestion: "", severity: "low" as const };
-            } else if (str.includes("风险") || str.includes("问题")) {
-              return { fact: "", risk: str, suggestion: "", severity: "medium" as const };
-            } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
-              return { fact: "", risk: "", suggestion: str, severity: "low" as const };
+            let severity: "high" | "medium" | "low" = "low";
+            if (str.includes("重大") || str.includes("严重") || str.includes("违法")) {
+              severity = "high";
+            } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
+              severity = "medium";
             }
-            return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+            
+            let fact = str;
+            let risk = "";
+            let suggestion = "";
+            
+            if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
+              fact = str;
+              if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
+                risk = "由于相关资料缺失，无法全面核实相关合规情况，存在潜在的法律风险";
+                suggestion = "建议补充提供相关资料以便进一步核查";
+              } else if (str.includes("无法") || str.includes("不能")) {
+                risk = "存在核查不完整的风险，可能遗漏重要法律问题";
+                suggestion = "建议进一步核实并补充相关证明文件";
+              } else {
+                risk = "上述情况可能存在潜在的法律或合规风险";
+                suggestion = "建议关注并进行进一步核查";
+              }
+            } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
+              fact = "经核查，发现以下情况";
+              risk = str;
+              suggestion = "建议关注上述风险并采取相应的风险防控措施";
+            } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
+              fact = "经核查，发现需要关注的事项";
+              risk = "如不采取相应措施，可能存在潜在风险";
+              suggestion = str;
+            } else {
+              fact = str;
+              risk = "上述情况需要进一步关注";
+              suggestion = "建议进行详细核查并评估潜在影响";
+            }
+            return { fact, risk, suggestion, severity };
           }
           if (typeof issue === "object" && issue !== null) {
             const obj = issue as Record<string, unknown>;
+            const fact = String(obj.fact || obj.事实 || obj.description || "");
+            const risk = String(obj.risk || obj.风险 || obj.问题 || obj.problem || "");
+            const suggestion = String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || "");
+            const severity = (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low";
             return {
-              fact: String(obj.fact || obj.事实 || obj.description || ""),
-              risk: String(obj.risk || obj.风险 || obj.问题 || obj.problem || ""),
-              suggestion: String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || ""),
-              severity: (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low",
+              fact: fact || (risk ? "经核查，发现以下情况" : ""),
+              risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
+              suggestion: suggestion || "建议关注并进行进一步核查",
+              severity,
             };
           }
-          return { fact: String(issue), risk: "", suggestion: "", severity: "low" as const };
+          return { fact: String(issue), risk: "上述情况需要进一步关注", suggestion: "建议进行详细核查", severity: "low" as const };
         };
 
         // Normalize issues from AI response
