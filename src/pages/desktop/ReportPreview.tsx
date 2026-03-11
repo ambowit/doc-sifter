@@ -1195,7 +1195,7 @@ export default function ReportPreview() {
                 <div className="grid grid-cols-3 gap-3">
                   {[
                     { id: "html", label: "HTML", desc: "网页格式", icon: FileCode },
-                    { id: "pdf", label: "PDF", desc: "打印导出", icon: FileText },
+                    { id: "pdf", label: "PDF", desc: "PDF文档", icon: FileText },
                     { id: "docx", label: "DOCX", desc: "Word文档", icon: FileText },
                   ].map((format) => (
                     <div

@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Document,
   Packer,
@@ -9,7 +10,6 @@ import {
   TableRow,
   TableCell,
   WidthType,
-  BorderStyle,
   AlignmentType,
   convertInchesToTwip,
 } from "docx";
@@ -76,7 +76,213 @@ function severityToChinese(severity: string): string {
   }
 }
 
-// Export to PDF using jsPDF with Chinese font support
+function getSeverityColor(severity: string): string {
+  switch (severity) {
+    case "high":
+      return "#ef4444";
+    case "medium":
+      return "#f59e0b";
+    case "low":
+      return "#22c55e";
+    default:
+      return "#6b7280";
+  }
+}
+
+// Generate HTML content for PDF
+function generatePDFHTML(
+  project: Project,
+  sections: ReportSection[],
+  metadata: ReportMetadata | null,
+  definitions: Definition[],
+  fileCount: number
+): string {
+  const today = new Date().toLocaleDateString("zh-CN");
+  const targetName = project.target || project.name;
+  
+  let sectionsHTML = "";
+  
+  for (const section of sections) {
+    let issuesHTML = "";
+    if (section.issues && section.issues.length > 0) {
+      issuesHTML = `
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">发现的问题与风险</h4>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <thead>
+              <tr style="background: #f3f4f6;">
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 5%;">序号</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">事实</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 25%;">问题/风险</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">建议</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 10%;">级别</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${section.issues
+                .map(
+                  (issue, idx) => `
+                <tr>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${idx + 1}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.fact}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.risk}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.suggestion}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center; vertical-align: top;">
+                    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: white; background: ${getSeverityColor(issue.severity)};">
+                      ${severityToChinese(issue.severity)}
+                    </span>
+                  </td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    let findingsHTML = "";
+    if (section.findings && section.findings.length > 0) {
+      findingsHTML = `
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">核查发现</h4>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #4b5563;">
+            ${section.findings.map((f) => `<li style="margin-bottom: 4px;">${f}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    let sourceFilesHTML = "";
+    if (section.sourceFiles && section.sourceFiles.length > 0) {
+      sourceFilesHTML = `
+        <div style="margin-top: 16px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 12px; color: #6b7280;">
+          <strong>证据来源：</strong>${section.sourceFiles.join("、")}
+        </div>
+      `;
+    }
+
+    sectionsHTML += `
+      <div style="page-break-inside: avoid; margin-bottom: 32px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          ${section.number} ${section.title}
+        </h2>
+        <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
+          ${section.content.split("\n\n").map((p) => `<p style="margin-bottom: 12px;">${p}</p>`).join("")}
+        </div>
+        ${findingsHTML}
+        ${issuesHTML}
+        ${sourceFilesHTML}
+      </div>
+    `;
+  }
+
+  // Build definitions section if available
+  let definitionsHTML = "";
+  if (definitions && definitions.length > 0) {
+    definitionsHTML = `
+      <div style="page-break-before: always; margin-bottom: 32px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          释义
+        </h2>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">简称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 50%;">全称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">类型</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${definitions
+              .map(
+                (def) => `
+              <tr>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.shortName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.fullName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.entityType}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * { box-sizing: border-box; }
+        body {
+          font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+          margin: 0;
+          padding: 40px;
+          background: white;
+          color: #111827;
+          line-height: 1.6;
+        }
+        @page {
+          size: A4;
+          margin: 20mm;
+        }
+      </style>
+    </head>
+    <body>
+      <!-- Title Page -->
+      <div style="text-align: center; padding: 80px 0 60px 0; page-break-after: always;">
+        <h1 style="font-size: 32px; font-weight: 700; margin-bottom: 20px; color: #111827;">
+          法律尽职调查报告
+        </h1>
+        <div style="font-size: 16px; color: #6b7280; margin-bottom: 60px;">
+          Legal Due Diligence Report
+        </div>
+        <div style="font-size: 18px; margin-bottom: 16px;">
+          <strong>目标公司：</strong>${targetName}
+        </div>
+        ${project.client ? `<div style="font-size: 16px; margin-bottom: 16px; color: #4b5563;"><strong>委托方：</strong>${project.client}</div>` : ""}
+        <div style="font-size: 14px; color: #6b7280; margin-top: 40px;">
+          报告日期：${today}
+        </div>
+        <div style="font-size: 14px; color: #6b7280; margin-top: 8px;">
+          审阅文件数量：${fileCount} 份
+        </div>
+      </div>
+
+      <!-- Table of Contents -->
+      <div style="page-break-after: always;">
+        <h2 style="font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 32px; color: #111827;">
+          目 录
+        </h2>
+        <div style="font-size: 14px;">
+          ${sections
+            .map(
+              (section, idx) => `
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #d1d5db;">
+              <span>${section.number} ${section.title}</span>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <!-- Definitions -->
+      ${definitionsHTML}
+
+      <!-- Main Content -->
+      ${sectionsHTML}
+    </body>
+    </html>
+  `;
+}
+
+// Export to PDF using html2canvas + jsPDF for Chinese support
 export async function exportToPDF(
   project: Project,
   sections: ReportSection[],
@@ -84,137 +290,67 @@ export async function exportToPDF(
   definitions: Definition[],
   fileCount: number
 ): Promise<void> {
-  // Create PDF with A4 size
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-  });
-
-  // Add Chinese font - use built-in support
-  // jsPDF 2.x has better Unicode support
-  pdf.setFont("helvetica");
-  
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 20;
-  const contentWidth = pageWidth - 2 * margin;
-  let yPosition = margin;
-
-  // Helper function to add new page if needed
-  const checkPageBreak = (requiredHeight: number) => {
-    if (yPosition + requiredHeight > pageHeight - margin) {
-      pdf.addPage();
-      yPosition = margin;
-      return true;
-    }
-    return false;
-  };
-
-  // Helper to add text with word wrap
-  const addText = (text: string, fontSize: number, isBold = false, indent = 0) => {
-    pdf.setFontSize(fontSize);
-    if (isBold) {
-      pdf.setFont("helvetica", "bold");
-    } else {
-      pdf.setFont("helvetica", "normal");
-    }
-    
-    const lines = pdf.splitTextToSize(text, contentWidth - indent);
-    const lineHeight = fontSize * 0.5;
-    
-    for (const line of lines) {
-      checkPageBreak(lineHeight);
-      pdf.text(line, margin + indent, yPosition);
-      yPosition += lineHeight;
-    }
-    return lines.length * lineHeight;
-  };
-
-  // Title Page
-  pdf.setFontSize(24);
-  pdf.setFont("helvetica", "bold");
-  const title = "Legal Due Diligence Report";
-  const titleWidth = pdf.getStringUnitWidth(title) * 24 / pdf.internal.scaleFactor;
-  pdf.text(title, (pageWidth - titleWidth) / 2, 60);
-  
-  // Chinese title below
-  pdf.setFontSize(16);
-  const chineseTitle = "法律尽职调查报告";
-  pdf.text(chineseTitle, pageWidth / 2, 75, { align: "center" });
-
-  pdf.setFontSize(14);
-  pdf.setFont("helvetica", "normal");
   const targetName = project.target || project.name;
-  pdf.text(`Target: ${targetName}`, pageWidth / 2, 100, { align: "center" });
   
-  const today = new Date().toLocaleDateString("zh-CN");
-  pdf.text(`Date: ${today}`, pageWidth / 2, 115, { align: "center" });
-  pdf.text(`Files Reviewed: ${fileCount}`, pageWidth / 2, 130, { align: "center" });
+  // Create a hidden container for rendering
+  const container = document.createElement("div");
+  container.style.position = "absolute";
+  container.style.left = "-9999px";
+  container.style.top = "0";
+  container.style.width = "794px"; // A4 width at 96 DPI
+  container.style.background = "white";
+  document.body.appendChild(container);
 
-  // Add content pages
-  pdf.addPage();
-  yPosition = margin;
+  // Generate HTML content
+  const html = generatePDFHTML(project, sections, metadata, definitions, fileCount);
+  container.innerHTML = html;
 
-  // Table of Contents
-  addText("Table of Contents", 16, true);
-  yPosition += 5;
-  
-  sections.forEach((section, idx) => {
-    addText(`${idx + 1}. ${section.title}`, 11, false, 5);
-  });
+  // Wait for fonts to load
+  await document.fonts.ready;
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
-  pdf.addPage();
-  yPosition = margin;
+  try {
+    // Capture with html2canvas
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+    });
 
-  // Sections
-  for (const section of sections) {
-    checkPageBreak(20);
+    // Calculate dimensions
+    const imgWidth = 210; // A4 width in mm
+    const pageHeight = 297; // A4 height in mm
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
     
-    // Section header
-    addText(`${section.number} ${section.title}`, 14, true);
-    yPosition += 3;
-    
-    // Content
-    if (section.content) {
-      addText(section.content, 10, false, 0);
-      yPosition += 3;
+    // Create PDF
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    // Add first page
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    // Add additional pages if needed
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
     }
-    
-    // Findings
-    if (section.findings && section.findings.length > 0) {
-      checkPageBreak(15);
-      addText("Key Findings:", 11, true);
-      section.findings.forEach((finding, idx) => {
-        addText(`• ${finding}`, 10, false, 5);
-      });
-      yPosition += 3;
-    }
-    
-    // Issues
-    if (section.issues && section.issues.length > 0) {
-      checkPageBreak(15);
-      addText("Issues Identified:", 11, true);
-      section.issues.forEach((issue, idx) => {
-        addText(`${idx + 1}. [${severityToChinese(issue.severity)}] ${issue.fact}`, 10, false, 5);
-        addText(`   Risk: ${issue.risk}`, 9, false, 10);
-        addText(`   Suggestion: ${issue.suggestion}`, 9, false, 10);
-      });
-      yPosition += 3;
-    }
-    
-    // Source files
-    if (section.sourceFiles && section.sourceFiles.length > 0) {
-      checkPageBreak(10);
-      addText(`Evidence Files: ${section.sourceFiles.join(", ")}`, 9, false);
-    }
-    
-    yPosition += 10;
+
+    // Save the PDF
+    pdf.save(`${targetName}_法律尽职调查报告.pdf`);
+  } finally {
+    // Clean up
+    document.body.removeChild(container);
   }
-
-  // Save the PDF
-  const fileName = `${targetName}_Due_Diligence_Report.pdf`;
-  pdf.save(fileName);
 }
 
 // Export to Word using docx library
@@ -312,12 +448,12 @@ export async function exportToWord(
   );
 
   // TOC entries
-  sections.forEach((section, idx) => {
+  sections.forEach((section) => {
     docChildren.push(
       new Paragraph({
         children: [
           new TextRun({
-            text: `${section.number || idx + 1}. ${section.title}`,
+            text: `${section.number} ${section.title}`,
             size: 24,
           }),
         ],
