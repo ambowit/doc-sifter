@@ -333,17 +333,105 @@ export function useRegenerateDefinitions() {
         return [];
       }
 
+      // Helper function to infer entity type from name
+      const inferEntityType = (name: string, shortName: string): EntityType => {
+        const fullText = (name + " " + shortName).toLowerCase();
+        
+        // Company keywords
+        if (
+          fullText.includes("公司") || 
+          fullText.includes("企业") || 
+          fullText.includes("集团") ||
+          fullText.includes("有限") ||
+          fullText.includes("股份") ||
+          fullText.includes("合伙") ||
+          fullText.includes("法人") ||
+          fullText.includes("目标公司") ||
+          fullText.includes("标的公司") ||
+          fullText.includes("投资方") ||
+          fullText.includes("收购方") ||
+          fullText.includes("被收购方")
+        ) {
+          return "company";
+        }
+        
+        // Individual keywords
+        if (
+          fullText.includes("先生") || 
+          fullText.includes("女士") || 
+          fullText.includes("自然人") ||
+          fullText.includes("股东") ||
+          fullText.includes("董事") ||
+          fullText.includes("监事") ||
+          fullText.includes("高管") ||
+          fullText.includes("法定代表人") ||
+          fullText.includes("实际控制人") ||
+          fullText.includes("创始人") ||
+          // Check for Chinese names (2-4 characters without company suffixes)
+          (/^[\u4e00-\u9fa5]{2,4}$/.test(shortName) && !fullText.includes("公司"))
+        ) {
+          return "individual";
+        }
+        
+        // Institution keywords
+        if (
+          fullText.includes("委员会") || 
+          fullText.includes("政府") || 
+          fullText.includes("监管") ||
+          fullText.includes("部门") ||
+          fullText.includes("局") ||
+          fullText.includes("银行") ||
+          fullText.includes("基金") ||
+          fullText.includes("协会") ||
+          fullText.includes("机构") ||
+          fullText.includes("证监会") ||
+          fullText.includes("工商局") ||
+          fullText.includes("税务局")
+        ) {
+          return "institution";
+        }
+        
+        // Transaction keywords
+        if (
+          fullText.includes("交易") || 
+          fullText.includes("收购") || 
+          fullText.includes("合并") ||
+          fullText.includes("投资") ||
+          fullText.includes("融资") ||
+          fullText.includes("增资") ||
+          fullText.includes("股权转让") ||
+          fullText.includes("重组") ||
+          fullText.includes("项目")
+        ) {
+          return "transaction";
+        }
+        
+        // Default to other
+        return "other";
+      };
+
       const definitionsToInsert = validDefinitions.map((def: {
         name: string;
         shortName: string;
         description?: string;
-      }) => ({
-        project_id: projectId,
-        short_name: def.shortName,
-        full_name: def.name,
-        entity_type: "other" as EntityType,
-        notes: def.description || null,
-      }));
+        type?: string;
+      }) => {
+        // Use provided type if valid, otherwise infer from name
+        let entityType: EntityType = "other";
+        if (def.type && ["company", "individual", "institution", "transaction", "other"].includes(def.type)) {
+          entityType = def.type as EntityType;
+        } else {
+          entityType = inferEntityType(def.name, def.shortName);
+        }
+        
+        return {
+          project_id: projectId,
+          short_name: def.shortName,
+          full_name: def.name,
+          entity_type: entityType,
+          notes: def.description || null,
+        };
+      });
 
       console.log("[useRegenerateDefinitions] Inserting definitions:", definitionsToInsert.length);
 
