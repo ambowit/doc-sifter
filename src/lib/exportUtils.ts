@@ -318,10 +318,13 @@ export async function exportToPDF(
       backgroundColor: "#ffffff",
     });
 
-    // Calculate dimensions
-    const imgWidth = 210; // A4 width in mm
+    // Calculate dimensions with margins
+    const margin = 15; // 15mm margin on each side
+    const pageWidth = 210; // A4 width in mm
     const pageHeight = 297; // A4 height in mm
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const contentWidth = pageWidth - (margin * 2); // Available content width
+    const imgHeight = (canvas.height * contentWidth) / canvas.width;
+    const contentHeight = pageHeight - (margin * 2); // Available content height per page
     
     // Create PDF
     const pdf = new jsPDF({
@@ -333,16 +336,16 @@ export async function exportToPDF(
     let heightLeft = imgHeight;
     let position = 0;
 
-    // Add first page
-    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
+    // Add first page with margins
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", margin, margin, contentWidth, imgHeight);
+    heightLeft -= contentHeight;
 
     // Add additional pages if needed
     while (heightLeft > 0) {
       position = heightLeft - imgHeight;
       pdf.addPage();
-      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", margin, position + margin, contentWidth, imgHeight);
+      heightLeft -= contentHeight;
     }
 
     // Save the PDF
