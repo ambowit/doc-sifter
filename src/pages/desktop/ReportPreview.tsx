@@ -958,11 +958,6 @@ export default function ReportPreview() {
     );
   }
 
-  // Calculate statistics for display
-  const totalIssues = sections.reduce((sum, s) => sum + (s.issues?.length || 0), 0);
-  const highRiskCount = sections.reduce((sum, s) => 
-    sum + (s.issues?.filter(i => i.severity === "high").length || 0), 0);
-
   return (
     <div className="h-full flex flex-col">
       {/* Header Bar */}
