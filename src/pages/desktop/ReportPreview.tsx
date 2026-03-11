@@ -500,16 +500,21 @@ export default function ReportPreview() {
     });
 
     const normalizedSections: ReportSection[] = rawSections.map((section) => {
+      // Debug: log raw issues data
+      console.log("[v0] Raw section.issues for", section.title, ":", JSON.stringify(section.issues));
+      
       // Normalize issues - filter out empty ones
       const normalizedIssues = Array.isArray(section.issues) 
-        ? section.issues.map((issue) => normalizeIssue(issue as Record<string, unknown>))
+        ? section.issues.map((issue) => {
+            const normalized = normalizeIssue(issue as Record<string, unknown>);
+            console.log("[v0] Normalized issue:", normalized);
+            return normalized;
+          })
             .filter((issue) => issue.fact || issue.risk || issue.suggestion)
         : [];
       
       // Debug log to see actual issues data
-      if (normalizedIssues.length > 0) {
-        console.log("[v0] Section issues:", section.title, normalizedIssues);
-      }
+      console.log("[v0] Final normalizedIssues count:", normalizedIssues.length, "for section:", section.title);
       
       // Normalize findings - handle both string and object formats
       const normalizedFindings = Array.isArray(section.findings) 
@@ -1590,7 +1595,7 @@ function generateReportHTML(
       <p><strong>一、报告依据</strong></p>
       <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核���。</p>
       <p><strong>二、尽调范围</strong></p>
-      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
+      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运��等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>
