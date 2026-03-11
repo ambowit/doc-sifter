@@ -178,6 +178,60 @@ function generatePDFHTML(
     `;
   }
 
+  // Build equity structure section if available
+  let equityStructureHTML = "";
+  if (metadata?.equityStructure && metadata.equityStructure.shareholders && metadata.equityStructure.shareholders.length > 0) {
+    const equity = metadata.equityStructure;
+    const typeLabels: Record<string, string> = {
+      individual: "自然人",
+      company: "法人",
+      team: "持股平台",
+    };
+    
+    equityStructureHTML = `
+      <div style="margin-bottom: 32px; page-break-inside: avoid;">
+        <h3 style="font-size: 16px; font-weight: 600; color: #111827; margin-bottom: 16px;">股权结构</h3>
+        <div style="margin-bottom: 12px; font-size: 13px; color: #374151;">
+          <strong>目标公司：</strong>${equity.companyName}
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 10%;">序号</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 35%;">股东名称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 15%;">类型</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: right; width: 20%;">持股比例</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 20%;">备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${equity.shareholders
+              .map(
+                (sh: { name: string; type: string; percentage: number | null; notes?: string }, idx: number) => `
+              <tr>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${idx + 1}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${sh.name}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${typeLabels[sh.type] || sh.type}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: right;">${sh.percentage !== null && sh.percentage !== undefined ? sh.percentage + "%" : "未披露"}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${sh.notes || "-"}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+        ${equity.notes && equity.notes.length > 0 ? `
+          <div style="font-size: 11px; color: #6b7280; padding: 8px; background: #f9fafb; border-radius: 4px;">
+            <strong>注：</strong>
+            <ol style="margin: 4px 0 0 0; padding-left: 16px;">
+              ${equity.notes.map((note: string) => `<li>${note}</li>`).join("")}
+            </ol>
+          </div>
+        ` : ""}
+      </div>
+    `;
+  }
+
   // Build definitions section if available
   let definitionsHTML = "";
   if (definitions && definitions.length > 0) {
@@ -274,6 +328,9 @@ function generatePDFHTML(
 
       <!-- Definitions -->
       ${definitionsHTML}
+
+      <!-- Equity Structure -->
+      ${equityStructureHTML}
 
       <!-- Main Content -->
       ${sectionsHTML}
@@ -464,6 +521,139 @@ export async function exportToWord(
       })
     );
   });
+
+  // Equity Structure section if available
+  if (metadata?.equityStructure && metadata.equityStructure.shareholders && metadata.equityStructure.shareholders.length > 0) {
+    const equity = metadata.equityStructure;
+    const typeLabels: Record<string, string> = {
+      individual: "自然人",
+      company: "法人",
+      team: "持股平台",
+    };
+
+    docChildren.push(
+      new Paragraph({
+        children: [],
+        pageBreakBefore: true,
+      })
+    );
+
+    docChildren.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: "股权结构",
+            bold: true,
+            size: 28,
+          }),
+        ],
+        heading: HeadingLevel.HEADING_1,
+        spacing: { after: 300 },
+      })
+    );
+
+    docChildren.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `目标公司：${equity.companyName}`,
+            size: 24,
+          }),
+        ],
+        spacing: { after: 200 },
+      })
+    );
+
+    // Equity table
+    const equityTableRows: TableRow[] = [
+      new TableRow({
+        children: [
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: "序号", bold: true, size: 20 })] })],
+            width: { size: 10, type: WidthType.PERCENTAGE },
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: "股东名称", bold: true, size: 20 })] })],
+            width: { size: 35, type: WidthType.PERCENTAGE },
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: "类型", bold: true, size: 20 })] })],
+            width: { size: 15, type: WidthType.PERCENTAGE },
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: "持股比例", bold: true, size: 20 })] })],
+            width: { size: 20, type: WidthType.PERCENTAGE },
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: "备注", bold: true, size: 20 })] })],
+            width: { size: 20, type: WidthType.PERCENTAGE },
+          }),
+        ],
+      }),
+    ];
+
+    equity.shareholders.forEach((sh: { name: string; type: string; percentage: number | null; notes?: string }, idx: number) => {
+      equityTableRows.push(
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: String(idx + 1), size: 20 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: sh.name, size: 20 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: typeLabels[sh.type] || sh.type, size: 20 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: sh.percentage !== null && sh.percentage !== undefined ? sh.percentage + "%" : "未披露", size: 20 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: sh.notes || "-", size: 20 })] })],
+            }),
+          ],
+        })
+      );
+    });
+
+    docChildren.push(
+      new Table({
+        rows: equityTableRows,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      })
+    );
+
+    // Notes
+    if (equity.notes && equity.notes.length > 0) {
+      docChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "注：",
+              bold: true,
+              size: 20,
+            }),
+          ],
+          spacing: { before: 200, after: 100 },
+        })
+      );
+
+      equity.notes.forEach((note: string, idx: number) => {
+        docChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${idx + 1}. ${note}`,
+                size: 20,
+              }),
+            ],
+            spacing: { after: 50 },
+            indent: { left: convertInchesToTwip(0.25) },
+          })
+        );
+      });
+    }
+  }
 
   // Sections
   for (const section of sections) {
