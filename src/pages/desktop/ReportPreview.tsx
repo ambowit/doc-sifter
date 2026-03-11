@@ -491,15 +491,36 @@ export default function ReportPreview() {
         ? ((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections as ReportSection[])
         : [];
 
-    const normalizedSections: ReportSection[] = rawSections.map((section) => ({
-      id: section.id,
-      title: section.title || "",
-      number: section.number || "",
-      content: section.content || "",
-      findings: Array.isArray(section.findings) ? section.findings : [],
-      issues: Array.isArray(section.issues) ? section.issues : [],
-      sourceFiles: Array.isArray(section.sourceFiles) ? section.sourceFiles : [],
-    }));
+    // Helper to normalize issue fields (handle both English and Chinese field names)
+    const normalizeIssue = (issue: Record<string, unknown>) => ({
+      fact: String(issue.fact || issue.事实 || issue.description || ""),
+      risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+      suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+      severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+    });
+
+    const normalizedSections: ReportSection[] = rawSections.map((section) => {
+      // Normalize issues - filter out empty ones
+      const normalizedIssues = Array.isArray(section.issues) 
+        ? section.issues.map((issue) => normalizeIssue(issue as Record<string, unknown>))
+            .filter((issue) => issue.fact || issue.risk || issue.suggestion)
+        : [];
+      
+      // Debug log to see actual issues data
+      if (normalizedIssues.length > 0) {
+        console.log("[v0] Section issues:", section.title, normalizedIssues);
+      }
+      
+      return {
+        id: section.id,
+        title: section.title || "",
+        number: section.number || "",
+        content: section.content || "",
+        findings: Array.isArray(section.findings) ? section.findings : [],
+        issues: normalizedIssues,
+        sourceFiles: Array.isArray(section.sourceFiles) ? section.sourceFiles : [],
+      };
+    });
 
     let loadedMetadata: ReportMetadata | null = null;
     if (reportJson.metadata && typeof reportJson.metadata === "object") {
@@ -665,6 +686,22 @@ export default function ReportPreview() {
       }
       
       if (data?.section) {
+        // Helper to normalize issue fields
+        const normalizeIssue = (issue: Record<string, unknown>) => ({
+          fact: String(issue.fact || issue.事实 || issue.description || ""),
+          risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+          suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+          severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+        });
+
+        // Normalize issues from AI response
+        const normalizedIssues = Array.isArray(data.section.issues) 
+          ? data.section.issues.map((issue: Record<string, unknown>) => normalizeIssue(issue))
+              .filter((issue: { fact: string; risk: string; suggestion: string }) => issue.fact || issue.risk || issue.suggestion)
+          : [];
+        
+        console.log("[v0] Retry section issues:", data.section.issues, "normalized:", normalizedIssues);
+
         // Ensure all required fields have defaults
         const newSection: ReportSection = {
           id: sectionId,
@@ -672,7 +709,7 @@ export default function ReportPreview() {
           number: data.section.number || "",
           content: data.section.content || "",
           findings: Array.isArray(data.section.findings) ? data.section.findings : [],
-          issues: Array.isArray(data.section.issues) ? data.section.issues : [],
+          issues: normalizedIssues,
           sourceFiles: Array.isArray(data.section.sourceFiles) ? data.section.sourceFiles : [],
         };
         // Update section and persist to database
