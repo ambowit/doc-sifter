@@ -633,16 +633,26 @@ ${allFilesContent}
           }
           
           // Normalize issues to ensure all fields exist
-          const normalizedIssues = Array.isArray(parsed.issues) 
+          let normalizedIssues = Array.isArray(parsed.issues) 
             ? parsed.issues.map((issue: Record<string, unknown>) => ({
-                fact: issue.fact || issue.事实 || issue.description || "",
-                risk: issue.risk || issue.风险 || issue.问题 || issue.problem || "",
-                suggestion: issue.suggestion || issue.建议 || issue.advice || issue.recommendation || "",
+                fact: String(issue.fact || issue.事实 || issue.description || ""),
+                risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+                suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
                 severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
               })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
                 issue.fact || issue.risk || issue.suggestion
               )
             : [];
+
+          // Add default issue if none found
+          if (normalizedIssues.length === 0) {
+            normalizedIssues = [{
+              fact: `经核查，尚未获取到「${chapterTitle}」相关的完整资料`,
+              risk: "存在核查不完整的风险，可能遗漏重要法律问题",
+              suggestion: "建议补充提供相关资料以便进一步核查",
+              severity: "low" as const
+            }];
+          }
 
           section = {
             id: chapterId,
@@ -674,7 +684,12 @@ ${allFilesContent}
             number: chapterNumber,
             content: `【${chapterTitle}】\n\n${aiResponse.substring(0, 2000)}\n\n（AI返回格式异常，已显示原始内容）`,
             findings: [],
-            issues: [],
+            issues: [{
+              fact: "经核查，AI返回格式异常，无法解析报告内容",
+              risk: "存在报告生成异常的风险",
+              suggestion: "建议重新生成该章节",
+              severity: "low"
+            }],
             sourceFiles: [],
           };
         }
@@ -696,7 +711,12 @@ ${allFilesContent}
             ? `【${chapterTitle}】\n\nAI生成超时，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`
             : `【${chapterTitle}】\n\nAI生成失败: ${errorMsg}\n\n请稍后重试。`,
           findings: [],
-          issues: [],
+          issues: [{
+            fact: `经核查，${errorMsg.includes("AI_TIMEOUT") ? "AI生成超时" : "AI生成失败"}`,
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         };
         
@@ -801,7 +821,7 @@ ${allFilesContent}
 
 **关键人员类**（重点核查）：
 - 兼职审批：如关键人员为高校/国企在职人员，是否取得校外兼职审批
-- 禁止兼任：检查监事是否兼任董事/高管或实际经营管理者（违反《公司法》）
+- 禁止兼任：检查监事是��兼任董事/高管或实际经营管理者（违反《公司法》）
 - 体外持股/任职：详细排查关键人员在关联公司或竞争对手的持股、任职情况，评估精力分散及利益输送风险
 - 同业竞争：排查关键人员是否涉及竞争业务
 
@@ -980,16 +1000,26 @@ ${allFilesContent}
             processedIds.add(matchedChapter.id);
             
             // Normalize issues to ensure all fields exist
-            const normalizedIssues = Array.isArray(rawSection.issues) 
+            let normalizedIssues = Array.isArray(rawSection.issues) 
               ? rawSection.issues.map((issue: Record<string, unknown>) => ({
-                  fact: issue.fact || issue.事实 || issue.description || "",
-                  risk: issue.risk || issue.风险 || issue.问题 || issue.problem || "",
-                  suggestion: issue.suggestion || issue.建议 || issue.advice || issue.recommendation || "",
+                  fact: String(issue.fact || issue.事实 || issue.description || ""),
+                  risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+                  suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
                   severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
                 })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
                   issue.fact || issue.risk || issue.suggestion
                 )
               : [];
+
+            // Add default issue if none found
+            if (normalizedIssues.length === 0) {
+              normalizedIssues = [{
+                fact: `经核查，尚未获取到「${matchedChapter.title}」相关的完整资料`,
+                risk: "存在核查不完整的风险，可能遗漏重要法律问题",
+                suggestion: "建议补充提供相关资料以便进一步核查",
+                severity: "low" as const
+              }];
+            }
             
             // Use database title and number, keep AI-generated content
             sections.push({
@@ -1013,7 +1043,12 @@ ${allFilesContent}
               number: chapter.number || "",
               content: `【${chapter.title}】\n\nAI未能生成此章节内容，请检查是否有相关文件。`,
               findings: ["待核查"],
-              issues: [],
+              issues: [{
+                fact: `经核查，尚未获取到「${chapter.title}」相关的完整资料`,
+                risk: "存在核查不完整的风险",
+                suggestion: "建议补充提供相关资料",
+                severity: "low"
+              }],
               sourceFiles: [],
             });
           }
@@ -1027,7 +1062,12 @@ ${allFilesContent}
           number: c.number || "",
           content: `【${c.title}】\n\nAI生成失败，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`,
           findings: ["生成失败，待重试"],
-          issues: [],
+          issues: [{
+            fact: "经核查，AI生成失败",
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         }));
       }
@@ -1057,7 +1097,12 @@ ${allFilesContent}
           number: c.number || "",
           content: `【${c.title}】\n\nAI生成超时，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`,
           findings: ["生成超时"],
-          issues: [],
+          issues: [{
+            fact: "经核查，AI生成超时",
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         }));
         
