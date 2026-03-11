@@ -564,10 +564,37 @@ ${allFilesContent}
 ${allFilesContent}
 
 ## 输出格式
-请直接输出纯 JSON，不要包含\`\`\`json标记：
-{"title":"${chapterTitle}","number":"${chapterNumber || ""}","content":"报告正文（包含Markdown表格）","findings":["发现点"],"issues":[{"fact":"事实","risk":"风险","suggestion":"建议","severity":"high|medium|low"}],"sourceFiles":["文件名1","文件名2"]}
+请直接输出纯 JSON，不要包含\`\`\`json标记。
 
-如无相关文件，在content中说明"尚未获取相关资料"。`;
+**重要：issues数组必须包含完整内容，每个issue的fact/risk/suggestion字段必须有实际内容！**
+
+示例格式：
+{
+  "title": "${chapterTitle}",
+  "number": "${chapterNumber || ""}",
+  "content": "报告正文内容（使用Markdown表格展示数据）",
+  "findings": ["核查发现的事实1", "核查发现的事实2"],
+  "issues": [
+    {
+      "fact": "经核查，目标公司注册资本1000万元，实缴资本仅100万元",
+      "risk": "存在注册资本未实缴风险，影响公司运营资金及股东责任认定",
+      "suggestion": "建议在交割前要求股东完成实缴，或在投资协议中设置实缴安排条款",
+      "severity": "medium"
+    },
+    {
+      "fact": "经核查，公司高管信息未在工商登记中更新",
+      "risk": "存在工商登记与实际管理层不符的合规风险",
+      "suggestion": "建议在交割前完成工商变更登记",
+      "severity": "low"
+    }
+  ],
+  "sourceFiles": ["营业执照.pdf", "公司章程.pdf"]
+}
+
+注意：
+1. issues中每个问题的fact、risk、suggestion字段都必须填写具体内容，不能为空
+2. 如果确实没有发现问题，issues数组可以为空 []
+3. 如无相关文件，在content中说明"尚未获取相关资料"`;
 
       try {
         const aiResponse = await callAI(apiKey, singleChapterPrompt, "请生成章节内容，必须包含表格", 90000); // 90秒超时
@@ -601,13 +628,25 @@ ${allFilesContent}
             }
           }
           
+          // Normalize issues to ensure all fields exist
+          const normalizedIssues = Array.isArray(parsed.issues) 
+            ? parsed.issues.map((issue: Record<string, unknown>) => ({
+                fact: issue.fact || issue.事实 || issue.description || "",
+                risk: issue.risk || issue.风险 || issue.问题 || issue.problem || "",
+                suggestion: issue.suggestion || issue.建议 || issue.advice || issue.recommendation || "",
+                severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+              })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
+                issue.fact || issue.risk || issue.suggestion
+              )
+            : [];
+
           section = {
             id: chapterId,
             title: parsed.title || chapterTitle,
             number: parsed.number || chapterNumber,
             content: parsed.content || `【${chapterTitle}】内容待生成`,
             findings: Array.isArray(parsed.findings) ? parsed.findings : [],
-            issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+            issues: normalizedIssues,
             sourceFiles: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles : [],
           };
           
@@ -850,10 +889,16 @@ ${allFilesContent}
     "findings": ["核查发现1", "核查发现2", "核查发现3"],
     "issues": [
       {
-        "fact": "具体事实描述",
-        "risk": "法律风险分析",
-        "suggestion": "投资保障建议（关联交割条件/义务/特殊权利）",
-        "severity": "high/medium/low"
+        "fact": "经核查，目标公司注册资本1000万元，截至2024年12月31日实缴资本仅300万元",
+        "risk": "存在注册资本未足额实缴的法律风险，根据《公司法》规定，股东应按期足额缴纳出资，未实缴部分可能影响公司运营资金及后续融资估值",
+        "suggestion": "建议在交割前将实缴安排作为前置条件，或在投资协议中设置股东补缴义务及违约责任条款",
+        "severity": "medium"
+      },
+      {
+        "fact": "经核查，公司监事王某同时担任公司总经理职务",
+        "risk": "根据《公司法》第五十一条规定，监事不得兼任公司的董事、高级管理人员，存在公司治理合规风险",
+        "suggestion": "建议交割前完成监事变更登记，由非高管人员担任监事职务",
+        "severity": "high"
       }
     ],
     "sourceFiles": ["引用的文件名称"]
@@ -921,6 +966,19 @@ ${allFilesContent}
           const matchedChapter = findMatchingChapter(rawSection.title || "");
           if (matchedChapter && !processedIds.has(matchedChapter.id)) {
             processedIds.add(matchedChapter.id);
+            
+            // Normalize issues to ensure all fields exist
+            const normalizedIssues = Array.isArray(rawSection.issues) 
+              ? rawSection.issues.map((issue: Record<string, unknown>) => ({
+                  fact: issue.fact || issue.事实 || issue.description || "",
+                  risk: issue.risk || issue.风险 || issue.问题 || issue.problem || "",
+                  suggestion: issue.suggestion || issue.建议 || issue.advice || issue.recommendation || "",
+                  severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+                })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
+                  issue.fact || issue.risk || issue.suggestion
+                )
+              : [];
+            
             // Use database title and number, keep AI-generated content
             sections.push({
               id: matchedChapter.id,
@@ -928,7 +986,7 @@ ${allFilesContent}
               number: matchedChapter.number || "",
               content: rawSection.content || "",
               findings: rawSection.findings || [],
-              issues: rawSection.issues || [],
+              issues: normalizedIssues,
               sourceFiles: rawSection.sourceFiles || [],
             });
           }
