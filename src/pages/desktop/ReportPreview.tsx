@@ -49,6 +49,7 @@ import { EquityChart } from "@/components/desktop/EquityChart";
 import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { supabase } from "@/integrations/supabase/client";
 import { templateStyles, type TemplateStyle } from "@/lib/reportMockData";
+import { exportToPDF, exportToWord } from "@/lib/exportUtils";
 import {
   Select,
   SelectContent,
@@ -709,10 +710,21 @@ export default function ReportPreview() {
     setIsExporting(true);
     
     try {
-      // Generate HTML content
-      const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length);
-      
-      if (exportFormat === "html") {
+      const projectData = {
+        name: currentProject.name,
+        target: currentProject.target,
+        client: currentProject.client,
+      };
+
+      if (exportFormat === "pdf") {
+        await exportToPDF(projectData, sections, metadata, definitions, files.length);
+        toast.success("PDF 报告已下载");
+      } else if (exportFormat === "docx") {
+        await exportToWord(projectData, sections, metadata, definitions, files.length);
+        toast.success("Word 报告已下载");
+      } else if (exportFormat === "html") {
+        // Generate HTML content
+        const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length);
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -722,18 +734,7 @@ export default function ReportPreview() {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        toast.success("报告已导出为 HTML 格式");
-      } else {
-        // Open in new window for printing
-        const printWindow = window.open("", "_blank");
-        if (printWindow) {
-          printWindow.document.write(html);
-          printWindow.document.close();
-          printWindow.onload = () => {
-            printWindow.print();
-          };
-        }
-        toast.success(`报告已打开，请使用打印功能保存为 ${exportFormat.toUpperCase()}`);
+        toast.success("HTML 报告已下载");
       }
     } catch (err) {
       console.error("Export error:", err);
