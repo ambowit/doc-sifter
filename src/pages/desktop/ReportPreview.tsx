@@ -491,30 +491,44 @@ export default function ReportPreview() {
         ? ((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections as ReportSection[])
         : [];
 
-    // Helper to normalize issue fields (handle both English and Chinese field names)
-    const normalizeIssue = (issue: Record<string, unknown>) => ({
-      fact: String(issue.fact || issue.事实 || issue.description || ""),
-      risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
-      suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
-      severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
-    });
+  // Helper to normalize issue fields (handle both English and Chinese field names, and strings)
+  const normalizeIssue = (issue: unknown) => {
+    // If issue is a string, convert it to an object format
+    if (typeof issue === "string") {
+      const str = issue.trim();
+      // Try to determine if it's a fact, risk, or suggestion based on content
+      if (str.startsWith("经核查") || str.includes("核查发现")) {
+        return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+      } else if (str.includes("风险") || str.includes("问题")) {
+        return { fact: "", risk: str, suggestion: "", severity: "medium" as const };
+      } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
+        return { fact: "", risk: "", suggestion: str, severity: "low" as const };
+      }
+      // Default: treat as fact
+      return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+    }
+    
+    // If issue is an object, extract fields
+    if (typeof issue === "object" && issue !== null) {
+      const obj = issue as Record<string, unknown>;
+      return {
+        fact: String(obj.fact || obj.事实 || obj.description || ""),
+        risk: String(obj.risk || obj.风险 || obj.问题 || obj.problem || ""),
+        suggestion: String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || ""),
+        severity: (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low",
+      };
+    }
+    
+    // Fallback
+    return { fact: String(issue), risk: "", suggestion: "", severity: "low" as const };
+  };
 
     const normalizedSections: ReportSection[] = rawSections.map((section) => {
-      // Debug: log raw issues data
-      console.log("[v0] Raw section.issues for", section.title, ":", JSON.stringify(section.issues));
-      
-      // Normalize issues - filter out empty ones
+      // Normalize issues - filter out empty ones (handle both object and string formats)
       const normalizedIssues = Array.isArray(section.issues) 
-        ? section.issues.map((issue) => {
-            const normalized = normalizeIssue(issue as Record<string, unknown>);
-            console.log("[v0] Normalized issue:", normalized);
-            return normalized;
-          })
+        ? section.issues.map((issue) => normalizeIssue(issue))
             .filter((issue) => issue.fact || issue.risk || issue.suggestion)
         : [];
-      
-      // Debug log to see actual issues data
-      console.log("[v0] Final normalizedIssues count:", normalizedIssues.length, "for section:", section.title);
       
       // Normalize findings - handle both string and object formats
       const normalizedFindings = Array.isArray(section.findings) 
@@ -709,17 +723,34 @@ export default function ReportPreview() {
       }
       
       if (data?.section) {
-        // Helper to normalize issue fields
-        const normalizeIssue = (issue: Record<string, unknown>) => ({
-          fact: String(issue.fact || issue.事实 || issue.description || ""),
-          risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
-          suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
-          severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
-        });
+        // Helper to normalize issue fields (handle both objects and strings)
+        const normalizeIssueRetry = (issue: unknown) => {
+          if (typeof issue === "string") {
+            const str = issue.trim();
+            if (str.startsWith("经核查") || str.includes("核查发现")) {
+              return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+            } else if (str.includes("风险") || str.includes("问题")) {
+              return { fact: "", risk: str, suggestion: "", severity: "medium" as const };
+            } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
+              return { fact: "", risk: "", suggestion: str, severity: "low" as const };
+            }
+            return { fact: str, risk: "", suggestion: "", severity: "low" as const };
+          }
+          if (typeof issue === "object" && issue !== null) {
+            const obj = issue as Record<string, unknown>;
+            return {
+              fact: String(obj.fact || obj.事实 || obj.description || ""),
+              risk: String(obj.risk || obj.风险 || obj.问题 || obj.problem || ""),
+              suggestion: String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || ""),
+              severity: (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low",
+            };
+          }
+          return { fact: String(issue), risk: "", suggestion: "", severity: "low" as const };
+        };
 
         // Normalize issues from AI response
         const normalizedIssues = Array.isArray(data.section.issues) 
-          ? data.section.issues.map((issue: Record<string, unknown>) => normalizeIssue(issue))
+          ? data.section.issues.map((issue: unknown) => normalizeIssueRetry(issue))
               .filter((issue: { fact: string; risk: string; suggestion: string }) => issue.fact || issue.risk || issue.suggestion)
           : [];
         
@@ -1593,7 +1624,7 @@ function generateReportHTML(
     <div class="content">
       <p>受<strong>${project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>${project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。</p>
       <p><strong>一、报告依据</strong></p>
-      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核���。</p>
+      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未��文件的真实性、完整性进行独立核���。</p>
       <p><strong>二、尽调范围</strong></p>
       <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运��等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
