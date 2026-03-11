@@ -89,6 +89,60 @@ function getSeverityColor(severity: string): string {
   }
 }
 
+// Convert Markdown to HTML for PDF export
+function markdownToHTMLForPDF(markdown: string): string {
+  let html = markdown;
+  
+  // Convert Markdown tables to HTML tables with styling
+  const tableRegex = /\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g;
+  html = html.replace(tableRegex, (_, headerRow, bodyRows) => {
+    const headers = headerRow.split("|").map((h: string) => h.trim()).filter(Boolean);
+    const rows = bodyRows.trim().split("\n").map((row: string) => 
+      row.split("|").map((c: string) => c.trim()).filter(Boolean)
+    );
+    
+    return `<table style="width: 100%; border-collapse: collapse; font-size: 12px; margin: 16px 0;">
+      <thead>
+        <tr style="background: #f3f4f6;">
+          ${headers.map((h: string) => `<th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; font-weight: 600;">${h}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((cells: string[]) => `<tr>${cells.map((c: string) => `<td style="padding: 8px 12px; border: 1px solid #d1d5db;">${c}</td>`).join("")}</tr>`).join("")}
+      </tbody>
+    </table>`;
+  });
+  
+  // Convert bold **text** to <strong>
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  
+  // Convert italic *text* to <em>
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  
+  // Convert headers
+  html = html.replace(/^### (.+)$/gm, '<h4 style="font-size: 14px; font-weight: 600; margin: 16px 0 8px; color: #374151;">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 style="font-size: 15px; font-weight: 600; margin: 20px 0 10px; color: #1f2937;">$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2 style="font-size: 16px; font-weight: 700; margin: 24px 0 12px; color: #111827;">$1</h2>');
+  
+  // Convert unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li style="margin-bottom: 4px;">$1</li>');
+  html = html.replace(/(<li.*<\/li>\n?)+/g, '<ul style="margin: 8px 0; padding-left: 20px;">$&</ul>');
+  
+  // Convert numbered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom: 4px;">$1</li>');
+  
+  // Convert paragraphs (lines not already converted)
+  const lines = html.split("\n");
+  html = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("<")) return line; // Already HTML
+    return `<p style="margin-bottom: 12px;">${trimmed}</p>`;
+  }).join("\n");
+  
+  return html;
+}
+
 // Generate HTML content for PDF
 function generatePDFHTML(
   project: Project,
@@ -169,7 +223,7 @@ function generatePDFHTML(
           ${section.number} ${section.title}
         </h2>
         <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
-          ${section.content.split("\n\n").map((p) => `<p style="margin-bottom: 12px;">${p}</p>`).join("")}
+          ${markdownToHTMLForPDF(section.content)}
         </div>
         ${findingsHTML}
         ${issuesHTML}

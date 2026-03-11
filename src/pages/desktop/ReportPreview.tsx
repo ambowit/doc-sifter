@@ -47,6 +47,7 @@ import { useDefinitions, Definition } from "@/hooks/useDefinitions";
 import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/useGeneratedReports";
 import { EquityChart } from "@/components/desktop/EquityChart";
 import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
+import { MarkdownRenderer } from "@/components/desktop/MarkdownRenderer";
 import { supabase } from "@/integrations/supabase/client";
 import { templateStyles, type TemplateStyle } from "@/lib/reportMockData";
 import { exportToPDF, exportToWord } from "@/lib/exportUtils";
@@ -354,24 +355,22 @@ function SectionRenderer({
                 <div className="text-[13px] font-medium text-amber-900 mb-2">
                   本章节暂无相关证据文件
                 </div>
-                <div className="text-[12px] text-amber-700 whitespace-pre-wrap">
-                  {section.content}
-                </div>
+<div className="text-[12px] text-amber-700">
+                <MarkdownRenderer content={section.content} />
+              </div>
               </div>
             </div>
           </div>
         ) : (
           <div 
-            className="text-foreground/90 whitespace-pre-wrap"
+            className="text-foreground/90"
             style={{
               fontFamily: styles?.body.font || "inherit",
               fontSize: styles ? `${styles.body.sizePt}pt` : "13px",
               lineHeight: styles?.body.lineSpacing || 1.6,
-              textIndent: styles ? `${styles.body.firstLineIndentCm}cm` : "0",
-              textAlign: (styles?.body.align as "justify" | "left" | "center" | "right") || "justify",
             }}
           >
-            {section.content}
+            <MarkdownRenderer content={section.content} />
           </div>
         )}
 
@@ -1318,6 +1317,54 @@ export default function ReportPreview() {
   );
 }
 
+// Convert Markdown to HTML (basic support for tables and formatting)
+function markdownToHTML(markdown: string): string {
+  let html = markdown;
+  
+  // Convert Markdown tables to HTML tables
+  const tableRegex = /\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g;
+  html = html.replace(tableRegex, (_, headerRow, bodyRows) => {
+    const headers = headerRow.split("|").map((h: string) => h.trim()).filter(Boolean);
+    const rows = bodyRows.trim().split("\n").map((row: string) => 
+      row.split("|").map((c: string) => c.trim()).filter(Boolean)
+    );
+    
+    return `<table>
+      <thead><tr>${headers.map((h: string) => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((cells: string[]) => `<tr>${cells.map((c: string) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+  });
+  
+  // Convert bold **text** to <strong>
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  
+  // Convert italic *text* to <em>
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  
+  // Convert headers
+  html = html.replace(/^### (.+)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^## (.+)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^# (.+)$/gm, "<h2>$1</h2>");
+  
+  // Convert unordered lists
+  html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
+  
+  // Convert numbered lists
+  html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+  
+  // Convert paragraphs (lines not already converted)
+  const lines = html.split("\n");
+  html = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("<")) return line; // Already HTML
+    return `<p>${trimmed}</p>`;
+  }).join("\n");
+  
+  return html;
+}
+
 // Helper function to generate HTML report
 function generateReportHTML(
   project: { name: string; target?: string; client?: string },
@@ -1554,7 +1601,7 @@ function generateReportHTML(
     } else {
       html += `
     <div class="content">
-      ${section.content.split("\n").map(p => p.trim() ? `<p>${p}</p>` : "").join("")}
+      ${markdownToHTML(section.content)}
     </div>
 `;
     }
