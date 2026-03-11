@@ -248,6 +248,7 @@ function SectionRenderer({
   onRetry,
   isRetrying,
   templateStyle,
+  onUploadClick,
 }: {
   section: ReportSection;
   mappedFiles: Array<{ name: string; id: string }>;
@@ -258,6 +259,7 @@ function SectionRenderer({
   onRetry?: (sectionId: string, sectionTitle: string) => void;
   isRetrying?: boolean;
   templateStyle?: TemplateStyle;
+  onUploadClick?: (sectionTitle: string) => void;
 }) {
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
@@ -270,11 +272,11 @@ function SectionRenderer({
   const isIntroSection = section.title.includes("引言") || section.title === "引言";
   const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义") || section.title === "定义";
   const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
-
+  
   // Get styles from template or use defaults
   const styles = templateStyle?.styles;
   const headerColor = templateStyle?.preview.primaryColor || "#000";
-
+  
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -298,10 +300,15 @@ function SectionRenderer({
           </h2>
           <div className="flex items-center gap-3">
             {hasNoData ? (
-              <Badge variant="outline" className="text-amber-600 border-amber-300">
-                <FileWarning className="w-3 h-3 mr-1" />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onUploadClick?.(section.title)}
+                className="h-7 gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+              >
+                <FileWarning className="w-3 h-3" />
                 待补充资料
-              </Badge>
+              </Button>
             ) : (
               <Badge variant="outline" className="text-emerald-600 border-emerald-300">
                 <CheckCircle2 className="w-3 h-3 mr-1" />
@@ -348,21 +355,31 @@ function SectionRenderer({
           // Equity Structure - Use visual chart
           <EquityStructureSection metadata={metadata || null} />
         ) : hasNoData ? (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded">
-            <div className="flex items-start gap-3">
-              <FileWarning className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          // No data placeholder with upload button
+          <div className="p-6 bg-amber-50 border border-amber-200 rounded">
+            <div className="flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <div className="text-[13px] font-medium text-amber-900 mb-2">
-                  本章节暂无相关证据文件
+                <div className="text-[13px] text-amber-900 font-medium mb-2">
+                  尚未获取到「{section.title}」相关的完整资料
                 </div>
-<div className="text-[12px] text-amber-700">
-                <MarkdownRenderer content={section.content} />
-              </div>
+                <div className="text-[12px] text-amber-700 mb-4">
+                  <MarkdownRenderer content={section.content} />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onUploadClick?.(section.title)}
+                  className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-100"
+                >
+                  <ArrowRight className="w-3 h-3" />
+                  补充资料
+                </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div 
+          <div
             className="text-foreground/90"
             style={{
               fontFamily: styles?.body.font || "inherit",
@@ -373,57 +390,61 @@ function SectionRenderer({
             <MarkdownRenderer content={section.content} />
           </div>
         )}
-
+        
         {/* Findings */}
         {hasFindings && !hasNoData && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
-            <div className="text-[12px] font-medium text-blue-900 mb-2">核查发现</div>
-            <ul className="list-disc pl-5 space-y-1">
-              {section.findings.map((finding, idx) => (
-                <li key={idx} className="text-[12px] text-blue-800">
-                  {finding}
-                </li>
-              ))}
-            </ul>
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded">
+            <div className="flex items-start gap-3">
+              <BookOpen className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-[13px] text-blue-900 mb-2">核查发现</div>
+                <ul className="list-disc pl-5 space-y-1 text-[12px] text-blue-800">
+                  {section.findings.map((finding, idx) => (
+                    <li key={idx}>{finding}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
           </div>
         )}
-
+        
         {/* Issues Table */}
         {hasIssues && (
-          <div className="mt-4">
+          <div className="mt-6">
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <h4 className="text-[13px] font-semibold">发现的问题与风险</h4>
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="font-medium text-[13px] text-amber-700">发现的问题与风险</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse border border-border text-[12px]">
                 <thead>
-                  <tr className="bg-muted">
-                    <th className="border border-border p-2 w-10">序号</th>
-                    <th className="border border-border p-2">事实</th>
-                    <th className="border border-border p-2">问题/风险</th>
-                    <th className="border border-border p-2">建议</th>
-                    <th className="border border-border p-2 w-16">级别</th>
+                  <tr className="bg-amber-50">
+                    <th className="border border-border p-2 w-10 text-center">序号</th>
+                    <th className="border border-border p-2 text-left">事实</th>
+                    <th className="border border-border p-2 text-left">问题/风险</th>
+                    <th className="border border-border p-2 w-32 text-left">建议</th>
+                    <th className="border border-border p-2 w-16 text-center">级别</th>
                   </tr>
                 </thead>
                 <tbody>
                   {section.issues.map((issue, idx) => (
                     <tr key={idx}>
-                      <td className="border border-border p-2 text-center">{idx + 1}</td>
+                      <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
                       <td className="border border-border p-2">{issue.fact}</td>
                       <td className="border border-border p-2">{issue.risk}</td>
                       <td className="border border-border p-2">{issue.suggestion}</td>
                       <td className="border border-border p-2 text-center">
-                        <span
+                        <Badge 
+                          variant="outline"
                           className={cn(
-                            "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                            issue.severity === "high" && "bg-red-100 text-red-700",
-                            issue.severity === "medium" && "bg-amber-100 text-amber-700",
-                            issue.severity === "low" && "bg-green-100 text-green-700"
+                            "text-[10px]",
+                            issue.severity === "high" && "border-red-300 text-red-600 bg-red-50",
+                            issue.severity === "medium" && "border-amber-300 text-amber-600 bg-amber-50",
+                            issue.severity === "low" && "border-blue-300 text-blue-600 bg-blue-50"
                           )}
                         >
                           {issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}
-                        </span>
+                        </Badge>
                       </td>
                     </tr>
                   ))}
@@ -432,72 +453,34 @@ function SectionRenderer({
             </div>
           </div>
         )}
-
-        {/* Source Files */}
-        {section.sourceFiles.length > 0 && (
-          <div className="mt-4 p-3 bg-muted/50 rounded">
-            <div className="text-[11px] font-medium text-muted-foreground mb-2">证据来源</div>
-            <div className="flex flex-wrap gap-2">
-              {section.sourceFiles.map((fileName, idx) => (
-                <Badge key={idx} variant="secondary" className="text-[10px]">
-                  <File className="w-3 h-3 mr-1" />
-                  {fileName}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </motion.div>
   );
 }
 
-// Main Component
+// Main Report Preview Component
 export default function ReportPreview() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
-  const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject();
-
-  // Fetch real data
+  
+  // Data hooks
+  const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject(projectId);
   const { data: flatChapters = [], isLoading: isChaptersLoading } = useFlatChapters(projectId);
   const { data: files = [], isLoading: isFilesLoading } = useFiles(projectId);
   const { data: definitions = [] } = useDefinitions(projectId);
   const { data: latestReport, isLoading: isReportLoading } = useLatestGeneratedReport(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
-
-  // Report generation state
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState(0);
-  const [generationStatus, setGenerationStatus] = useState("");
+  
+  // State for generated report
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [metadata, setMetadata] = useState<ReportMetadata | null>(null);
   const [hasGenerated, setHasGenerated] = useState(false);
-
-  // Restore persisted report data from database
-  useEffect(() => {
-    if (!latestReport || flatChapters.length === 0) {
-      if (!latestReport) {
-        setSections([]);
-        setMetadata(null);
-        setHasGenerated(false);
-      }
-      return;
-    }
-
-    const reportJson = (latestReport.reportJson || {}) as Record<string, unknown>;
-    const rawSections = Array.isArray(reportJson.sections)
-      ? (reportJson.sections as ReportSection[])
-      : Array.isArray((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections)
-        ? ((reportJson as { content?: { sections?: ReportSection[] } }).content?.sections as ReportSection[])
-        : [];
-
+  const [isGenerating] = useState(false);
+  
   // Helper to normalize issue fields (handle both English and Chinese field names, and strings)
   const normalizeIssue = (issue: unknown) => {
-    // If issue is a string, convert it to a complete object with all three fields
     if (typeof issue === "string") {
       const str = issue.trim();
-      
-      // Determine severity based on keywords
       let severity: "high" | "medium" | "low" = "low";
       if (str.includes("重大") || str.includes("严重") || str.includes("违法")) {
         severity = "high";
@@ -505,19 +488,12 @@ export default function ReportPreview() {
         severity = "medium";
       }
       
-      // For strings, we need to generate all three fields
-      // Fact: the original content (what was found)
-      // Risk: derived risk statement
-      // Suggestion: derived suggestion
-      
       let fact = str;
       let risk = "";
       let suggestion = "";
       
-      // If the string describes a fact (starts with "经核查" or similar)
       if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
         fact = str;
-        // Generate a risk based on the fact
         if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
           risk = "由于相关资料缺失，无法全面核实相关合规情况，存在潜在的法律风险";
           suggestion = "建议补充提供相关资料以便进一步核查";
@@ -528,48 +504,28 @@ export default function ReportPreview() {
           risk = "上述情况可能存在潜在的法律或合规风险";
           suggestion = "建议关注并进行进一步核查";
         }
-      }
-      // If the string describes a risk
-      else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
+      } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
         fact = "经核查，发现以下情况";
         risk = str;
-        if (str.includes("建议")) {
-          // Extract suggestion from the risk string if it contains one
-          const suggestionMatch = str.match(/建议[^。，]*[。，]?/);
-          if (suggestionMatch) {
-            suggestion = suggestionMatch[0];
-          } else {
-            suggestion = "建议关注上述风险并采取相应措施";
-          }
-        } else {
-          suggestion = "建议关注上述风险并采取相应的风险防控措施";
-        }
-      }
-      // If the string describes a suggestion
-      else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
+        suggestion = "建议关注上述风险并采取相应的风险防控措施";
+      } else if (str.includes("建议") || str.includes("应当") || str.includes("需要")) {
         fact = "经核查，发现需要关注的事项";
         risk = "如不采取相应措施，可能存在潜在风险";
         suggestion = str;
-      }
-      // Default case
-      else {
+      } else {
         fact = str;
         risk = "上述情况需要进一步关注";
         suggestion = "建议进行详细核查并评估潜在影响";
       }
-      
       return { fact, risk, suggestion, severity };
     }
     
-    // If issue is an object, extract fields
     if (typeof issue === "object" && issue !== null) {
       const obj = issue as Record<string, unknown>;
       const fact = String(obj.fact || obj.事实 || obj.description || "");
       const risk = String(obj.risk || obj.风险 || obj.问题 || obj.problem || "");
       const suggestion = String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || "");
       const severity = (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low";
-      
-      // If object has incomplete fields, try to fill them
       return {
         fact: fact || (risk ? "经核查，发现以下情况" : ""),
         risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
@@ -578,15 +534,18 @@ export default function ReportPreview() {
       };
     }
     
-    // Fallback
-    return { 
-      fact: String(issue), 
-      risk: "上述情况需要进一步关注", 
-      suggestion: "建议进行详细核查", 
-      severity: "low" as const 
-    };
+    return { fact: String(issue), risk: "上述情况需要进一步关注", suggestion: "建议进行详细核查", severity: "low" as const };
   };
-
+  
+  // Load report data from database
+  useEffect(() => {
+    if (!latestReport?.reportJson) return;
+    
+    const reportJson = latestReport.reportJson as { sections?: unknown[]; metadata?: unknown };
+    if (!reportJson.sections || !Array.isArray(reportJson.sections)) return;
+    
+    const rawSections = reportJson.sections as ReportSection[];
+    
     const normalizedSections: ReportSection[] = rawSections.map((section) => {
       // Normalize issues - filter out empty ones (handle both object and string formats)
       const normalizedIssues = Array.isArray(section.issues) 
@@ -599,13 +558,11 @@ export default function ReportPreview() {
         ? section.findings.map((finding) => {
             if (typeof finding === "string") return finding;
             if (typeof finding === "object" && finding !== null) {
-              // Handle object format like {item, detail, sourceFiles}
               const f = finding as Record<string, unknown>;
               if (f.item) return String(f.item);
               if (f.detail) return String(f.detail);
               if (f.text) return String(f.text);
               if (f.content) return String(f.content);
-              // Fallback: convert to string
               return JSON.stringify(finding);
             }
             return String(finding);
@@ -652,6 +609,17 @@ export default function ReportPreview() {
       return orderA - orderB;
     });
   };
+
+  // Calculate total issues
+  const totalIssues = useMemo(() => {
+    return sections.reduce((sum, s) => sum + (s.issues?.length || 0), 0);
+  }, [sections]);
+  
+  // Calculate high risk issues
+  const highRiskCount = useMemo(() => {
+    return sections.reduce((sum, s) => 
+      sum + (s.issues?.filter(i => i.severity === "high").length || 0), 0);
+  }, [sections]);
 
   // Persist report data to database
   const saveReportData = async (newSections: ReportSection[], newMetadata: ReportMetadata | null) => {
@@ -1301,6 +1269,10 @@ export default function ReportPreview() {
                         onRetry={handleRetrySection}
                         isRetrying={retryingSectionId === activeSection.id}
                         templateStyle={currentStyle}
+                        onUploadClick={(sectionTitle) => {
+                          // Navigate to upload page with section context
+                          navigate(`/project/${projectId}/upload?section=${encodeURIComponent(sectionTitle)}`);
+                        }}
                       />
                     )}
                   </AnimatePresence>
@@ -1858,10 +1830,6 @@ function generateReportHTML(
 
   return html;
 }
-
-
-
-
 
 
 
