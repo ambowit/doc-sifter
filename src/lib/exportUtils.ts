@@ -187,12 +187,69 @@ function generatePDFHTML(
       company: "法人",
       team: "持股平台",
     };
+    const typeColors: Record<string, string> = {
+      individual: "#fef3c7",
+      company: "#dbeafe",
+      team: "#fce7f3",
+    };
+    
+    // Generate visual equity chart HTML
+    const shareholderBoxes = equity.shareholders.map((sh: { name: string; type: string; percentage: number | null; notes?: string }) => `
+      <div style="display: flex; flex-direction: column; align-items: center; min-width: 100px;">
+        <div style="border: 2px solid #374151; padding: 12px 16px; background: ${typeColors[sh.type] || "#f3f4f6"}; text-align: center; min-width: 100px; max-width: 150px;">
+          <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">${typeLabels[sh.type] || sh.type}</div>
+          <div style="font-size: 13px; font-weight: 600; color: #111827;">${sh.name}</div>
+          ${sh.notes ? `<div style="font-size: 10px; color: #6b7280; margin-top: 2px;">${sh.notes}</div>` : ""}
+        </div>
+        <div style="width: 2px; height: 30px; background: #374151; position: relative;">
+          <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 600; white-space: nowrap;">
+            ${sh.percentage !== null && sh.percentage !== undefined ? sh.percentage + "%" : "比例未披露"}
+          </span>
+        </div>
+      </div>
+    `).join("");
+
+    const equityChartHTML = `
+      <div style="margin-bottom: 24px; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
+        <h4 style="font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 20px; text-align: center;">股权结构图</h4>
+        
+        <!-- Shareholders Row -->
+        <div style="display: flex; justify-content: center; align-items: flex-end; gap: 24px; flex-wrap: wrap; margin-bottom: 8px;">
+          ${shareholderBoxes}
+        </div>
+        
+        <!-- Connecting Line -->
+        <div style="display: flex; justify-content: center; margin-bottom: 8px;">
+          <div style="width: ${Math.min(equity.shareholders.length * 140, 600)}px; height: 2px; background: #374151;"></div>
+        </div>
+        
+        <!-- Arrow Down -->
+        <div style="display: flex; justify-content: center; margin-bottom: 8px;">
+          <div style="width: 2px; height: 20px; background: #374151; position: relative;">
+            <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #374151;"></div>
+          </div>
+        </div>
+        
+        <!-- Target Company -->
+        <div style="display: flex; justify-content: center;">
+          <div style="border: 3px solid #2563eb; padding: 16px 32px; background: #eff6ff; text-align: center;">
+            <div style="font-size: 10px; color: #2563eb; margin-bottom: 2px;">目标公司</div>
+            <div style="font-size: 16px; font-weight: 700; color: #1e40af;">${equity.companyName}</div>
+          </div>
+        </div>
+      </div>
+    `;
     
     equityStructureHTML = `
       <div style="margin-bottom: 32px; page-break-inside: avoid;">
         <h3 style="font-size: 16px; font-weight: 600; color: #111827; margin-bottom: 16px;">股权结构</h3>
+        
+        <!-- Visual Chart -->
+        ${equityChartHTML}
+        
+        <!-- Data Table -->
         <div style="margin-bottom: 12px; font-size: 13px; color: #374151;">
-          <strong>目标公司：</strong>${equity.companyName}
+          <strong>股东信息明细：</strong>
         </div>
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px;">
           <thead>
