@@ -302,8 +302,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
   const createJob = useCallback(async (options?: { forceRegenerate?: boolean }): Promise<string | null> => {
-    console.log("[v0] createJob called with options:", options, "projectId:", projectId);
-    
     if (!projectId) {
       setError("缺少项目ID");
       setErrorCode("MISSING_PROJECT_ID");
@@ -316,7 +314,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     setReport(null);
 
     try {
-      console.log("[v0] Fetching create-report-job with forceRegenerate:", options?.forceRegenerate ?? false);
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
         headers: getAuthHeaders(),
@@ -327,18 +324,15 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       });
 
       const data = await response.json();
-      console.log("[v0] create-report-job response:", data);
 
       if (!data.success) {
         if (data.errorCode === "JOB_EXISTS" && data.existingJobId) {
-          console.log("[v0] Job exists, monitoring existing:", data.existingJobId);
           const existingId = data.existingJobId as string;
           startMonitoring(existingId);
           return existingId;
         }
 
         const errMsg = (data.errorMessage as string) || "创建任务失败";
-        console.log("[v0] createJob failed:", errMsg, data.errorCode);
         setError(errMsg);
         setErrorCode((data.errorCode as string) || "CREATE_FAILED");
         onErrorRef.current?.(errMsg, data.errorCode as string | undefined);
