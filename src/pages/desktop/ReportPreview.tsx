@@ -39,6 +39,8 @@ import {
   FileWarning,
   ArrowRight,
   ArrowLeft,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
@@ -74,6 +76,7 @@ interface ReportSection {
     severity: "high" | "medium" | "low";
   }>;
   sourceFiles: string[];
+  locked?: boolean; // 锁定状态，锁定后重新生成时跳过
 }
 
 interface ReportMetadata {
@@ -249,6 +252,8 @@ function SectionRenderer({
   isRetrying,
   templateStyle,
   onUploadClick,
+  isLocked,
+  onToggleLock,
 }: {
   section: ReportSection;
   mappedFiles: Array<{ name: string; id: string }>;
@@ -260,6 +265,8 @@ function SectionRenderer({
   isRetrying?: boolean;
   templateStyle?: TemplateStyle;
   onUploadClick?: (sectionTitle: string) => void;
+  isLocked?: boolean;
+  onToggleLock?: (sectionId: string) => void;
 }) {
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
@@ -321,14 +328,42 @@ function SectionRenderer({
                 {section.sourceFiles.length} 份证据
               </Badge>
             )}
-            {/* Always show retry button for non-special sections */}
+            {/* Lock button */}
+            {onToggleLock && !isIntroSection && !isDefinitionSection && (
+              <Button
+                size="sm"
+                variant={isLocked ? "default" : "ghost"}
+                onClick={() => onToggleLock(section.id)}
+                className={cn(
+                  "h-7 gap-1.5",
+                  isLocked 
+                    ? "bg-amber-500 hover:bg-amber-600 text-white" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title={isLocked ? "点击解锁，允许重新生成" : "点击锁定，防止重新生成"}
+              >
+                {isLocked ? (
+                  <Lock className="w-3 h-3" />
+                ) : (
+                  <Unlock className="w-3 h-3" />
+                )}
+                {isLocked ? "已锁定" : "锁定"}
+              </Button>
+            )}
+            {/* Retry button - disabled when locked */}
             {onRetry && !isIntroSection && !isDefinitionSection && (
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => onRetry(section.id, section.title)}
-                disabled={isRetrying}
-                className="h-7 gap-1.5 text-muted-foreground hover:text-foreground"
+                disabled={isRetrying || isLocked}
+                className={cn(
+                  "h-7 gap-1.5",
+                  isLocked 
+                    ? "text-muted-foreground/50 cursor-not-allowed" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title={isLocked ? "章节已锁定，无法重新生成" : "重新生成此章节"}
               >
                 {isRetrying ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -662,6 +697,24 @@ export default function ReportPreview() {
   
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
+  
+  // Locked sections state - locked sections won't be regenerated
+  const [lockedSectionIds, setLockedSectionIds] = useState<Set<string>>(new Set());
+  
+  // Toggle lock state for a section
+  const handleToggleLock = (sectionId: string) => {
+    setLockedSectionIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sectionId)) {
+        newSet.delete(sectionId);
+        toast.info("章节已解锁，可以重新生成");
+      } else {
+        newSet.add(sectionId);
+        toast.success("章节已锁定，重新生成时将跳过此章节");
+      }
+      return newSet;
+    });
+  };
 
   // Calculate file statistics
   const fileStats = useMemo(() => {
@@ -701,6 +754,12 @@ export default function ReportPreview() {
   // Retry a single failed section with timeout protection
   const handleRetrySection = async (sectionId: string, sectionTitle: string) => {
     if (!projectId) return;
+    
+    // Check if section is locked
+    if (lockedSectionIds.has(sectionId)) {
+      toast.warning(`章节「${sectionTitle}」已锁定，无法重新生成`);
+      return;
+    }
     
     // Prevent multiple simultaneous retries
     if (retryingSectionId) {
@@ -778,7 +837,7 @@ export default function ReportPreview() {
                 suggestion = "建议补充提供相关资料以便进一步核查";
               } else if (str.includes("无法") || str.includes("不能")) {
                 risk = "存在核查不完整的风险，可能遗漏重要法律问题";
-                suggestion = "建议进一步核实并补充相关证明文���";
+                suggestion = "建议进一步核实并补充相关证明文����";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
                 suggestion = "建议关注并进行进一步核查";
@@ -1197,8 +1256,16 @@ export default function ReportPreview() {
             {/* Left: Section Navigation */}
             <div className="col-span-2 border-r border-border flex flex-col">
               <div className="px-3 py-3 border-b border-border bg-surface-subtle">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  章节目录
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    章节目录
+                  </div>
+                  {lockedSectionIds.size > 0 && (
+                    <Badge variant="outline" className="text-[9px] h-4 px-1.5 text-amber-600 border-amber-300">
+                      <Lock className="w-2.5 h-2.5 mr-0.5" />
+                      {lockedSectionIds.size}
+                    </Badge>
+                  )}
                 </div>
               </div>
               <ScrollArea className="flex-1">
@@ -1207,6 +1274,7 @@ export default function ReportPreview() {
                     const isActive = activeSectionId === section.id;
                     const hasNoData = section.sourceFiles.length === 0;
                     const hasIssues = section.issues && section.issues.length > 0;
+                    const isSectionLocked = lockedSectionIds.has(section.id);
 
                     return (
                       <div
@@ -1215,7 +1283,8 @@ export default function ReportPreview() {
                           "flex items-center gap-2 py-2 px-2 rounded cursor-pointer text-[12px] transition-colors",
                           isActive
                             ? "bg-primary/10 text-primary font-medium"
-                            : "hover:bg-muted/50"
+                            : "hover:bg-muted/50",
+                          isSectionLocked && "border-l-2 border-amber-500"
                         )}
                         onClick={() => setActiveSectionId(section.id)}
                       >
@@ -1229,10 +1298,13 @@ export default function ReportPreview() {
                           {section.number && section.number !== section.title && `${section.number} `}
                           {section.title}
                         </span>
-                        {hasNoData && (
+                        {isSectionLocked && (
+                          <Lock className="w-3 h-3 text-amber-500 flex-shrink-0" title="已锁定" />
+                        )}
+                        {hasNoData && !isSectionLocked && (
                           <FileWarning className="w-3 h-3 text-amber-500 flex-shrink-0" />
                         )}
-                        {hasIssues && !hasNoData && (
+                        {hasIssues && !hasNoData && !isSectionLocked && (
                           <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
                         )}
                       </div>
@@ -1264,6 +1336,8 @@ export default function ReportPreview() {
                         onRetry={handleRetrySection}
                         isRetrying={retryingSectionId === activeSection.id}
                         templateStyle={currentStyle}
+                        isLocked={lockedSectionIds.has(activeSection.id)}
+                        onToggleLock={handleToggleLock}
                         onUploadClick={(sectionTitle) => {
                           // Navigate to upload page with section context
                           navigate(`/project/${projectId}/upload?section=${encodeURIComponent(sectionTitle)}`);
@@ -1494,7 +1568,7 @@ export default function ReportPreview() {
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
                   <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 </div>
-                <h3 className="font-semibold text-[15px]">正在导出报告</h3>
+                <h3 className="font-semibold text-[15px]">��在导出报告</h3>
                 <p className="text-[13px] text-muted-foreground">
                   正在生成{exportFormat.toUpperCase()}格式...
                 </p>
