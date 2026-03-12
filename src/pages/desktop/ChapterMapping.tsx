@@ -240,6 +240,8 @@ export default function ChapterMapping() {
   const jobIsRunning = job?.status === "queued" || job?.status === "running";
 
   const handleStart = async () => {
+    console.log("[v0] handleStart called", { currentProjectId, isReady, hasPersistedReport, jobStatus: job?.status });
+    
     if (!currentProjectId) {
       toast.error("请先选择项目");
       return;
@@ -252,12 +254,15 @@ export default function ChapterMapping() {
 
     // Check if this is a regenerate action (job exists or has persisted report)
     const isRegenerate = hasPersistedReport || job?.status === "succeeded" || job?.status === "failed";
+    console.log("[v0] isRegenerate:", isRegenerate);
     
     setLastProgressUpdate(Date.now());
     lastProgressRef.current = null;
     
     // Pass forceRegenerate flag if regenerating
+    console.log("[v0] Calling createJob with forceRegenerate:", isRegenerate);
     const createdJobId = await createJob({ forceRegenerate: isRegenerate });
+    console.log("[v0] createJob returned:", createdJobId);
     if (createdJobId) {
       monitoredJobIdRef.current = createdJobId;
     }
