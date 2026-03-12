@@ -301,7 +301,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     void pollJobStatus(jobId);
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
-  const createJob = useCallback(async (): Promise<string | null> => {
+  const createJob = useCallback(async (options?: { forceRegenerate?: boolean }): Promise<string | null> => {
     if (!projectId) {
       setError("缺少项目ID");
       setErrorCode("MISSING_PROJECT_ID");
@@ -317,7 +317,10 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ 
+          projectId,
+          forceRegenerate: options?.forceRegenerate ?? false,
+        }),
       });
 
       const data = await response.json();

@@ -250,9 +250,14 @@ export default function ChapterMapping() {
       return;
     }
 
+    // Check if this is a regenerate action (job exists or has persisted report)
+    const isRegenerate = hasPersistedReport || job?.status === "succeeded" || job?.status === "failed";
+    
     setLastProgressUpdate(Date.now());
     lastProgressRef.current = null;
-    const createdJobId = await createJob();
+    
+    // Pass forceRegenerate flag if regenerating
+    const createdJobId = await createJob({ forceRegenerate: isRegenerate });
     if (createdJobId) {
       monitoredJobIdRef.current = createdJobId;
     }
