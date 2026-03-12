@@ -895,8 +895,8 @@ export default function ReportPreview() {
         await exportToWord(projectData, sections, metadata, definitions, files.length);
         toast.success("Word 报告已下载");
       } else if (exportFormat === "html") {
-        // Generate HTML content
-        const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length);
+        // Generate HTML content with selected template style
+        const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length, currentStyle);
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -1537,18 +1537,49 @@ function markdownToHTML(markdown: string): string {
   return html;
 }
 
-// Helper function to generate HTML report
+// Helper function to generate HTML report with template style support
 function generateReportHTML(
   project: { name: string; target?: string; client?: string },
   sections: ReportSection[],
   metadata: ReportMetadata | null,
   definitions: Definition[],
-  fileCount: number
+  fileCount: number,
+  templateStyle?: TemplateStyle
 ): string {
   const formatDate = () => {
     const date = new Date();
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
   };
+
+  // Get style values from template or use defaults
+  const styles = templateStyle?.styles;
+  const tables = templateStyle?.tables;
+  const page = templateStyle?.page;
+  const preview = templateStyle?.preview;
+  
+  // Font family mapping
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", "STSong", serif',
+    "黑体": '"SimHei", "黑体", "STHeiti", sans-serif',
+    "仿宋": '"FangSong", "仿宋", "STFangsong", serif',
+    "楷体": '"KaiTi", "楷体", "STKaiti", serif',
+    "Times New Roman": '"Times New Roman", "Georgia", serif',
+    "Arial": '"Arial", "Helvetica", sans-serif',
+  };
+  
+  const getFont = (font?: string) => fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
+  const primaryColor = preview?.primaryColor || "#000000";
+  const accentColor = preview?.accentColor || "#333333";
+  
+  // Page settings
+  const pageSize = page?.size || "A4";
+  const margins = page?.margin || { top: 2.5, bottom: 2.5, left: 2.8, right: 2.8, unit: "cm" };
+  
+  // Style values
+  const h1Style = styles?.h1 || { font: "宋体", sizePt: 16, bold: true, color: "#000000", lineSpacing: 1.2 };
+  const h2Style = styles?.h2 || { font: "宋体", sizePt: 14, bold: true, color: "#000000", lineSpacing: 1.2 };
+  const bodyStyle = styles?.body || { font: "宋体", sizePt: 11, lineSpacing: 1.5, firstLineIndentCm: 0.74 };
+  const tableStyle = tables?.default || { headerFill: "#f0f0f0", borderColor: "#333333", font: "宋体", sizePt: 10 };
 
   let html = `
 <!DOCTYPE html>
@@ -1557,114 +1588,288 @@ function generateReportHTML(
   <meta charset="UTF-8">
   <title>${project.target || project.name} - 法律尽职调查报告</title>
   <style>
-    @page { margin: 2.5cm; size: A4; }
+    @page { 
+      margin: ${margins.top}${margins.unit} ${margins.right}${margins.unit} ${margins.bottom}${margins.unit} ${margins.left}${margins.unit}; 
+      size: ${pageSize}; 
+    }
     body { 
-      font-family: "SimSun", "宋体", serif; 
-      font-size: 12pt; 
-      line-height: 2;
+      font-family: ${getFont(bodyStyle.font)}; 
+      font-size: ${bodyStyle.sizePt}pt; 
+      line-height: ${bodyStyle.lineSpacing};
       color: #333;
-      max-width: 210mm;
+      max-width: ${pageSize === "A4" ? "210mm" : "216mm"};
       margin: 0 auto;
       padding: 20px;
     }
+    
+    /* Cover Page */
     .cover { 
       text-align: center; 
       page-break-after: always;
-      padding-top: 25%;
+      padding-top: 20%;
+      min-height: 80vh;
     }
     .cover h1 { 
-      font-size: 26pt; 
+      font-family: ${getFont(h1Style.font)};
+      font-size: 28pt; 
       font-weight: bold;
-      margin-bottom: 3em;
+      color: ${primaryColor};
+      margin-bottom: 2em;
+      letter-spacing: 0.2em;
     }
     .cover h2 {
-      font-size: 18pt;
-      margin-bottom: 2em;
+      font-family: ${getFont(h1Style.font)};
+      font-size: 20pt;
+      color: ${accentColor};
+      margin-bottom: 3em;
+    }
+    .cover .meta-info {
+      margin-top: 6em;
+      font-size: 14pt;
+      color: #555;
+    }
+    .cover .meta-info p {
+      margin: 0.8em 0;
     }
     .cover .firm {
-      font-size: 14pt;
-      margin-top: 8em;
+      font-size: 16pt;
+      margin-top: 4em;
+      color: ${primaryColor};
+      font-weight: bold;
     }
     .cover .date {
       font-size: 14pt;
       margin-top: 1em;
+      color: #666;
     }
+    .cover .divider {
+      width: 60%;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, ${primaryColor}, transparent);
+      margin: 2em auto;
+    }
+    
+    /* Table of Contents */
     .toc { 
       page-break-after: always; 
+      padding: 2em 0;
     }
     .toc h2 { 
-      font-size: 18pt;
+      font-family: ${getFont(h1Style.font)};
+      font-size: ${h1Style.sizePt}pt;
       text-align: center;
       margin-bottom: 2em;
+      color: ${primaryColor};
+      border-bottom: 2px solid ${primaryColor};
+      padding-bottom: 0.5em;
     }
     .toc-item { 
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      margin: 0.8em 0;
+      margin: 0.6em 0;
+      padding: 0.3em 0;
       border-bottom: 1px dotted #ccc;
     }
+    .toc-item:hover {
+      background: #f9f9f9;
+    }
+    .toc-item .toc-title {
+      font-family: ${getFont(bodyStyle.font)};
+    }
+    .toc-item .toc-page {
+      color: #999;
+      font-size: 10pt;
+    }
+    
+    /* Section Styles */
     .section { 
       page-break-before: always; 
       margin-bottom: 2em;
     }
-    .section:first-of-type { page-break-before: auto; }
+    .section:first-of-type { 
+      page-break-before: auto; 
+    }
     .section-title { 
-      font-size: 16pt; 
-      font-weight: bold; 
+      font-family: ${getFont(h1Style.font)};
+      font-size: ${h1Style.sizePt}pt; 
+      font-weight: ${h1Style.bold ? "bold" : "normal"}; 
+      color: ${h1Style.color || primaryColor};
       margin: 1.5em 0 1em;
-      border-bottom: 2px solid #333;
+      border-bottom: 2px solid ${primaryColor};
       padding-bottom: 0.5em;
     }
+    .subsection-title {
+      font-family: ${getFont(h2Style.font)};
+      font-size: ${h2Style.sizePt}pt;
+      font-weight: ${h2Style.bold ? "bold" : "normal"};
+      color: ${h2Style.color || accentColor};
+      margin: 1.2em 0 0.8em;
+    }
+    
+    /* Content Styles */
     .content { 
       text-align: justify;
-      text-indent: 2em;
+      text-indent: ${bodyStyle.firstLineIndentCm || 0.74}cm;
     }
-    .content p { margin: 1em 0; }
+    .content p { 
+      margin: 0.8em 0; 
+      line-height: ${bodyStyle.lineSpacing};
+    }
+    .content strong {
+      color: ${primaryColor};
+    }
+    
+    /* No Data Warning */
     .no-data {
-      background: #fff8e6;
+      background: linear-gradient(135deg, #fff8e6 0%, #fff3cd 100%);
       border-left: 4px solid #f59e0b;
-      padding: 1em;
+      padding: 1em 1.5em;
       margin: 1em 0;
+      border-radius: 0 8px 8px 0;
     }
+    .no-data-title {
+      font-weight: bold;
+      color: #b45309;
+      margin-bottom: 0.5em;
+    }
+    
+    /* Table Styles */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin: 1em 0;
-      font-size: 10pt;
+      margin: 1.5em 0;
+      font-family: ${getFont(tableStyle.font)};
+      font-size: ${tableStyle.sizePt}pt;
     }
     th, td {
-      border: 1px solid #333;
-      padding: 8px;
+      border: 1px solid ${tableStyle.borderColor};
+      padding: 10px 12px;
       text-align: left;
       vertical-align: top;
     }
     th {
-      background: #f0f0f0;
+      background: ${tableStyle.headerFill};
       font-weight: bold;
+      color: ${primaryColor};
     }
-    .sources {
+    tr:nth-child(even) {
+      background: #fafafa;
+    }
+    tr:hover {
       background: #f5f5f5;
-      padding: 1em;
-      margin: 1em 0;
+    }
+    
+    /* Issues Table */
+    .issues-table {
+      margin-top: 1.5em;
+    }
+    .issues-table th {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      color: #92400e;
+    }
+    .severity-high {
+      background: #fee2e2 !important;
+      color: #dc2626;
+      font-weight: bold;
+      text-align: center;
+    }
+    .severity-medium {
+      background: #fef3c7 !important;
+      color: #d97706;
+      font-weight: bold;
+      text-align: center;
+    }
+    .severity-low {
+      background: #dbeafe !important;
+      color: #2563eb;
+      font-weight: bold;
+      text-align: center;
+    }
+    
+    /* Sources Section */
+    .sources {
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      padding: 1em 1.5em;
+      margin: 1.5em 0;
       font-size: 10pt;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .sources-title {
+      font-weight: bold;
+      color: ${primaryColor};
+      margin-bottom: 0.5em;
+    }
+    .sources-list {
+      color: #64748b;
+    }
+    
+    /* Findings Section */
+    .findings {
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      padding: 1em 1.5em;
+      margin: 1em 0;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+    }
+    .findings-title {
+      font-weight: bold;
+      color: #1d4ed8;
+      margin-bottom: 0.5em;
+    }
+    .findings ul {
+      margin: 0;
+      padding-left: 1.5em;
+      color: #1e40af;
+    }
+    .findings li {
+      margin: 0.3em 0;
+    }
+    
+    /* Footer */
+    .footer {
+      margin-top: 4em;
+      padding-top: 2em;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 10pt;
+    }
+    
+    /* Print Optimizations */
+    @media print {
+      body {
+        padding: 0;
+      }
+      .no-print {
+        display: none;
+      }
     }
   </style>
 </head>
 <body>
+  <!-- Cover Page -->
   <div class="cover">
     <h2>${project.target || project.name}</h2>
-    <h1>法律尽职调���报告</h1>
-    <div class="firm">委托方：${project.client || "未提供"}</div>
+    <div class="divider"></div>
+    <h1>法律尽职调查报告</h1>
+    <div class="meta-info">
+      <p>委托方：${project.client || "未提供"}</p>
+      <p>目标公司：${project.target || project.name}</p>
+      <p>文件数量：${fileCount} 份</p>
+    </div>
+    <div class="firm">[ 律师事务所名称 ]</div>
     <div class="date">${formatDate()}</div>
   </div>
 
+  <!-- Table of Contents -->
   <div class="toc">
     <h2>目 录</h2>
-    ${sections.map(section => `
+    ${sections.map((section, idx) => `
       <div class="toc-item">
-        <span>${section.number && section.number !== section.title ? section.number + " " : ""}${section.title}</span>
-        <span></span>
+        <span class="toc-title">${section.number && section.number !== section.title ? section.number + " " : ""}${section.title}</span>
+        <span class="toc-page">${idx + 1}</span>
       </div>
     `).join("")}
   </div>
@@ -1766,7 +1971,7 @@ function generateReportHTML(
     } else if (hasNoData) {
       html += `
     <div class="no-data">
-      <strong>本章节暂无相关证据文件</strong>
+      <div class="no-data-title">本章节暂无相关证据文件</div>
       <p>${section.content}</p>
     </div>
 `;
@@ -1777,29 +1982,41 @@ function generateReportHTML(
     </div>
 `;
     }
+    
+    // Add findings if present
+    if (section.findings && section.findings.length > 0) {
+      html += `
+    <div class="findings">
+      <div class="findings-title">核查发现</div>
+      <ul>
+        ${section.findings.map(finding => `<li>${finding}</li>`).join("")}
+      </ul>
+    </div>
+`;
+    }
 
     // Add issues table if present
     if (section.issues && section.issues.length > 0) {
       html += `
-    <h3>发现的问题与风险</h3>
-    <table>
+    <h3 class="subsection-title">发现的问题与风险</h3>
+    <table class="issues-table">
       <thead>
         <tr>
-          <th>序号</th>
-          <th>事实</th>
-          <th>问题/风险</th>
-          <th>建议</th>
-          <th>级别</th>
+          <th style="width: 50px;">序号</th>
+          <th style="width: 30%;">事实</th>
+          <th style="width: 30%;">问题/风险</th>
+          <th style="width: 25%;">建议</th>
+          <th style="width: 60px;">级别</th>
         </tr>
       </thead>
       <tbody>
         ${section.issues.map((issue, idx) => `
           <tr>
-            <td>${idx + 1}</td>
+            <td style="text-align: center;">${idx + 1}</td>
             <td>${issue.fact || ""}</td>
             <td>${issue.risk || ""}</td>
             <td>${issue.suggestion || ""}</td>
-            <td>${issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</td>
+            <td class="severity-${issue.severity}">${issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -1811,7 +2028,8 @@ function generateReportHTML(
     if (section.sourceFiles.length > 0) {
       html += `
     <div class="sources">
-      <strong>证据来源：</strong>${section.sourceFiles.join("、")}
+      <div class="sources-title">证据来源</div>
+      <div class="sources-list">${section.sourceFiles.join("、")}</div>
     </div>
 `;
     }
@@ -1820,6 +2038,11 @@ function generateReportHTML(
   }
 
   html += `
+  <!-- Footer -->
+  <div class="footer">
+    <p>本报告由 ${templateStyle?.name || "标准模板"} 生成</p>
+    <p>生成日期：${formatDate()}</p>
+  </div>
 </body>
 </html>`;
 
