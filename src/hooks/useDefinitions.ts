@@ -411,23 +411,29 @@ export function useRegenerateDefinitions() {
       };
 
       const definitionsToInsert = validDefinitions.map((def: {
-        name: string;
-        shortName: string;
+        name: string;        // AI returns: full name (e.g., "本法律尽职调查报告")
+        shortName: string;   // AI returns: short name (e.g., "本报告")
+        fullName?: string;   // Alternative field name for full name
         description?: string;
         type?: string;
       }) => {
+        // Handle both field name formats from AI
+        // AI might return {name: "全称", shortName: "简称"} or {fullName: "全称", shortName: "简称"}
+        const fullNameValue = def.fullName || def.name || "";
+        const shortNameValue = def.shortName || "";
+        
         // Use provided type if valid, otherwise infer from name
         let entityType: EntityType = "other";
         if (def.type && ["company", "individual", "institution", "transaction", "other"].includes(def.type)) {
           entityType = def.type as EntityType;
         } else {
-          entityType = inferEntityType(def.name, def.shortName);
+          entityType = inferEntityType(fullNameValue, shortNameValue);
         }
         
         return {
           project_id: projectId,
-          short_name: def.shortName,
-          full_name: def.name,
+          short_name: shortNameValue,
+          full_name: fullNameValue,
           entity_type: entityType,
           notes: def.description || null,
         };
