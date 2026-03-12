@@ -896,8 +896,6 @@ export default function ReportPreview() {
         toast.success("Word 报告已下载");
       } else if (exportFormat === "html") {
         // Generate HTML content with selected template style
-        console.log("[v0] Exporting HTML with template:", currentStyle?.id, currentStyle?.name);
-        console.log("[v0] Template preview colors:", currentStyle?.preview);
         const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length, currentStyle);
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
@@ -1548,8 +1546,6 @@ function generateReportHTML(
   fileCount: number,
   templateStyle?: TemplateStyle
 ): string {
-  console.log("[v0] generateReportHTML called with templateStyle:", templateStyle?.id, templateStyle?.name);
-  
   const formatDate = () => {
     const date = new Date();
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
@@ -1560,15 +1556,6 @@ function generateReportHTML(
   const tables = templateStyle?.tables;
   const page = templateStyle?.page;
   const preview = templateStyle?.preview;
-  
-  console.log("[v0] Template styles extracted:", { 
-    hasStyles: !!styles, 
-    hasTables: !!tables, 
-    hasPage: !!page, 
-    hasPreview: !!preview,
-    primaryColor: preview?.primaryColor,
-    fontFamily: preview?.fontFamily
-  });
   
   // Font family mapping - comprehensive list
   const fontFamilyMap: Record<string, string> = {
@@ -1581,17 +1568,11 @@ function generateReportHTML(
     "Arial": '"Arial", "Helvetica", sans-serif',
   };
   
-  const getFont = (font?: string) => {
-    const result = fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
-    console.log("[v0] getFont called with:", font, "-> result:", result);
-    return result;
-  };
+  const getFont = (font?: string) => fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
   
   // Use preview colors which are explicitly set for each template
   const primaryColor = preview?.primaryColor || "#000000";
   const accentColor = preview?.accentColor || "#333333";
-  
-  console.log("[v0] Using colors - primary:", primaryColor, "accent:", accentColor);
   
   // Page settings
   const pageSize = page?.size || "A4";
@@ -1630,6 +1611,7 @@ function generateReportHTML(
       page-break-after: always;
       padding-top: 20%;
       min-height: 80vh;
+      position: relative;
     }
     .cover h1 { 
       font-family: ${getFont(h1Style.font)};
@@ -1873,6 +1855,9 @@ function generateReportHTML(
 <body>
   <!-- Cover Page -->
   <div class="cover">
+    <div style="position: absolute; top: 20px; right: 20px; padding: 4px 12px; background: ${primaryColor}; color: white; font-size: 10pt; border-radius: 4px;">
+      模板：${templateStyle?.name || "标准"}
+    </div>
     <h2>${project.target || project.name}</h2>
     <div class="divider"></div>
     <h1>法律尽职调查报告</h1>
