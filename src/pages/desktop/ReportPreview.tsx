@@ -778,7 +778,7 @@ export default function ReportPreview() {
                 suggestion = "建议补充提供相关资料以便进一步核查";
               } else if (str.includes("无法") || str.includes("不能")) {
                 risk = "存在核查不完整的风险，可能遗漏重要法律问题";
-                suggestion = "建议进一步核实并补充相关证明文件";
+                suggestion = "建议进一步核实并补充相关证明文��";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
                 suggestion = "建议关注并进行进一步核查";
@@ -896,6 +896,8 @@ export default function ReportPreview() {
         toast.success("Word 报告已下载");
       } else if (exportFormat === "html") {
         // Generate HTML content with selected template style
+        console.log("[v0] Exporting HTML with template:", currentStyle?.id, currentStyle?.name);
+        console.log("[v0] Template preview colors:", currentStyle?.preview);
         const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length, currentStyle);
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
@@ -1546,6 +1548,8 @@ function generateReportHTML(
   fileCount: number,
   templateStyle?: TemplateStyle
 ): string {
+  console.log("[v0] generateReportHTML called with templateStyle:", templateStyle?.id, templateStyle?.name);
+  
   const formatDate = () => {
     const date = new Date();
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
@@ -1557,19 +1561,37 @@ function generateReportHTML(
   const page = templateStyle?.page;
   const preview = templateStyle?.preview;
   
-  // Font family mapping
+  console.log("[v0] Template styles extracted:", { 
+    hasStyles: !!styles, 
+    hasTables: !!tables, 
+    hasPage: !!page, 
+    hasPreview: !!preview,
+    primaryColor: preview?.primaryColor,
+    fontFamily: preview?.fontFamily
+  });
+  
+  // Font family mapping - comprehensive list
   const fontFamilyMap: Record<string, string> = {
     "宋体": '"SimSun", "宋体", "STSong", serif',
     "黑体": '"SimHei", "黑体", "STHeiti", sans-serif',
     "仿宋": '"FangSong", "仿宋", "STFangsong", serif',
     "楷体": '"KaiTi", "楷体", "STKaiti", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", "STXihei", sans-serif',
     "Times New Roman": '"Times New Roman", "Georgia", serif',
     "Arial": '"Arial", "Helvetica", sans-serif',
   };
   
-  const getFont = (font?: string) => fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
+  const getFont = (font?: string) => {
+    const result = fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
+    console.log("[v0] getFont called with:", font, "-> result:", result);
+    return result;
+  };
+  
+  // Use preview colors which are explicitly set for each template
   const primaryColor = preview?.primaryColor || "#000000";
   const accentColor = preview?.accentColor || "#333333";
+  
+  console.log("[v0] Using colors - primary:", primaryColor, "accent:", accentColor);
   
   // Page settings
   const pageSize = page?.size || "A4";
