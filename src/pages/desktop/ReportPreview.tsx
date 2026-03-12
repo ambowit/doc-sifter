@@ -778,7 +778,7 @@ export default function ReportPreview() {
                 suggestion = "建议补充提供相关资料以便进一步核查";
               } else if (str.includes("无法") || str.includes("不能")) {
                 risk = "存在核查不完整的风险，可能遗漏重要法律问题";
-                suggestion = "建议进一步核实并补充相关证明文��";
+                suggestion = "建议进一步核实并补充相关证明文���";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
                 suggestion = "建议关注并进行进一步核查";
@@ -889,10 +889,10 @@ export default function ReportPreview() {
       };
 
       if (exportFormat === "pdf") {
-        await exportToPDF(projectData, sections, metadata, definitions, files.length);
+        await exportToPDF(projectData, sections, metadata, definitions, files.length, currentStyle);
         toast.success("PDF 报告已下载");
       } else if (exportFormat === "docx") {
-        await exportToWord(projectData, sections, metadata, definitions, files.length);
+        await exportToWord(projectData, sections, metadata, definitions, files.length, currentStyle);
         toast.success("Word 报告已下载");
       } else if (exportFormat === "html") {
         // Generate HTML content with selected template style
@@ -1387,6 +1387,37 @@ export default function ReportPreview() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Template Selection */}
+              <div className="space-y-2">
+                <Label className="text-[13px]">报告模板</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {templateStyles.map((style) => (
+                    <div
+                      key={style.id}
+                      className={cn(
+                        "p-2 border rounded-lg cursor-pointer transition-all text-center",
+                        selectedStyleId === style.id
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-border hover:border-muted-foreground"
+                      )}
+                      onClick={() => setSelectedStyleId(style.id)}
+                    >
+                      <div 
+                        className="w-6 h-6 rounded-full mx-auto mb-1 border-2" 
+                        style={{ 
+                          backgroundColor: style.preview.primaryColor,
+                          borderColor: style.preview.accentColor 
+                        }}
+                      />
+                      <div className="font-medium text-[11px] truncate">{style.name}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  当前模板：<span className="font-medium text-foreground">{currentStyle.name}</span> - {currentStyle.description}
+                </p>
               </div>
 
               {/* Options */}

@@ -62,6 +62,26 @@ interface Project {
   client?: string;
 }
 
+interface TemplateStyle {
+  id: string;
+  name: string;
+  description: string;
+  preview: {
+    primaryColor: string;
+    accentColor: string;
+    fontFamily: string;
+    headerStyle: string;
+  };
+  styles: {
+    h1: { font: string; sizePt: number; bold: boolean; color?: string; lineSpacing?: number };
+    h2: { font: string; sizePt: number; bold: boolean; color?: string; lineSpacing?: number };
+    body: { font: string; sizePt: number; lineSpacing?: number; firstLineIndentCm?: number };
+  };
+  tables: {
+    default: { headerFill: string; borderColor: string; font: string; sizePt: number };
+  };
+}
+
 // Helper to convert severity to Chinese
 function severityToChinese(severity: string): string {
   switch (severity) {
@@ -143,16 +163,36 @@ function markdownToHTMLForPDF(markdown: string): string {
   return html;
 }
 
-// Generate HTML content for PDF
+// Generate HTML content for PDF with template style support
 function generatePDFHTML(
   project: Project,
   sections: ReportSection[],
   metadata: ReportMetadata | null,
   definitions: Definition[],
-  fileCount: number
+  fileCount: number,
+  templateStyle?: TemplateStyle
 ): string {
   const today = new Date().toLocaleDateString("zh-CN");
   const targetName = project.target || project.name;
+  
+  // Get style values from template or use defaults
+  const primaryColor = templateStyle?.preview?.primaryColor || "#111827";
+  const accentColor = templateStyle?.preview?.accentColor || "#374151";
+  const fontFamily = templateStyle?.preview?.fontFamily || "宋体";
+  const headerFill = templateStyle?.tables?.default?.headerFill || "#f3f4f6";
+  const borderColor = templateStyle?.tables?.default?.borderColor || "#d1d5db";
+  
+  // Font family mapping
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", serif',
+    "黑体": '"SimHei", "黑体", sans-serif',
+    "仿宋": '"FangSong", "仿宋", serif',
+    "楷体": '"KaiTi", "楷体", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", sans-serif',
+    "Times New Roman": '"Times New Roman", Georgia, serif',
+    "Arial": 'Arial, Helvetica, sans-serif',
+  };
+  const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
   
   let sectionsHTML = "";
   
@@ -385,11 +425,11 @@ function generatePDFHTML(
       <style>
         * { box-sizing: border-box; }
         body {
-          font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
+          font-family: ${fontStack};
           margin: 0;
           padding: 40px;
           background: white;
-          color: #111827;
+          color: ${primaryColor};
           line-height: 1.6;
         }
         @page {
@@ -399,22 +439,27 @@ function generatePDFHTML(
       </style>
     </head>
     <body>
+      <!-- Template Badge -->
+      <div style="position: fixed; top: 10px; right: 10px; padding: 4px 12px; background: ${primaryColor}; color: white; font-size: 10px; border-radius: 4px; z-index: 1000;">
+        模板：${templateStyle?.name || "标准"}
+      </div>
+      
       <!-- Title Page -->
       <div style="text-align: center; padding: 80px 0 60px 0; page-break-after: always;">
-        <h1 style="font-size: 32px; font-weight: 700; margin-bottom: 20px; color: #111827;">
+        <h1 style="font-size: 32px; font-weight: 700; margin-bottom: 20px; color: ${primaryColor};">
           法律尽职调查报告
         </h1>
-        <div style="font-size: 16px; color: #6b7280; margin-bottom: 60px;">
+        <div style="font-size: 16px; color: ${accentColor}; margin-bottom: 60px;">
           Legal Due Diligence Report
         </div>
-        <div style="font-size: 18px; margin-bottom: 16px;">
+        <div style="font-size: 18px; margin-bottom: 16px; color: ${primaryColor};">
           <strong>目标公司：</strong>${targetName}
         </div>
-        ${project.client ? `<div style="font-size: 16px; margin-bottom: 16px; color: #4b5563;"><strong>委托方：</strong>${project.client}</div>` : ""}
-        <div style="font-size: 14px; color: #6b7280; margin-top: 40px;">
+        ${project.client ? `<div style="font-size: 16px; margin-bottom: 16px; color: ${accentColor};"><strong>委托方：</strong>${project.client}</div>` : ""}
+        <div style="font-size: 14px; color: ${accentColor}; margin-top: 40px;">
           报告日期：${today}
         </div>
-        <div style="font-size: 14px; color: #6b7280; margin-top: 8px;">
+        <div style="font-size: 14px; color: ${accentColor}; margin-top: 8px;">
           审阅文件数量：${fileCount} 份
         </div>
       </div>
@@ -456,7 +501,8 @@ export async function exportToPDF(
   sections: ReportSection[],
   metadata: ReportMetadata | null,
   definitions: Definition[],
-  fileCount: number
+  fileCount: number,
+  templateStyle?: TemplateStyle
 ): Promise<void> {
   const targetName = project.target || project.name;
   
@@ -469,8 +515,8 @@ export async function exportToPDF(
   container.style.background = "white";
   document.body.appendChild(container);
 
-  // Generate HTML content
-  const html = generatePDFHTML(project, sections, metadata, definitions, fileCount);
+  // Generate HTML content with template style
+  const html = generatePDFHTML(project, sections, metadata, definitions, fileCount, templateStyle);
   container.innerHTML = html;
 
   // Wait for fonts to load
@@ -530,10 +576,14 @@ export async function exportToWord(
   sections: ReportSection[],
   metadata: ReportMetadata | null,
   definitions: Definition[],
-  fileCount: number
+  fileCount: number,
+  templateStyle?: TemplateStyle
 ): Promise<void> {
   const today = new Date().toLocaleDateString("zh-CN");
   const targetName = project.target || project.name;
+  
+  // Get style values from template
+  const templateName = templateStyle?.name || "标准模板";
 
   // Create document sections
   const docChildren: (Paragraph | Table)[] = [];
@@ -587,6 +637,21 @@ export async function exportToWord(
         new TextRun({
           text: `审阅文件数量：${fileCount} 份`,
           size: 24,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 200 },
+    })
+  );
+
+  // Add template info
+  docChildren.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `报告模板：${templateName}`,
+          size: 20,
+          color: "666666",
         }),
       ],
       alignment: AlignmentType.CENTER,
