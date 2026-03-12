@@ -210,7 +210,7 @@ function EquityStructureSection({
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-[13px] text-amber-900">
-            股权结构信息尚未提取，请确保数据室中包含工商登记、公司章程等相关文件。
+            股权结构信息尚未提取，请确保数据室中包含工商登记、���司章程等相关文件。
           </div>
         </div>
       </div>
@@ -698,8 +698,36 @@ export default function ReportPreview() {
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
   
-  // Locked sections state - locked sections won't be regenerated
-  const [lockedSectionIds, setLockedSectionIds] = useState<Set<string>>(new Set());
+  // Locked sections state - persisted to localStorage per project
+  const lockedSectionsKey = `locked-sections-${projectId}`;
+  
+  // Initialize locked sections from localStorage
+  const [lockedSectionIds, setLockedSectionIds] = useState<Set<string>>(() => {
+    if (!projectId) return new Set();
+    try {
+      const stored = localStorage.getItem(lockedSectionsKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return new Set(parsed);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load locked sections from localStorage:", e);
+    }
+    return new Set();
+  });
+  
+  // Persist locked sections to localStorage whenever they change
+  useEffect(() => {
+    if (!projectId) return;
+    try {
+      const arrayData = Array.from(lockedSectionIds);
+      localStorage.setItem(lockedSectionsKey, JSON.stringify(arrayData));
+    } catch (e) {
+      console.error("Failed to save locked sections to localStorage:", e);
+    }
+  }, [lockedSectionIds, lockedSectionsKey, projectId]);
   
   // Toggle lock state for a section
   const handleToggleLock = (sectionId: string) => {
