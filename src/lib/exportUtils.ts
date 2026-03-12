@@ -11,6 +11,7 @@ import {
   TableCell,
   WidthType,
   AlignmentType,
+  BorderStyle,
   convertInchesToTwip,
 } from "docx";
 import { saveAs } from "file-saver";
@@ -584,18 +585,27 @@ export async function exportToWord(
   
   // Get style values from template
   const templateName = templateStyle?.name || "标准模板";
+  const primaryColor = templateStyle?.preview?.primaryColor?.replace("#", "") || "111827";
+  const accentColor = templateStyle?.preview?.accentColor?.replace("#", "") || "374151";
+  const fontFamily = templateStyle?.preview?.fontFamily || "宋体";
+  const h1Size = (templateStyle?.styles?.h1?.sizePt || 18) * 2; // Convert pt to half-pt
+  const h2Size = (templateStyle?.styles?.h2?.sizePt || 14) * 2;
+  const bodySize = (templateStyle?.styles?.body?.sizePt || 11) * 2;
+  const headerFillColor = templateStyle?.tables?.default?.headerFill?.replace("#", "") || "f3f4f6";
 
   // Create document sections
   const docChildren: (Paragraph | Table)[] = [];
 
-  // Title
+  // Title - using template primary color
   docChildren.push(
     new Paragraph({
       children: [
         new TextRun({
           text: "法律尽职调查报告",
           bold: true,
-          size: 48, // 24pt
+          size: 56, // 28pt
+          color: primaryColor,
+          font: fontFamily,
         }),
       ],
       heading: HeadingLevel.TITLE,
@@ -604,13 +614,15 @@ export async function exportToWord(
     })
   );
 
-  // Subtitle
+  // Subtitle - using template accent color
   docChildren.push(
     new Paragraph({
       children: [
         new TextRun({
           text: `目标公司：${targetName}`,
-          size: 28, // 14pt
+          size: 32, // 16pt
+          color: primaryColor,
+          font: fontFamily,
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -624,6 +636,8 @@ export async function exportToWord(
         new TextRun({
           text: `报告日期：${today}`,
           size: 24,
+          color: accentColor,
+          font: fontFamily,
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -637,6 +651,8 @@ export async function exportToWord(
         new TextRun({
           text: `审阅文件数量：${fileCount} 份`,
           size: 24,
+          color: accentColor,
+          font: fontFamily,
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -644,18 +660,24 @@ export async function exportToWord(
     })
   );
 
-  // Add template info
+  // Add template info badge
   docChildren.push(
     new Paragraph({
       children: [
         new TextRun({
-          text: `报告模板：${templateName}`,
-          size: 20,
-          color: "666666",
+          text: `【 报告模板：${templateName} 】`,
+          size: 22,
+          color: primaryColor,
+          font: fontFamily,
+          bold: true,
         }),
       ],
       alignment: AlignmentType.CENTER,
       spacing: { after: 600 },
+      border: {
+        top: { style: BorderStyle.SINGLE, size: 1, color: primaryColor },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: primaryColor },
+      },
     })
   );
 
@@ -667,30 +689,36 @@ export async function exportToWord(
     })
   );
 
-  // Table of Contents header
+  // Table of Contents header - using template style
   docChildren.push(
     new Paragraph({
       children: [
         new TextRun({
           text: "目 录",
           bold: true,
-          size: 32,
+          size: h1Size,
+          color: primaryColor,
+          font: fontFamily,
         }),
       ],
       heading: HeadingLevel.HEADING_1,
       alignment: AlignmentType.CENTER,
       spacing: { after: 400 },
+      border: {
+        bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColor },
+      },
     })
   );
 
-  // TOC entries
+  // TOC entries - using template style
   sections.forEach((section) => {
     docChildren.push(
       new Paragraph({
         children: [
           new TextRun({
             text: `${section.number} ${section.title}`,
-            size: 24,
+            size: bodySize,
+            font: fontFamily,
           }),
         ],
         spacing: { after: 100 },
@@ -841,22 +869,27 @@ export async function exportToWord(
       })
     );
 
-    // Section title
+    // Section title - using template style
     docChildren.push(
       new Paragraph({
         children: [
           new TextRun({
             text: `${section.number} ${section.title}`,
             bold: true,
-            size: 28,
+            size: h1Size,
+            color: primaryColor,
+            font: fontFamily,
           }),
         ],
         heading: HeadingLevel.HEADING_1,
         spacing: { after: 300 },
+        border: {
+          bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColor },
+        },
       })
     );
 
-    // Content paragraphs
+    // Content paragraphs - using template body style
     if (section.content) {
       const paragraphs = section.content.split("\n\n");
       for (const para of paragraphs) {
@@ -866,7 +899,8 @@ export async function exportToWord(
               children: [
                 new TextRun({
                   text: para.trim(),
-                  size: 22, // 11pt
+                  size: bodySize,
+                  font: fontFamily,
                 }),
               ],
               spacing: { after: 200 },
@@ -877,7 +911,7 @@ export async function exportToWord(
       }
     }
 
-    // Findings
+    // Findings - using template h2 style
     if (section.findings && section.findings.length > 0) {
       docChildren.push(
         new Paragraph({
@@ -885,7 +919,9 @@ export async function exportToWord(
             new TextRun({
               text: "核查发现：",
               bold: true,
-              size: 24,
+              size: h2Size,
+              color: primaryColor,
+              font: fontFamily,
             }),
           ],
           spacing: { before: 200, after: 100 },
@@ -898,7 +934,8 @@ export async function exportToWord(
             children: [
               new TextRun({
                 text: `• ${finding}`,
-                size: 22,
+                size: bodySize,
+                font: fontFamily,
               }),
             ],
             spacing: { after: 100 },
@@ -908,7 +945,7 @@ export async function exportToWord(
       }
     }
 
-    // Issues table
+    // Issues table - using template style
     if (section.issues && section.issues.length > 0) {
       docChildren.push(
         new Paragraph({
@@ -916,7 +953,9 @@ export async function exportToWord(
             new TextRun({
               text: "发现的问题与风险：",
               bold: true,
-              size: 24,
+              size: h2Size,
+              color: primaryColor,
+              font: fontFamily,
             }),
           ],
           spacing: { before: 300, after: 200 },
@@ -924,28 +963,33 @@ export async function exportToWord(
       );
 
       const tableRows: TableRow[] = [
-        // Header row
+        // Header row - using template header fill color
         new TableRow({
           children: [
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: "序号", bold: true, size: 20 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: "序号", bold: true, size: 20, font: fontFamily })] })],
               width: { size: 8, type: WidthType.PERCENTAGE },
+              shading: { fill: headerFillColor },
             }),
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: "事实", bold: true, size: 20 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: "事实", bold: true, size: 20, font: fontFamily })] })],
               width: { size: 30, type: WidthType.PERCENTAGE },
+              shading: { fill: headerFillColor },
             }),
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: "问题/风险", bold: true, size: 20 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: "问题/风险", bold: true, size: 20, font: fontFamily })] })],
               width: { size: 25, type: WidthType.PERCENTAGE },
+              shading: { fill: headerFillColor },
             }),
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: "建议", bold: true, size: 20 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: "建议", bold: true, size: 20, font: fontFamily })] })],
               width: { size: 27, type: WidthType.PERCENTAGE },
+              shading: { fill: headerFillColor },
             }),
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: "级别", bold: true, size: 20 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: "级别", bold: true, size: 20, font: fontFamily })] })],
               width: { size: 10, type: WidthType.PERCENTAGE },
+              shading: { fill: headerFillColor },
             }),
           ],
         }),
@@ -956,19 +1000,19 @@ export async function exportToWord(
           new TableRow({
             children: [
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: String(idx + 1), size: 20 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: String(idx + 1), size: 20, font: fontFamily })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: issue.fact, size: 20 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: issue.fact, size: 20, font: fontFamily })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: issue.risk, size: 20 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: issue.risk, size: 20, font: fontFamily })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: issue.suggestion, size: 20 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: issue.suggestion, size: 20, font: fontFamily })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: severityToChinese(issue.severity), size: 20 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: severityToChinese(issue.severity), size: 20, font: fontFamily })] })],
               }),
             ],
           })
