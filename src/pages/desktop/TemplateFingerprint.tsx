@@ -610,11 +610,14 @@ export default function TemplateFingerprint() {
   
   // Get current selected style (from editable state)
   const currentStyle = useMemo(() => {
-    return editableStyles[selectedStyleId] || templateStyles[0];
+    const style = editableStyles[selectedStyleId] || templateStyles[0];
+    console.log("[v0] currentStyle updated:", { selectedStyleId, h1Font: style.styles.h1.font, h1Size: style.styles.h1.sizePt });
+    return style;
   }, [selectedStyleId, editableStyles]);
   
   // Update a specific style's property
   const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
+    console.log("[v0] updateStyleProperty called:", { styleId, path, value });
     setEditableStyles(prev => {
       const newStyles = { ...prev };
       const style = JSON.parse(JSON.stringify(newStyles[styleId]));
@@ -626,6 +629,7 @@ export default function TemplateFingerprint() {
       }
       current[path[path.length - 1]] = value;
       
+      console.log("[v0] Updated style:", style);
       newStyles[styleId] = style;
       return newStyles;
     });
