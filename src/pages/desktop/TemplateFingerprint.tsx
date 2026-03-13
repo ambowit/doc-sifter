@@ -1281,7 +1281,7 @@ export default function TemplateFingerprint() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="single">单线边���</SelectItem>
+                                  <SelectItem value="single">单线边框</SelectItem>
                                   <SelectItem value="threeLines">三线表</SelectItem>
                                   <SelectItem value="none">无边框</SelectItem>
                                 </SelectContent>
@@ -1303,6 +1303,131 @@ export default function TemplateFingerprint() {
                                 />
                               </div>
                             </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Decorations */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">装饰素材</h4>
+                        <div className="space-y-3">
+                          {/* Header Decoration */}
+                          <div>
+                            <Label className="text-[11px]">页眉装饰</Label>
+                            <Select 
+                              value={currentStyle.preview.headerDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'headerDecoration'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="line">简约线条</SelectItem>
+                                <SelectItem value="double-line">双线装饰</SelectItem>
+                                <SelectItem value="gradient">渐变色带</SelectItem>
+                                <SelectItem value="pattern">几何图案</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Section Divider */}
+                          <div>
+                            <Label className="text-[11px]">章节分隔线</Label>
+                            <Select 
+                              value={currentStyle.preview.sectionDivider || "simple"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'sectionDivider'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="simple">简单线条</SelectItem>
+                                <SelectItem value="dotted">点线</SelectItem>
+                                <SelectItem value="diamond">菱形装饰</SelectItem>
+                                <SelectItem value="wave">波浪线</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Quote Style */}
+                          <div>
+                            <Label className="text-[11px]">引用块样式</Label>
+                            <Select 
+                              value={currentStyle.preview.quoteStyle || "border-left"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'quoteStyle'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="border-left">左边框</SelectItem>
+                                <SelectItem value="background">背景填充</SelectItem>
+                                <SelectItem value="quotes">引号装饰</SelectItem>
+                                <SelectItem value="bracket">方括号</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Title Decoration */}
+                          <div>
+                            <Label className="text-[11px]">标题装饰</Label>
+                            <Select 
+                              value={currentStyle.preview.titleDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'titleDecoration'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="underline">下划线</SelectItem>
+                                <SelectItem value="box">方框</SelectItem>
+                                <SelectItem value="ribbon">丝带效果</SelectItem>
+                                <SelectItem value="badge">徽章样式</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Page Corner */}
+                          <div>
+                            <Label className="text-[11px]">页面角标</Label>
+                            <Select 
+                              value={currentStyle.preview.pageCorner || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'pageCorner'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="fold">折角效果</SelectItem>
+                                <SelectItem value="stamp">印章图标</SelectItem>
+                                <SelectItem value="watermark">水印文字</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* List Bullet Style */}
+                          <div>
+                            <Label className="text-[11px]">列表项目符号</Label>
+                            <Select 
+                              value={currentStyle.preview.bulletStyle || "disc"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'bulletStyle'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="disc">实心圆点</SelectItem>
+                                <SelectItem value="circle">空心圆点</SelectItem>
+                                <SelectItem value="square">方块</SelectItem>
+                                <SelectItem value="arrow">箭头</SelectItem>
+                                <SelectItem value="check">勾选标记</SelectItem>
+                                <SelectItem value="number">数字序号</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       </div>
@@ -1333,8 +1458,108 @@ export default function TemplateFingerprint() {
                           minHeight: "600px"
                         }}
                       >
+                        {/* Header Decoration */}
+                        {currentStyle.preview.headerDecoration && currentStyle.preview.headerDecoration !== 'none' && (
+                          <div className="mb-4">
+                            {currentStyle.preview.headerDecoration === 'line' && (
+                              <div className="h-1 rounded-full" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                            )}
+                            {currentStyle.preview.headerDecoration === 'double-line' && (
+                              <div className="space-y-1">
+                                <div className="h-0.5" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                <div className="h-1" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                              </div>
+                            )}
+                            {currentStyle.preview.headerDecoration === 'gradient' && (
+                              <div 
+                                className="h-2 rounded-full" 
+                                style={{ 
+                                  background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})` 
+                                }} 
+                              />
+                            )}
+                            {currentStyle.preview.headerDecoration === 'pattern' && (
+                              <div className="flex items-center gap-1">
+                                {Array.from({ length: 12 }).map((_, i) => (
+                                  <div 
+                                    key={i} 
+                                    className="flex-1 h-2" 
+                                    style={{ 
+                                      backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
+                                      transform: 'skewX(-15deg)'
+                                    }} 
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Page Corner Decoration */}
+                        {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
+                          <div className="absolute top-4 right-4">
+                            {currentStyle.preview.pageCorner === 'fold' && (
+                              <div 
+                                className="w-8 h-8"
+                                style={{
+                                  background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
+                                  borderBottomLeftRadius: '8px',
+                                }}
+                              />
+                            )}
+                            {currentStyle.preview.pageCorner === 'stamp' && (
+                              <div 
+                                className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
+                                style={{ 
+                                  borderColor: currentStyle.preview.primaryColor,
+                                  color: currentStyle.preview.primaryColor,
+                                }}
+                              >
+                                LEGAL
+                              </div>
+                            )}
+                            {currentStyle.preview.pageCorner === 'watermark' && (
+                              <div 
+                                className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
+                                style={{ color: currentStyle.preview.primaryColor }}
+                              >
+                                CONFIDENTIAL
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Report Header Preview */}
-                        <div className="text-center mb-8 pb-4 border-b-2" style={{ borderColor: currentStyle.preview.primaryColor }}>
+                        <div 
+                          className={cn(
+                            "text-center mb-8 pb-4",
+                            currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
+                            currentStyle.preview.titleDecoration === 'ribbon' && "relative",
+                            currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
+                            (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
+                          )}
+                          style={{ 
+                            borderColor: currentStyle.preview.primaryColor,
+                            backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
+                          }}
+                        >
+                          {currentStyle.preview.titleDecoration === 'badge' && (
+                            <div 
+                              className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
+                              style={{ 
+                                backgroundColor: `${currentStyle.preview.primaryColor}15`,
+                                color: currentStyle.preview.primaryColor,
+                              }}
+                            >
+                              法律文书
+                            </div>
+                          )}
+                          {currentStyle.preview.titleDecoration === 'ribbon' && (
+                            <div 
+                              className="absolute -left-2 top-0 w-1 h-full rounded-r"
+                              style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                            />
+                          )}
                           <h1 
                             style={{ 
                               fontFamily: currentStyle.styles.h1.font,
@@ -1342,6 +1567,7 @@ export default function TemplateFingerprint() {
                               fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
                               color: currentStyle.preview.primaryColor,
                               marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                              textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
                             }}
                           >
                             法律尽职调查报告
@@ -1508,24 +1734,96 @@ export default function TemplateFingerprint() {
                           </p>
                         </div>
 
-                        {/* Quote Sample */}
+                        {/* Quote Sample with decoration styles */}
                         <div 
-                          className="mb-6"
+                          className={cn(
+                            "mb-6 relative",
+                            currentStyle.preview.quoteStyle === 'background' && "rounded-lg",
+                          )}
                           style={{
                             fontFamily: currentStyle.styles.quote.font,
                             fontSize: `${currentStyle.styles.quote.sizePt}pt`,
                             lineHeight: currentStyle.styles.quote.lineSpacing,
                             marginLeft: `${currentStyle.styles.quote.indentLeftCm}cm`,
-                            paddingLeft: currentStyle.styles.quote.borderLeft ? "12px" : "0",
-                            borderLeft: currentStyle.styles.quote.borderLeft ? `3px solid ${currentStyle.preview.primaryColor}` : "none",
+                            paddingLeft: currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle ? "12px" : 
+                                         currentStyle.preview.quoteStyle === 'quotes' ? "24px" :
+                                         currentStyle.preview.quoteStyle === 'bracket' ? "16px" : "16px",
+                            paddingRight: currentStyle.preview.quoteStyle === 'bracket' ? "16px" : 
+                                          currentStyle.preview.quoteStyle === 'background' ? "16px" : "0",
+                            paddingTop: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
+                            paddingBottom: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
+                            borderLeft: (currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle) ? `3px solid ${currentStyle.preview.primaryColor}` : "none",
+                            backgroundColor: currentStyle.preview.quoteStyle === 'background' ? `${currentStyle.preview.primaryColor}10` : "transparent",
                             color: "#555",
                           }}
                         >
-                          "根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。"
+                          {/* Quote marks decoration */}
+                          {currentStyle.preview.quoteStyle === 'quotes' && (
+                            <>
+                              <span 
+                                className="absolute left-0 top-0 text-3xl leading-none opacity-30"
+                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
+                              >
+                                "
+                              </span>
+                              <span 
+                                className="absolute right-0 bottom-0 text-3xl leading-none opacity-30"
+                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
+                              >
+                                "
+                              </span>
+                            </>
+                          )}
+                          {/* Bracket decoration */}
+                          {currentStyle.preview.quoteStyle === 'bracket' && (
+                            <>
+                              <span 
+                                className="absolute left-0 top-0 bottom-0 w-2 border-l-2 border-t-2 border-b-2 rounded-l"
+                                style={{ borderColor: currentStyle.preview.primaryColor }}
+                              />
+                              <span 
+                                className="absolute right-0 top-0 bottom-0 w-2 border-r-2 border-t-2 border-b-2 rounded-r"
+                                style={{ borderColor: currentStyle.preview.primaryColor }}
+                              />
+                            </>
+                          )}
+                          根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。
                         </div>
 
                         {/* Chapter 2: 资产情况 */}
-                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                        <div className="mb-6 pt-4">
+                          {/* Section Divider */}
+                          {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
+                            <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
+                          )}
+                          {currentStyle.preview.sectionDivider === 'dotted' && (
+                            <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
+                          )}
+                          {currentStyle.preview.sectionDivider === 'diamond' && (
+                            <div className="mb-4 flex items-center gap-2">
+                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                              <div 
+                                className="w-2 h-2 transform rotate-45"
+                                style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                              />
+                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                            </div>
+                          )}
+                          {currentStyle.preview.sectionDivider === 'wave' && (
+                            <div className="mb-4">
+                              <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
+                                <path 
+                                  d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" 
+                                  fill="none" 
+                                  stroke={currentStyle.preview.primaryColor + '60'} 
+                                  strokeWidth="1"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                          {currentStyle.preview.sectionDivider === 'none' && (
+                            <div className="mb-4" />
+                          )}
                           <h2 
                             style={{ 
                               fontFamily: currentStyle.styles.h1.font,
@@ -1743,17 +2041,50 @@ export default function TemplateFingerprint() {
                             综上所述，目标公司系依法设立并有效存续的有限责任公司，公司治理结构完善，主要资产权属清晰，重大合同履行正常，不存在重大法律风险。我们建议关注以下事项：
                           </p>
 
-                          <ul style={{ 
-                            fontFamily: currentStyle.styles.body.font,
-                            fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                            lineHeight: currentStyle.styles.body.lineSpacing,
-                            marginLeft: '1.5em',
-                            marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                          }}>
-                            <li style={{ marginBottom: '4pt' }}>完善知识产权管理制度，加强商业秘密保护</li>
-                            <li style={{ marginBottom: '4pt' }}>及时办理部分到期合同的续签手续</li>
-                            <li style={{ marginBottom: '4pt' }}>持续关注进行中的诉讼案件进展</li>
-                          </ul>
+                          {/* List with bullet style */}
+                          {(currentStyle.preview.bulletStyle === 'number' ? (
+                            <ol style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              marginLeft: '1.5em',
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                              listStyleType: 'decimal',
+                            }}>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>完善知识产权管理制度，加强商业秘密保护</span>
+                              </li>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>及时办理部分到期合同的续签手续</span>
+                              </li>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>持续关注进行中的诉讼案件进展</span>
+                              </li>
+                            </ol>
+                          ) : (
+                            <ul style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              marginLeft: '1.5em',
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                              listStyleType: currentStyle.preview.bulletStyle === 'disc' || !currentStyle.preview.bulletStyle ? 'disc' :
+                                            currentStyle.preview.bulletStyle === 'circle' ? 'circle' :
+                                            currentStyle.preview.bulletStyle === 'square' ? 'square' : 'none',
+                            }}>
+                              {['完善知识产权管理制度，加强商业秘密保护', '及时办理部分到期合同的续签手续', '持续关注进行中的诉讼案件进展'].map((item, idx) => (
+                                <li key={idx} style={{ marginBottom: '4pt', display: currentStyle.preview.bulletStyle === 'arrow' || currentStyle.preview.bulletStyle === 'check' ? 'flex' : 'list-item', alignItems: 'flex-start', gap: '8px' }}>
+                                  {currentStyle.preview.bulletStyle === 'arrow' && (
+                                    <span style={{ color: currentStyle.preview.primaryColor }}>→</span>
+                                  )}
+                                  {currentStyle.preview.bulletStyle === 'check' && (
+                                    <span style={{ color: currentStyle.preview.primaryColor }}>✓</span>
+                                  )}
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ))}
 
                           <div 
                             className="mt-8 p-4 rounded"

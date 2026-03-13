@@ -488,7 +488,7 @@ const mockFacts: Fact[] = [
     },
     time: { asOf: "2025-12-31" },
     evidence: [
-      { docId: "d06", loc: "p1-26", quote: "共含发明专利3���、实用新型专利8项、外观设计专利2项，均在有效期内" },
+      { docId: "d06", loc: "p1-26", quote: "共含发明专利3�����、实用新型专利8项、外观设计专利2项，均在有效期内" },
     ],
     confidence: 0.99,
     conflicts: [],
@@ -728,7 +728,7 @@ const createTaxBlocks = (): ContentBlock[] => {
       blockId: "blk_tax_note",
       type: "paragraph",
       style: "body",
-      text: "建议委托方在交割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
+      text: "建议委托��在交割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
     },
   ];
 };
@@ -939,7 +939,7 @@ export function getEquityStructureFromKG() {
         notes: e.aliases?.[0],
       })),
     notes: [
-      "以上股权结构信息来源于公司章程及股东会决���",
+      "以上股权结构信息来源于公司章程及股东��决���",
       "员工持股平台为有限合伙企业，实际控制人为张明",
       "截至2025年12月31日，股权无质押、冻结情况",
     ],
@@ -972,9 +972,17 @@ export interface TemplateStyle {
   description: string;
   preview: {
     primaryColor: string;
+    secondaryColor?: string;
     accentColor: string;
     fontFamily: string;
     headerStyle: "classic" | "modern" | "minimal";
+    // Decoration options
+    headerDecoration?: "none" | "line" | "double-line" | "gradient" | "pattern";
+    sectionDivider?: "none" | "simple" | "dotted" | "diamond" | "wave";
+    quoteStyle?: "border-left" | "background" | "quotes" | "bracket";
+    titleDecoration?: "none" | "underline" | "box" | "ribbon" | "badge";
+    pageCorner?: "none" | "fold" | "stamp" | "watermark";
+    bulletStyle?: "disc" | "circle" | "square" | "arrow" | "check" | "number";
   };
   styles: typeof mockTemplateFingerprint.styles;
   tables: typeof mockTemplateFingerprint.tables;
@@ -989,9 +997,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "传统法律文书风格，使用宋体字体，正式规范",
     preview: {
       primaryColor: "#000000",
+      secondaryColor: "#333333",
       accentColor: "#333333",
       fontFamily: "宋体",
       headerStyle: "classic",
+      headerDecoration: "double-line",
+      sectionDivider: "simple",
+      quoteStyle: "border-left",
+      titleDecoration: "underline",
+      pageCorner: "none",
+      bulletStyle: "disc",
     },
     styles: mockTemplateFingerprint.styles,
     tables: mockTemplateFingerprint.tables,
@@ -1003,9 +1018,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "现代商务风格，使用黑体字体，简洁大方",
     preview: {
       primaryColor: "#1a1a2e",
+      secondaryColor: "#16213e",
       accentColor: "#16213e",
       fontFamily: "黑体",
       headerStyle: "modern",
+      headerDecoration: "gradient",
+      sectionDivider: "diamond",
+      quoteStyle: "background",
+      titleDecoration: "ribbon",
+      pageCorner: "fold",
+      bulletStyle: "arrow",
     },
     styles: {
       h1: {
@@ -1110,9 +1132,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "文雅书卷风格，使用楷体字体，适合高端客户",
     preview: {
       primaryColor: "#2c3e50",
+      secondaryColor: "#34495e",
       accentColor: "#34495e",
       fontFamily: "楷体",
       headerStyle: "classic",
+      headerDecoration: "double-line",
+      sectionDivider: "wave",
+      quoteStyle: "quotes",
+      titleDecoration: "badge",
+      pageCorner: "stamp",
+      bulletStyle: "circle",
     },
     styles: {
       h1: {
@@ -1208,9 +1237,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "极简设计风格，留白充足，阅读舒适",
     preview: {
       primaryColor: "#2d3436",
+      secondaryColor: "#636e72",
       accentColor: "#636e72",
       fontFamily: "微软雅黑",
       headerStyle: "minimal",
+      headerDecoration: "line",
+      sectionDivider: "none",
+      quoteStyle: "background",
+      titleDecoration: "none",
+      pageCorner: "none",
+      bulletStyle: "disc",
     },
     styles: {
       h1: {
@@ -1315,9 +1351,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "国际化专业风格，适合涉外法律文书",
     preview: {
       primaryColor: "#1e3a5f",
+      secondaryColor: "#3d5a80",
       accentColor: "#3d5a80",
       fontFamily: "Times New Roman",
       headerStyle: "modern",
+      headerDecoration: "pattern",
+      sectionDivider: "dotted",
+      quoteStyle: "bracket",
+      titleDecoration: "box",
+      pageCorner: "watermark",
+      bulletStyle: "square",
     },
     styles: {
       h1: {
@@ -1425,9 +1468,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "高端商务风格，红金配色，彰显专业与品质",
     preview: {
       primaryColor: "#8B0000",
+      secondaryColor: "#B8860B",
       accentColor: "#B8860B",
       fontFamily: "宋体",
       headerStyle: "classic",
+      headerDecoration: "gradient",
+      sectionDivider: "diamond",
+      quoteStyle: "border-left",
+      titleDecoration: "ribbon",
+      pageCorner: "stamp",
+      bulletStyle: "check",
     },
     styles: {
       h1: {
@@ -1504,9 +1554,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "现代科技风格，适合科技行业尽调报告",
     preview: {
       primaryColor: "#0066CC",
+      secondaryColor: "#4A5568",
       accentColor: "#4A5568",
       fontFamily: "微软雅黑",
       headerStyle: "modern",
+      headerDecoration: "pattern",
+      sectionDivider: "simple",
+      quoteStyle: "background",
+      titleDecoration: "box",
+      pageCorner: "fold",
+      bulletStyle: "arrow",
     },
     styles: {
       h1: {
@@ -1612,9 +1669,16 @@ export const templateStyles: TemplateStyle[] = [
     description: "清新环保风格，适合环保、农业相关项目",
     preview: {
       primaryColor: "#2E7D32",
+      secondaryColor: "#558B2F",
       accentColor: "#558B2F",
       fontFamily: "仿宋",
       headerStyle: "modern",
+      headerDecoration: "line",
+      sectionDivider: "wave",
+      quoteStyle: "quotes",
+      titleDecoration: "badge",
+      pageCorner: "none",
+      bulletStyle: "check",
     },
     styles: {
       h1: {
