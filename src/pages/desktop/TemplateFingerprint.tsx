@@ -1340,7 +1340,7 @@ export default function TemplateFingerprint() {
                               fontFamily: currentStyle.styles.h1.font,
                               fontSize: `${currentStyle.styles.h1.sizePt}pt`,
                               fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.styles.h1.color || "#000",
+                              color: currentStyle.preview.primaryColor,
                               marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
                             }}
                           >
@@ -1364,7 +1364,7 @@ export default function TemplateFingerprint() {
                               fontFamily: currentStyle.styles.h1.font,
                               fontSize: `${currentStyle.styles.h1.sizePt}pt`,
                               fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.styles.h1.color || "#000",
+                              color: currentStyle.preview.primaryColor,
                               marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
                             }}
                           >
@@ -1376,7 +1376,7 @@ export default function TemplateFingerprint() {
                               fontFamily: currentStyle.styles.h2.font,
                               fontSize: `${currentStyle.styles.h2.sizePt}pt`,
                               fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.styles.h2.color || "#000",
+                              color: currentStyle.preview.secondaryColor,
                               marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
                               marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
                             }}
@@ -1418,7 +1418,7 @@ export default function TemplateFingerprint() {
                               fontFamily: currentStyle.styles.h2.font,
                               fontSize: `${currentStyle.styles.h2.sizePt}pt`,
                               fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.styles.h2.color || "#000",
+                              color: currentStyle.preview.secondaryColor,
                               marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
                               marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
                             }}
@@ -1435,7 +1435,7 @@ export default function TemplateFingerprint() {
                             }}
                           >
                             <thead>
-                              <tr style={{ backgroundColor: currentStyle.tables.default.headerFill }}>
+                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
                                 <th style={{
                                   border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
                                   padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
