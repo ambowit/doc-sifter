@@ -13,6 +13,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText,
@@ -671,17 +681,33 @@ export default function TemplateFingerprint() {
     }
   }, [currentStyle.name, editableStyles]);
   
-  // Reset style to default
+  // Reset style to default with undo support
   const resetStyleToDefault = useCallback((styleId: string) => {
     const defaultStyle = templateStyles.find(s => s.id === styleId);
     if (defaultStyle) {
+      // Save current state for undo
+      const previousStyle = editableStyles[styleId];
+      
       setEditableStyles(prev => ({
         ...prev,
         [styleId]: JSON.parse(JSON.stringify(defaultStyle)),
       }));
-      toast.success("已重置为默认样式");
+      
+      toast.success("已重置为默认样式", {
+        description: "样式已恢复为初始设置",
+        action: {
+          label: "撤销",
+          onClick: () => {
+            setEditableStyles(prev => ({
+              ...prev,
+              [styleId]: previousStyle,
+            }));
+            toast.info("已撤销重置操作");
+          },
+        },
+      });
     }
-  }, []);
+  }, [editableStyles]);
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
@@ -788,9 +814,18 @@ export default function TemplateFingerprint() {
     }
   };
 
-  // Handle reset template
+  // State for reset confirmation
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Handle reset template with confirmation
   const handleResetTemplate = async () => {
     if (!currentProjectId) return;
+    setShowResetConfirm(true);
+  };
+  
+  const confirmResetTemplate = async () => {
+    if (!currentProjectId) return;
+    setShowResetConfirm(false);
 
     try {
       await deleteChaptersMutation.mutateAsync(currentProjectId);
@@ -1281,7 +1316,7 @@ export default function TemplateFingerprint() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="single">单线边框</SelectItem>
+                                  <SelectItem value="single">单线边���</SelectItem>
                                   <SelectItem value="threeLines">三线表</SelectItem>
                                   <SelectItem value="none">无边框</SelectItem>
                                 </SelectContent>
@@ -2350,6 +2385,24 @@ export default function TemplateFingerprint() {
           </div>
         </Tabs>
       )}
+      
+      {/* Reset Template Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置模板？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作将删除当前所有章节结构，此操作无法撤销。您确定要继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmResetTemplate} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              确认重置
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
