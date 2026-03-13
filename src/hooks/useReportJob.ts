@@ -302,7 +302,10 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
   const createJob = useCallback(async (options?: { forceRegenerate?: boolean }): Promise<string | null> => {
+    console.log("[v0] createJob called", { projectId, options });
+    
     if (!projectId) {
+      console.log("[v0] createJob: missing projectId");
       setError("缺少项目ID");
       setErrorCode("MISSING_PROJECT_ID");
       return null;
@@ -314,6 +317,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     setReport(null);
 
     try {
+      console.log("[v0] createJob: fetching create-report-job...");
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
         headers: getAuthHeaders(),
@@ -323,7 +327,9 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         }),
       });
 
+      console.log("[v0] createJob: response status", response.status);
       const data = await response.json();
+      console.log("[v0] createJob: response data", data);
 
       if (!data.success) {
         if (data.errorCode === "JOB_EXISTS" && data.existingJobId) {
