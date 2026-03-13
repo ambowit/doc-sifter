@@ -363,7 +363,18 @@ ${actualContent || `[仅有文件名: ${filename}]`}
     if (!response.ok) {
       const errorText = await response.text();
       logStep("SuperunAI error", { status: response.status, error: errorText });
-      throw new Error(`SuperunAI API error: ${response.status}`);
+      
+      // Provide user-friendly error messages based on status code
+      if (response.status === 402) {
+        throw new Error("AI服务额度不足，请联系管理员充值或稍后重试");
+      } else if (response.status === 401) {
+        throw new Error("AI服务认证失败，请检查API密钥配置");
+      } else if (response.status === 429) {
+        throw new Error("AI服务请求过于频繁，请稍后重试");
+      } else if (response.status >= 500) {
+        throw new Error("AI服务暂时不可用，请稍后重试");
+      }
+      throw new Error(`AI服务错误: ${response.status}`);
     }
 
     const aiResponse = await response.json();
