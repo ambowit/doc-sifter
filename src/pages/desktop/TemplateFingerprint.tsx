@@ -1281,7 +1281,7 @@ export default function TemplateFingerprint() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="single">单线边框</SelectItem>
+                                  <SelectItem value="single">单线边���</SelectItem>
                                   <SelectItem value="threeLines">三线表</SelectItem>
                                   <SelectItem value="none">无边框</SelectItem>
                                 </SelectContent>
@@ -1522,6 +1522,268 @@ export default function TemplateFingerprint() {
                           }}
                         >
                           "根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。"
+                        </div>
+
+                        {/* Chapter 2: 资产情况 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            二、资产情况
+                          </h2>
+                          
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            2.1 固定资产
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            经审阅目标公司提供的固定资产清单及相关权属证明文件，截至2024年12月31日，目标公司主要固定资产包括房屋建筑物、机器设备、电子设备等，账面价值合计人民币3,500万元。
+                          </p>
+
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            2.2 无形资产
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            目标公司拥有注册商标15项、软件著作权28项、实用新型专利5项。上述知识产权均在有效期内，权属清晰，不存在权属争议或被质押、冻结等情形。
+                          </p>
+                        </div>
+
+                        {/* Chapter 3: 合同情况 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            三、重大合同
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            我们审阅了目标公司近三年签订的金额超过人民币500万元的重大合同，主要包括销售合同、采购合同、技术开发合同等。经核查，上述合同条款完整，履行情况正常，未发现重大违约或纠纷。
+                          </p>
+
+                          <table 
+                            className="w-full mb-4"
+                            style={{
+                              fontFamily: currentStyle.tables.default.font,
+                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
+                              borderCollapse: "collapse",
+                            }}
+                          >
+                            <thead>
+                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  合同类型
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  数量
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  总金额
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { type: "销售合同", count: "12份", amount: "8,500万" },
+                                { type: "采购合同", count: "8份", amount: "3,200万" },
+                                { type: "技术开发合同", count: "5份", amount: "1,500万" },
+                              ].map((row, idx) => (
+                                <tr key={idx}>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.type}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.count}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.amount}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Chapter 4: 诉讼情况 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            四、诉讼及仲裁
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            根据目标公司声明及我们的尽职调查，截至本报告出具日，目标公司作为原告或被告的正在进行的诉讼、仲裁案件共计2起，涉案金额合计人民币120万元，均为普通商业纠纷，不构成对公司正常经营的重大影响。
+                          </p>
+                        </div>
+
+                        {/* Chapter 5: 结论 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            五、结论与建议
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            综上所述，目标公司系依法设立并有效存续的有限责任公司，公司治理结构完善，主要资产权属清晰，重大合同履行正常，不存在重大法律风险。我们建议关注以下事项：
+                          </p>
+
+                          <ul style={{ 
+                            fontFamily: currentStyle.styles.body.font,
+                            fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                            lineHeight: currentStyle.styles.body.lineSpacing,
+                            marginLeft: '1.5em',
+                            marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                          }}>
+                            <li style={{ marginBottom: '4pt' }}>完善知识产权管理制度，加强商业秘密保护</li>
+                            <li style={{ marginBottom: '4pt' }}>及时办理部分到期合同的续签手续</li>
+                            <li style={{ marginBottom: '4pt' }}>持续关注进行中的诉讼案件进展</li>
+                          </ul>
+
+                          <div 
+                            className="mt-8 p-4 rounded"
+                            style={{
+                              backgroundColor: currentStyle.preview.primaryColor + '10',
+                              borderLeft: `4px solid ${currentStyle.preview.primaryColor}`,
+                            }}
+                          >
+                            <p 
+                              style={{ 
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                fontWeight: 'bold',
+                                color: currentStyle.preview.primaryColor,
+                                marginBottom: '8pt',
+                              }}
+                            >
+                              免责声明
+                            </p>
+                            <p 
+                              style={{ 
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
+                                lineHeight: currentStyle.styles.body.lineSpacing,
+                                color: '#666',
+                              }}
+                            >
+                              本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
