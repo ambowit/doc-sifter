@@ -171,13 +171,15 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [stopMonitoring]);
 
   const pollJobStatus = useCallback(async (jobId: string): Promise<boolean> => {
+    console.log("[v0] pollJobStatus called with jobId:", jobId);
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job`, {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job-status`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ jobId }),
         signal: abortControllerRef.current?.signal,
       });
+      console.log("[v0] pollJobStatus: response status", response.status);
 
       const data = await response.json();
 
@@ -293,11 +295,13 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [applyTerminalState, clearRealtime, pollJobStatus, startFallbackPolling]);
 
   const startMonitoring = useCallback((jobId: string) => {
+    console.log("[v0] startMonitoring called with jobId:", jobId);
     stopMonitoring();
     setError(null);
     setErrorCode(null);
     pollCountRef.current = 0;
     subscribeRealtime(jobId);
+    console.log("[v0] startMonitoring: subscribeRealtime done, calling pollJobStatus");
     void pollJobStatus(jobId);
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
