@@ -171,7 +171,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [stopMonitoring]);
 
   const pollJobStatus = useCallback(async (jobId: string): Promise<boolean> => {
-    console.log("[v0] pollJobStatus called with jobId:", jobId);
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job-status`, {
         method: "POST",
@@ -179,7 +178,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         body: JSON.stringify({ jobId }),
         signal: abortControllerRef.current?.signal,
       });
-      console.log("[v0] pollJobStatus: response status", response.status);
 
       const data = await response.json();
 
@@ -295,21 +293,16 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   }, [applyTerminalState, clearRealtime, pollJobStatus, startFallbackPolling]);
 
   const startMonitoring = useCallback((jobId: string) => {
-    console.log("[v0] startMonitoring called with jobId:", jobId);
     stopMonitoring();
     setError(null);
     setErrorCode(null);
     pollCountRef.current = 0;
     subscribeRealtime(jobId);
-    console.log("[v0] startMonitoring: subscribeRealtime done, calling pollJobStatus");
     void pollJobStatus(jobId);
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
   const createJob = useCallback(async (options?: { forceRegenerate?: boolean }): Promise<string | null> => {
-    console.log("[v0] createJob called", { projectId, options });
-    
     if (!projectId) {
-      console.log("[v0] createJob: missing projectId");
       setError("缺少项目ID");
       setErrorCode("MISSING_PROJECT_ID");
       return null;
@@ -321,7 +314,6 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     setReport(null);
 
     try {
-      console.log("[v0] createJob: fetching create-report-job...");
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
         headers: getAuthHeaders(),
@@ -331,9 +323,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         }),
       });
 
-      console.log("[v0] createJob: response status", response.status);
       const data = await response.json();
-      console.log("[v0] createJob: response data", data);
 
       if (!data.success) {
         if (data.errorCode === "JOB_EXISTS" && data.existingJobId) {
