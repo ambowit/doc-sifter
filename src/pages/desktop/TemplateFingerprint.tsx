@@ -600,7 +600,24 @@ export default function TemplateFingerprint() {
   const [isEditingStyle, setIsEditingStyle] = useState(false);
   
   // Editable styles - each template can be edited independently
+  // Load from localStorage if available, otherwise use defaults
   const [editableStyles, setEditableStyles] = useState<Record<string, typeof templateStyles[0]>>(() => {
+    // Try to load saved styles from localStorage
+    try {
+      const saved = localStorage.getItem('templateStyles');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Verify all template styles exist in saved data
+        const hasAllStyles = templateStyles.every(style => parsed[style.id]);
+        if (hasAllStyles) {
+          return parsed;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load saved styles:", error);
+    }
+    
+    // Fall back to default styles
     const initial: Record<string, typeof templateStyles[0]> = {};
     templateStyles.forEach(style => {
       initial[style.id] = JSON.parse(JSON.stringify(style));
@@ -617,11 +634,17 @@ export default function TemplateFingerprint() {
   const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
     setEditableStyles(prev => {
       const newStyles = { ...prev };
+      if (!newStyles[styleId]) {
+        return prev;
+      }
       const style = JSON.parse(JSON.stringify(newStyles[styleId]));
       
       // Navigate to the nested property and update it
       let current: Record<string, unknown> = style;
       for (let i = 0; i < path.length - 1; i++) {
+        if (!current[path[i]]) {
+          return prev;
+        }
         current = current[path[i]] as Record<string, unknown>;
       }
       current[path[path.length - 1]] = value;
@@ -631,13 +654,22 @@ export default function TemplateFingerprint() {
     });
   }, []);
   
-  // Save current style
+  // Save current style to localStorage for persistence
   const saveCurrentStyle = useCallback(() => {
-    toast.success("样式已保存", {
-      description: `「${currentStyle.name}」的样式配置已保存`,
-    });
-    setIsEditingStyle(false);
-  }, [currentStyle.name]);
+    try {
+      // Save all edited styles to localStorage
+      localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
+      toast.success("样式已保存", {
+        description: `「${currentStyle.name}」的样式配置已保存到本地`,
+      });
+      setIsEditingStyle(false);
+    } catch (error) {
+      console.error("Failed to save styles:", error);
+      toast.error("保存失败", {
+        description: "无法保存样式配置",
+      });
+    }
+  }, [currentStyle.name, editableStyles]);
   
   // Reset style to default
   const resetStyleToDefault = useCallback((styleId: string) => {
@@ -1294,6 +1326,7 @@ export default function TemplateFingerprint() {
                   <ScrollArea className="h-0 grow">
                     <div className="p-8">
                       <div 
+                        key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
                         className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
                         style={{ 
                           padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
