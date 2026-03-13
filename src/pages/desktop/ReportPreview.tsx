@@ -806,7 +806,7 @@ export default function ReportPreview() {
     }, 120000);
     
     try {
-      toast.info(`正在重新生成「${sectionTitle}」...`);
+      toast.info(`正在重新��成「${sectionTitle}」...`);
       
       // Get current session for JWT auth
       const { data: { session } } = await supabase.auth.getSession();
@@ -1489,37 +1489,6 @@ export default function ReportPreview() {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Template Selection */}
-              <div className="space-y-2">
-                <Label className="text-[13px]">报告模板</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  {templateStyles.map((style) => (
-                    <div
-                      key={style.id}
-                      className={cn(
-                        "p-2 border rounded-lg cursor-pointer transition-all text-center",
-                        selectedStyleId === style.id
-                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                          : "border-border hover:border-muted-foreground"
-                      )}
-                      onClick={() => setSelectedStyleId(style.id)}
-                    >
-                      <div 
-                        className="w-6 h-6 rounded-full mx-auto mb-1 border-2" 
-                        style={{ 
-                          backgroundColor: style.preview.primaryColor,
-                          borderColor: style.preview.accentColor 
-                        }}
-                      />
-                      <div className="font-medium text-[11px] truncate">{style.name}</div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  当前模板：<span className="font-medium text-foreground">{currentStyle.name}</span> - {currentStyle.description}
-                </p>
               </div>
 
               {/* Options */}
