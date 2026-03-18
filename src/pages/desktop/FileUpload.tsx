@@ -137,8 +137,17 @@ export default function FileUpload() {
   const { projectId } = useParams<{ projectId: string }>();
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
-  const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
+  const { data: chapters = [], isLoading: chaptersLoading, error: chaptersError } = useFlatChapters(currentProjectId || undefined);
   const { data: mappings = [] } = useMappings(currentProjectId || undefined);
+  
+  // Debug: Log chapters data
+  console.log("[v0] FileUpload chapters debug:", { 
+    projectId: currentProjectId, 
+    chaptersCount: chapters.length, 
+    chaptersLoading,
+    chaptersError: chaptersError?.message,
+    uploadedFilesCount: existingFiles.length
+  });
   const createMappingMutation = useCreateMapping();
   const deleteMappingMutation = useDeleteMapping();
   const createFileMutation = useCreateFile();
