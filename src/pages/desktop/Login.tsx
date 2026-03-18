@@ -8,21 +8,25 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { 
-  FileText, 
-  Loader2, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Shield, 
-  Briefcase, 
+import {
+  FileText,
+  Loader2,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Shield,
+  Briefcase,
   GraduationCap,
   UserCog,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import BrandLogoSvg from "@/components/desktop/BrandLogoSvg";
+
+// TODO: Re-enable production check before launch
+// For testing purposes, always show test accounts
+const isProduction = false;
 
 // Test accounts with real credentials
 const TEST_ACCOUNTS: Array<{
@@ -38,38 +42,38 @@ const TEST_ACCOUNTS: Array<{
   bgColor: string;
   borderColor: string;
 }> = [
-  {
-    id: "admin",
-    role: "管理员",
-    authRole: "admin",
-    description: "完整权限，可管理团队和项目设置",
-    fullName: "张明（管理员）",
-    email: "admin@ddorganizer.test",
-    password: "Test123456!",
-    icon: UserCog,
-    color: "text-purple-600",
-    bgColor: "bg-purple-50",
-    borderColor: "border-purple-200",
-  },
-  {
-    id: "senior",
-    role: "律师",
-    authRole: "senior_lawyer",
-    description: "负责报告审核与最终出具",
-    fullName: "李婷（高级合伙人）",
-    email: "senior@ddorganizer.test",
-    password: "Test123456!",
-    icon: Briefcase,
-    color: "text-blue-600",
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
-  },
-];
+    {
+      id: "admin",
+      role: "管理员",
+      authRole: "admin",
+      description: "完整权限，可管理团队和项目设置",
+      fullName: "张明（管理员）",
+      email: "admin@ddorganizer.test",
+      password: "Test123456!",
+      icon: UserCog,
+      color: "text-purple-600",
+      bgColor: "bg-purple-50",
+      borderColor: "border-purple-200",
+    },
+    {
+      id: "senior",
+      role: "律师",
+      authRole: "senior_lawyer",
+      description: "负责报告审核与最终出具",
+      fullName: "李婷（高级合伙人）",
+      email: "senior@ddorganizer.test",
+      password: "Test123456!",
+      icon: Briefcase,
+      color: "text-blue-600",
+      bgColor: "bg-blue-50",
+      borderColor: "border-blue-200",
+    },
+  ];
 
 export default function Login() {
   const navigate = useNavigate();
   const { signInWithEmail, signInWithGoogle, isLoading: authLoading, isAuthenticated } = useAuth();
-  
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -87,28 +91,28 @@ export default function Login() {
 
   const validateForm = () => {
     const newErrors: { email?: string; password?: string } = {};
-    
+
     if (!email.trim()) {
       newErrors.email = "请输入邮箱地址";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "请输入有效的邮箱地址";
     }
-    
+
     if (!password) {
       newErrors.password = "请输入密码";
     } else if (password.length < 6) {
       newErrors.password = "密码至少6位";
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleEmailLogin = async (event: React.FormEvent) => {
     event.preventDefault();
-    
+
     if (!validateForm()) return;
-    
+
     setIsSubmitting(true);
     try {
       await signInWithEmail(email, password);
@@ -143,49 +147,49 @@ export default function Login() {
 
     setLoginInProgress(account.id);
     console.log("[Login] Starting test login for:", account.email);
-    
+
     try {
       // Try to sign in with the test account credentials
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: account.email,
         password: account.password,
       });
-      
+
       if (signInError) {
         console.log("[Login] Sign in error:", signInError.message);
-        
+
         // If user doesn't exist, try to create them first
         if (signInError.message.includes("Invalid login credentials")) {
           toast.info("正在初始化测试账号...");
-          
+
           // Call edge function to initialize test users
           const { data: initData, error: initError } = await supabase.functions.invoke("init-test-users");
-          
+
           if (initError) {
             console.error("[Login] Init test users error:", initError);
             toast.error("初始化测试账号失败");
             setLoginInProgress(null);
             return;
           }
-          
+
           console.log("[Login] Init result:", initData);
-          
+
           // Wait a bit for the user to be created
           await new Promise(resolve => setTimeout(resolve, 500));
-          
+
           // Try signing in again after initialization
           const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
             email: account.email,
             password: account.password,
           });
-          
+
           if (retryError) {
             console.error("[Login] Retry login error:", retryError);
             toast.error("测试账号登录失败");
             setLoginInProgress(null);
             return;
           }
-          
+
           console.log("[Login] Retry login success:", retryData.user?.email);
         } else {
           console.error("[Login] Sign in error:", signInError);
@@ -196,7 +200,7 @@ export default function Login() {
       } else {
         console.log("[Login] Sign in success:", signInData.user?.email);
       }
-      
+
       toast.success(`以${account.role}身份登录成功`);
       // Navigation is handled by the useEffect watching isAuthenticated
     } catch (error) {
@@ -227,14 +231,14 @@ export default function Login() {
           <div className="absolute bottom-32 right-20 w-24 h-24 rounded-full border-2 border-primary-foreground" />
           <div className="absolute bottom-28 right-32 w-24 h-24 rounded-full border-2 border-primary-foreground" />
         </div>
-        
+
         <div className="relative z-10">
           <div className="flex items-center gap-3 text-primary-foreground">
             <BrandLogoSvg className="w-12 h-10" color="#FFFFFF" />
             <span className="text-xl font-semibold tracking-tight">DD Organizer</span>
           </div>
         </div>
-        
+
         <div className="space-y-6 relative z-10">
           <h1 className="text-4xl font-bold text-primary-foreground leading-tight">
             专业的法律尽职调查<br />文档整理助手
@@ -248,7 +252,7 @@ export default function Login() {
             <span className="text-primary-foreground/70 text-sm">AI 智能解析</span>
           </div>
         </div>
-        
+
         <div className="text-primary-foreground/60 text-sm relative z-10">
           &copy; 2026 DD Organizer. 保留所有权利。
         </div>
@@ -268,64 +272,68 @@ export default function Login() {
             <p className="text-muted-foreground">登录您的账户以继续</p>
           </div>
 
-          {/* Demo Accounts Section */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-[hsl(66,70%,45%)]" />
-              <span className="text-[13px] font-medium">测试账号</span>
-              <span className="text-[11px] text-muted-foreground">点击快速体验</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {TEST_ACCOUNTS.map((account, index) => {
-                const IconComponent = account.icon;
-                const isLogging = loginInProgress === account.id;
-                
-                return (
-                  <motion.button
-                    key={account.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    onClick={() => handleTestLogin(account)}
-                    disabled={isSubmitting || loginInProgress !== null}
-                    className={cn(
-                      "flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all",
-                      "hover:shadow-sm hover:border-primary/30",
-                      "disabled:opacity-50 disabled:cursor-not-allowed",
-                      account.bgColor,
-                      account.borderColor
-                    )}
-                  >
-                    <div className={cn(
-                      "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
-                      "bg-white/80"
-                    )}>
-                      {isLogging ? (
-                        <Loader2 className={cn("w-4 h-4 animate-spin", account.color)} />
-                      ) : (
-                        <IconComponent className={cn("w-4 h-4", account.color)} />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className={cn("text-[13px] font-medium", account.color)}>
-                        {account.role}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground truncate">
-                        {account.description}
-                      </div>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </div>
+          {/* Demo Accounts Section - Hidden in production */}
+          {!isProduction && (
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-[hsl(66,70%,45%)]" />
+                  <span className="text-[13px] font-medium">测试账号</span>
+                  <span className="text-[11px] text-muted-foreground">点击快速体验</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {TEST_ACCOUNTS.map((account, index) => {
+                    const IconComponent = account.icon;
+                    const isLogging = loginInProgress === account.id;
 
-          <div className="relative">
-            <Separator />
-            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-4 text-[12px] text-muted-foreground">
-              或使用账号登录
-            </span>
-          </div>
+                    return (
+                      <motion.button
+                        key={account.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        onClick={() => handleTestLogin(account)}
+                        disabled={isSubmitting || loginInProgress !== null}
+                        className={cn(
+                          "flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all",
+                          "hover:shadow-sm hover:border-primary/30",
+                          "disabled:opacity-50 disabled:cursor-not-allowed",
+                          account.bgColor,
+                          account.borderColor
+                        )}
+                      >
+                        <div className={cn(
+                          "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
+                          "bg-white/80"
+                        )}>
+                          {isLogging ? (
+                            <Loader2 className={cn("w-4 h-4 animate-spin", account.color)} />
+                          ) : (
+                            <IconComponent className={cn("w-4 h-4", account.color)} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className={cn("text-[13px] font-medium", account.color)}>
+                            {account.role}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {account.description}
+                          </div>
+                        </div>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="relative">
+                <Separator />
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-4 text-[12px] text-muted-foreground">
+                  或使用账号登录
+                </span>
+              </div>
+            </>
+          )}
 
           {/* Google OAuth */}
           <Button

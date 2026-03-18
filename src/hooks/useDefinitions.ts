@@ -248,42 +248,26 @@ async function invokeWithTimeout<T>(
   body: Record<string, unknown>,
   timeoutMs: number = 60000
 ): Promise<{ data: T | null; error: Error | null }> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    console.log(`[invokeWithTimeout] Timeout after ${timeoutMs}ms`);
-    controller.abort();
-  }, timeoutMs);
-
   try {
-    console.log(`[invokeWithTimeout] Calling ${functionName}...`);
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      }
-    );
-    clearTimeout(timeoutId);
-
-    console.log(`[invokeWithTimeout] Response status: ${response.status}`);
+    console.log(`[v0] invokeWithTimeout: Calling ${functionName} with body:`, JSON.stringify(body));
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { data: null, error: new Error(`HTTP ${response.status}: ${errorText}`) };
+    // Use supabase.functions.invoke which handles auth automatically
+    const result = await supabase.functions.invoke(functionName, {
+      body,
+    });
+    
+    console.log(`[v0] invokeWithTimeout: Raw result:`, JSON.stringify(result));
+
+    if (result.error) {
+      console.log(`[v0] invokeWithTimeout: Error from invoke:`, result.error);
+      return { data: null, error: new Error(result.error.message || "调用失败") };
     }
 
-    const data = await response.json();
-    return { data: data as T, error: null };
+    console.log(`[v0] invokeWithTimeout: Success, data type:`, typeof result.data);
+    console.log(`[v0] invokeWithTimeout: Success, data:`, JSON.stringify(result.data));
+    return { data: result.data as T, error: null };
   } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof Error && err.name === "AbortError") {
-      return { data: null, error: new Error("AI 提取超时，请稍后重试") };
-    }
+    console.log(`[v0] invokeWithTimeout: Caught exception:`, err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
@@ -349,17 +333,111 @@ export function useRegenerateDefinitions() {
         return [];
       }
 
+      // Helper function to infer entity type from name
+      const inferEntityType = (name: string, shortName: string): EntityType => {
+        const fullText = (name + " " + shortName).toLowerCase();
+        
+        // Company keywords
+        if (
+          fullText.includes("公司") || 
+          fullText.includes("企业") || 
+          fullText.includes("集团") ||
+          fullText.includes("有限") ||
+          fullText.includes("股份") ||
+          fullText.includes("合伙") ||
+          fullText.includes("法人") ||
+          fullText.includes("目标公司") ||
+          fullText.includes("标的公司") ||
+          fullText.includes("投资方") ||
+          fullText.includes("收购方") ||
+          fullText.includes("被收购方")
+        ) {
+          return "company";
+        }
+        
+        // Individual keywords
+        if (
+          fullText.includes("先生") || 
+          fullText.includes("女士") || 
+          fullText.includes("自然人") ||
+          fullText.includes("股东") ||
+          fullText.includes("董事") ||
+          fullText.includes("监事") ||
+          fullText.includes("高管") ||
+          fullText.includes("法定代表人") ||
+          fullText.includes("实际控制人") ||
+          fullText.includes("创始人") ||
+          // Check for Chinese names (2-4 characters without company suffixes)
+          (/^[\u4e00-\u9fa5]{2,4}$/.test(shortName) && !fullText.includes("公司"))
+        ) {
+          return "individual";
+        }
+        
+        // Institution keywords
+        if (
+          fullText.includes("委员会") || 
+          fullText.includes("政府") || 
+          fullText.includes("监管") ||
+          fullText.includes("部门") ||
+          fullText.includes("局") ||
+          fullText.includes("银行") ||
+          fullText.includes("基金") ||
+          fullText.includes("协会") ||
+          fullText.includes("机构") ||
+          fullText.includes("证监会") ||
+          fullText.includes("工商局") ||
+          fullText.includes("税务局")
+        ) {
+          return "institution";
+        }
+        
+        // Transaction keywords
+        if (
+          fullText.includes("交易") || 
+          fullText.includes("收购") || 
+          fullText.includes("合并") ||
+          fullText.includes("投资") ||
+          fullText.includes("融资") ||
+          fullText.includes("增资") ||
+          fullText.includes("股权转让") ||
+          fullText.includes("重组") ||
+          fullText.includes("项目")
+        ) {
+          return "transaction";
+        }
+        
+        // Default to other
+        return "other";
+      };
+
       const definitionsToInsert = validDefinitions.map((def: {
-        name: string;
-        shortName: string;
+        name: string;        // AI returns: full name (e.g., "本法律尽职调查报告")
+        shortName: string;   // AI returns: short name (e.g., "本报告")
+        fullName?: string;   // Alternative field name for full name
         description?: string;
-      }) => ({
-        project_id: projectId,
-        short_name: def.shortName,
-        full_name: def.name,
-        entity_type: "other" as EntityType,
-        notes: def.description || null,
-      }));
+        type?: string;
+      }) => {
+        // Handle both field name formats from AI
+        // AI might return {name: "全称", shortName: "简称"} or {fullName: "全称", shortName: "简称"}
+        const fullNameValue = def.fullName || def.name || "";
+        const shortNameValue = def.shortName || "";
+        
+        // Use provided type if valid, otherwise infer from name
+        let entityType: EntityType = "other";
+        if (def.type && ["company", "individual", "institution", "transaction", "other"].includes(def.type)) {
+          entityType = def.type as EntityType;
+        } else {
+          entityType = inferEntityType(fullNameValue, shortNameValue);
+        }
+        
+        return {
+          project_id: projectId,
+          short_name: shortNameValue,
+          full_name: fullNameValue,
+          entity_type: entityType,
+          notes: def.description || null,
+        };
+      });
 
       console.log("[useRegenerateDefinitions] Inserting definitions:", definitionsToInsert.length);
 

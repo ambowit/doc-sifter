@@ -2,10 +2,18 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { 
+  ProjectStatus, 
+  ProjectType, 
+  ReportLanguage,
+  type ProjectStatusType,
+  type ProjectTypeType,
+  type ReportLanguageType,
+} from "@/lib/enums";
 
-export type ProjectStatus = "未上传" | "解析中" | "映射中" | "待审阅" | "已完成";
-export type ProjectType = "股权收购" | "资产收购" | "IPO" | "债券发行" | "融资" | "其他";
-export type ReportLanguage = "中文" | "英文" | "中英双语";
+export type { ProjectStatusType as ProjectStatus };
+export type { ProjectTypeType as ProjectType };
+export type { ReportLanguageType as ReportLanguage };
 
 export interface Project {
   id: string;
@@ -14,10 +22,10 @@ export interface Project {
   client: string;
   target: string;
   description: string | null;
-  projectType: ProjectType;
-  reportLanguage: ReportLanguage;
+  projectType: ProjectTypeType;
+  reportLanguage: ReportLanguageType;
   strictEvidenceMode: boolean;
-  status: ProjectStatus;
+  status: ProjectStatusType;
   progress: number;
   createdAt: string;
   updatedAt: string;
@@ -28,8 +36,8 @@ export interface CreateProjectData {
   client: string;
   target: string;
   description?: string;
-  projectType?: ProjectType;
-  reportLanguage?: ReportLanguage;
+  projectType?: ProjectTypeType;
+  reportLanguage?: ReportLanguageType;
   strictEvidenceMode?: boolean;
 }
 
@@ -38,10 +46,10 @@ export interface UpdateProjectData {
   client?: string;
   target?: string;
   description?: string;
-  projectType?: ProjectType;
-  reportLanguage?: ReportLanguage;
+  projectType?: ProjectTypeType;
+  reportLanguage?: ReportLanguageType;
   strictEvidenceMode?: boolean;
-  status?: ProjectStatus;
+  status?: ProjectStatusType;
   progress?: number;
 }
 
@@ -53,10 +61,10 @@ const transformProject = (row: Record<string, unknown>): Project => ({
   client: row.client as string,
   target: row.target as string,
   description: row.description as string | null,
-  projectType: row.project_type as ProjectType,
-  reportLanguage: row.report_language as ReportLanguage,
+  projectType: row.project_type as ProjectTypeType,
+  reportLanguage: row.report_language as ReportLanguageType,
   strictEvidenceMode: row.strict_evidence_mode as boolean,
-  status: row.status as ProjectStatus,
+  status: row.status as ProjectStatusType,
   progress: row.progress as number,
   createdAt: row.created_at as string,
   updatedAt: row.updated_at as string,
@@ -142,8 +150,8 @@ export function useCreateProject() {
           client: data.client,
           target: data.target,
           description: data.description || null,
-          project_type: data.projectType || "股权收购",
-          report_language: data.reportLanguage || "中文",
+          project_type: data.projectType || ProjectType.EQUITY_ACQUISITION,
+          report_language: data.reportLanguage || ReportLanguage.ZH,
           strict_evidence_mode: data.strictEvidenceMode ?? true,
         })
         .select()

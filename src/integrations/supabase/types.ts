@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -7,30 +7,161 @@ export type Json =
   | Json[];
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.4";
   };
   public: {
     Tables: {
-      [_ in never]: never;
+      generated_reports: {
+        Row: {
+          id: string;
+          project_id: string;
+          user_id: string;
+          status: string;
+          version: number;
+          report_json: Json;
+          summary_json: Json;
+          total_chapters: number;
+          total_files: number;
+          issues_found: number;
+          evidence_file_count: number;
+          citation_coverage: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          user_id: string;
+          status?: string;
+          version?: number;
+          report_json?: Json;
+          summary_json?: Json;
+          total_chapters?: number;
+          total_files?: number;
+          issues_found?: number;
+          evidence_file_count?: number;
+          citation_coverage?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string;
+          user_id?: string;
+          status?: string;
+          version?: number;
+          report_json?: Json;
+          summary_json?: Json;
+          total_chapters?: number;
+          total_files?: number;
+          issues_found?: number;
+          evidence_file_count?: number;
+          citation_coverage?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      report_generation_jobs: {
+        Row: {
+          id: string;
+          project_id: string;
+          user_id: string;
+          status: string;
+          progress: number;
+          current_stage: string;
+          progress_message: string | null;
+          processed_chapters: number;
+          total_chapters: number;
+          issues_found: number;
+          error_code: string | null;
+          error_message: string | null;
+          report_id: string | null;
+          created_at: string;
+          started_at: string | null;
+          completed_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          user_id: string;
+          status?: string;
+          progress?: number;
+          current_stage?: string;
+          progress_message?: string | null;
+          processed_chapters?: number;
+          total_chapters?: number;
+          issues_found?: number;
+          error_code?: string | null;
+          error_message?: string | null;
+          report_id?: string | null;
+          created_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string;
+          user_id?: string;
+          status?: string;
+          progress?: number;
+          current_stage?: string;
+          progress_message?: string | null;
+          processed_chapters?: number;
+          total_chapters?: number;
+          issues_found?: number;
+          error_code?: string | null;
+          error_message?: string | null;
+          report_id?: string | null;
+          created_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      [key: string]: {
+        Row: Record<string, unknown>;
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          referencedRelation: string;
+          referencedColumns: string[];
+          isOneToOne: boolean;
+        }>;
+      };
     };
     Views: {
-      [_ in never]: never;
+      [key: string]: {
+        Row: Record<string, unknown>;
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          referencedRelation: string;
+          referencedColumns: string[];
+          isOneToOne: boolean;
+        }>;
+      };
     };
     Functions: {
-      [_ in never]: never;
+      [key: string]: {
+        Args: Record<string, unknown>;
+        Returns: unknown;
+      };
     };
     Enums: {
-      [_ in never]: never;
+      [key: string]: string;
     };
     CompositeTypes: {
-      [_ in never]: never;
+      [key: string]: Record<string, unknown>;
     };
   };
 };
-
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<
@@ -156,3 +287,4 @@ export const Constants = {
     Enums: {},
   },
 } as const;
+

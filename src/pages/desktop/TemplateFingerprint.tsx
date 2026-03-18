@@ -13,6 +13,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText,
@@ -47,9 +57,19 @@ import {
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
 import { useParseTemplate, fileToBase64, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
-import { mockTemplateFingerprint } from "@/lib/reportMockData";
+import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // =============================================================================
 // COMPONENTS
@@ -79,12 +99,12 @@ function ChapterTree({ chapters, level = 0 }: { chapters: Chapter[]; level?: num
               variant="outline"
               className={cn(
                 "text-[10px] px-1.5 py-0 ml-auto",
-                chapter.status === "已匹配" && "bg-emerald-50 text-emerald-700 border-emerald-200",
-                chapter.status === "资料不足" && "bg-amber-50 text-amber-700 border-amber-200",
-                chapter.status === "未匹配" && "bg-slate-50 text-slate-600 border-slate-200"
+                chapter.status === ChapterStatus.MATCHED && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                chapter.status === ChapterStatus.INSUFFICIENT_DATA && "bg-amber-50 text-amber-700 border-amber-200",
+                chapter.status === ChapterStatus.UNMATCHED && "bg-slate-50 text-slate-600 border-slate-200"
               )}
             >
-              {chapter.status}
+              {ChapterStatusLabels[chapter.status as ChapterStatusType] || chapter.status}
             </Badge>
           </div>
           {chapter.children && chapter.children.length > 0 && (
@@ -578,14 +598,116 @@ export default function TemplateFingerprint() {
   const currentProjectId = projectId || null;
   const { data: currentProject, isLoading: projectLoading } = useCurrentProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
-  
+
   const parseTemplateMutation = useParseTemplate();
   const deleteChaptersMutation = useDeleteProjectChapters();
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
-  const [activeTab, setActiveTab] = useState("toc");
+  const [activeTab, setActiveTab] = useState("styles");
+  const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
+  const [isEditingStyle, setIsEditingStyle] = useState(false);
+  
+  // Editable styles - each template can be edited independently
+  // Load from localStorage if available, otherwise use defaults
+  const [editableStyles, setEditableStyles] = useState<Record<string, typeof templateStyles[0]>>(() => {
+    // Try to load saved styles from localStorage
+    try {
+      const saved = localStorage.getItem('templateStyles');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Verify all template styles exist in saved data
+        const hasAllStyles = templateStyles.every(style => parsed[style.id]);
+        if (hasAllStyles) {
+          return parsed;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load saved styles:", error);
+    }
+    
+    // Fall back to default styles
+    const initial: Record<string, typeof templateStyles[0]> = {};
+    templateStyles.forEach(style => {
+      initial[style.id] = JSON.parse(JSON.stringify(style));
+    });
+    return initial;
+  });
+  
+  // Get current selected style (from editable state)
+  const currentStyle = useMemo(() => {
+    return editableStyles[selectedStyleId] || templateStyles[0];
+  }, [selectedStyleId, editableStyles]);
+  
+  // Update a specific style's property
+  const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
+    setEditableStyles(prev => {
+      const newStyles = { ...prev };
+      if (!newStyles[styleId]) {
+        return prev;
+      }
+      const style = JSON.parse(JSON.stringify(newStyles[styleId]));
+      
+      // Navigate to the nested property and update it
+      let current: Record<string, unknown> = style;
+      for (let i = 0; i < path.length - 1; i++) {
+        if (!current[path[i]]) {
+          return prev;
+        }
+        current = current[path[i]] as Record<string, unknown>;
+      }
+      current[path[path.length - 1]] = value;
+      
+      newStyles[styleId] = style;
+      return newStyles;
+    });
+  }, []);
+  
+  // Save current style to localStorage for persistence
+  const saveCurrentStyle = useCallback(() => {
+    try {
+      // Save all edited styles to localStorage
+      localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
+      toast.success("样式已保存", {
+        description: `「${currentStyle.name}」的样式配置已保存到本地`,
+      });
+      setIsEditingStyle(false);
+    } catch (error) {
+      console.error("Failed to save styles:", error);
+      toast.error("保存失败", {
+        description: "无法保存样式配置",
+      });
+    }
+  }, [currentStyle.name, editableStyles]);
+  
+  // Reset style to default with undo support
+  const resetStyleToDefault = useCallback((styleId: string) => {
+    const defaultStyle = templateStyles.find(s => s.id === styleId);
+    if (defaultStyle) {
+      // Save current state for undo
+      const previousStyle = editableStyles[styleId];
+      
+      setEditableStyles(prev => ({
+        ...prev,
+        [styleId]: JSON.parse(JSON.stringify(defaultStyle)),
+      }));
+      
+      toast.success("已重置为默认样式", {
+        description: "样式已恢复为初始设置",
+        action: {
+          label: "撤销",
+          onClick: () => {
+            setEditableStyles(prev => ({
+              ...prev,
+              [styleId]: previousStyle,
+            }));
+            toast.info("已撤销重置操作");
+          },
+        },
+      });
+    }
+  }, [editableStyles]);
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
@@ -640,6 +762,12 @@ export default function TemplateFingerprint() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    console.log("[TemplateFingerprint] File selected for upload:", {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
+
     // Clear input value for re-upload
     event.target.value = "";
 
@@ -648,7 +776,7 @@ export default function TemplateFingerprint() {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "application/msword",
     ];
-    
+
     if (!validTypes.includes(file.type)) {
       toast.error("不支持的文件格式", {
         description: "请上传 PDF 或 Word (.docx) 文件",
@@ -657,14 +785,19 @@ export default function TemplateFingerprint() {
     }
 
     try {
-      toast.info(`正在解析 ${file.name}...`, { duration: 3000 });
+      toast.info(`正在解析 ${file.name}，AI 正在提取报告结构...`, { duration: 5000 });
 
       // Convert file to base64 for server-side parsing
       const fileData = await fileToBase64(file);
-      
+
+      console.log("[TemplateFingerprint] File converted to base64:", {
+        fileDataLength: fileData.length,
+        mimeType: file.type,
+      });
+
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: "",
+        content: "", // Empty content, will use fileData for extraction
         filename: file.name,
         fileData,
         mimeType: file.type,
@@ -681,9 +814,18 @@ export default function TemplateFingerprint() {
     }
   };
 
-  // Handle reset template
+  // State for reset confirmation
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Handle reset template with confirmation
   const handleResetTemplate = async () => {
     if (!currentProjectId) return;
+    setShowResetConfirm(true);
+  };
+  
+  const confirmResetTemplate = async () => {
+    if (!currentProjectId) return;
+    setShowResetConfirm(false);
 
     try {
       await deleteChaptersMutation.mutateAsync(currentProjectId);
@@ -823,6 +965,10 @@ export default function TemplateFingerprint() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border bg-background px-6">
             <TabsList className="h-12 bg-transparent p-0 gap-1">
+              <TabsTrigger value="styles" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                <Palette className="w-4 h-4" />
+                模板样式
+              </TabsTrigger>
               <TabsTrigger value="toc" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <BookOpen className="w-4 h-4" />
                 目录结构
@@ -834,14 +980,6 @@ export default function TemplateFingerprint() {
               <TabsTrigger value="numbering" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Hash className="w-4 h-4" />
                 编号配置
-              </TabsTrigger>
-              <TabsTrigger value="typography" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Type className="w-4 h-4" />
-                排版样式
-              </TabsTrigger>
-              <TabsTrigger value="tables" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Table2 className="w-4 h-4" />
-                表格样式
               </TabsTrigger>
               <TabsTrigger value="intro" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Edit3 className="w-4 h-4" />
@@ -856,59 +994,1223 @@ export default function TemplateFingerprint() {
 
           {/* Tab Contents */}
           <div className="flex-1 overflow-hidden min-h-0 relative">
+            {/* Styles Tab - Template Style Selection and Editing */}
+            <TabsContent value="styles" className="absolute inset-0 m-0">
+              <div className="absolute inset-0 flex">
+                {/* Left: Style list */}
+                <div className="w-72 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">模板样式</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      选择并编辑样式配置
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-3 space-y-2">
+                      {templateStyles.map((style) => {
+                        const editedStyle = editableStyles[style.id];
+                        return (
+                          <motion.div
+                            key={style.id}
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              selectedStyleId === style.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-muted-foreground/50 bg-card"
+                            )}
+                            onClick={() => {
+                              setSelectedStyleId(style.id);
+                              setIsEditingStyle(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Color preview */}
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
+                                <div 
+                                  className="h-1/2" 
+                                  style={{ backgroundColor: editedStyle?.preview.primaryColor || style.preview.primaryColor }}
+                                />
+                                <div 
+                                  className="h-1/2" 
+                                  style={{ backgroundColor: editedStyle?.preview.accentColor || style.preview.accentColor }}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">{editedStyle?.name || style.name}</h4>
+                                  {selectedStyleId === style.id && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {editedStyle?.preview.fontFamily || style.preview.fontFamily}
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Middle: Style Editor */}
+                <div className="w-80 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Edit3 className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">编辑样式</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 text-[11px]"
+                          onClick={() => resetStyleToDefault(selectedStyleId)}
+                        >
+                          重置
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          className="h-7 text-[11px]"
+                          onClick={saveCurrentStyle}
+                        >
+                          保存
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {currentStyle.name} - {currentStyle.description}
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-4 space-y-6">
+                      {/* Basic Info */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">基本信息</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-[11px]">样式名称</Label>
+                            <Input 
+                              value={currentStyle.name}
+                              onChange={(e) => updateStyleProperty(selectedStyleId, ['name'], e.target.value)}
+                              className="h-8 text-[12px] mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">主色调</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input 
+                                type="color"
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
+                              />
+                              <Input 
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">辅助色</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input 
+                                type="color"
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
+                              />
+                              <Input 
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Heading Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">标题样式 (H1)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.h1.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.h1.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 text-[11px]">
+                              <input 
+                                type="checkbox"
+                                checked={currentStyle.styles.h1.bold}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'bold'], e.target.checked)}
+                                className="rounded"
+                              />
+                              加粗
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* H2 Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">二级标题 (H2)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.h2.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.h2.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Body Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">正文样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select 
+                                value={currentStyle.styles.body.font}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'font'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input 
+                                type="number"
+                                value={currentStyle.styles.body.sizePt}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">行距</Label>
+                              <Input 
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.lineSpacing}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'lineSpacing'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">首行缩进 (cm)</Label>
+                              <Input 
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.firstLineIndentCm}
+                                onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'firstLineIndentCm'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">对齐方式</Label>
+                            <Select 
+                              value={currentStyle.styles.body.align}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'align'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="left">左对齐</SelectItem>
+                                <SelectItem value="center">居中</SelectItem>
+                                <SelectItem value="right">右对齐</SelectItem>
+                                <SelectItem value="justify">两端对齐</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Table Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">表格样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">边框样式</Label>
+                              <Select 
+                                value={currentStyle.tables.default.border}
+                                onValueChange={(v) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'border'], v)}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="single">单线边���</SelectItem>
+                                  <SelectItem value="threeLines">三线表</SelectItem>
+                                  <SelectItem value="none">无边框</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">表头背景色</Label>
+                              <div className="flex gap-1 mt-1">
+                                <Input 
+                                  type="color"
+                                  value={currentStyle.tables.default.headerFill === "transparent" ? "#ffffff" : currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 w-10 p-1"
+                                />
+                                <Input 
+                                  value={currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 text-[11px] flex-1"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Decorations */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">装饰素材</h4>
+                        <div className="space-y-3">
+                          {/* Header Decoration */}
+                          <div>
+                            <Label className="text-[11px]">页眉装饰</Label>
+                            <Select 
+                              value={currentStyle.preview.headerDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'headerDecoration'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="line">简约线条</SelectItem>
+                                <SelectItem value="double-line">双线装饰</SelectItem>
+                                <SelectItem value="gradient">渐变色带</SelectItem>
+                                <SelectItem value="pattern">几何图案</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Section Divider */}
+                          <div>
+                            <Label className="text-[11px]">章节分隔线</Label>
+                            <Select 
+                              value={currentStyle.preview.sectionDivider || "simple"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'sectionDivider'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="simple">简单线条</SelectItem>
+                                <SelectItem value="dotted">点线</SelectItem>
+                                <SelectItem value="diamond">菱形装饰</SelectItem>
+                                <SelectItem value="wave">波浪线</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Quote Style */}
+                          <div>
+                            <Label className="text-[11px]">引用块样式</Label>
+                            <Select 
+                              value={currentStyle.preview.quoteStyle || "border-left"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'quoteStyle'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="border-left">左边框</SelectItem>
+                                <SelectItem value="background">背景填充</SelectItem>
+                                <SelectItem value="quotes">引号装饰</SelectItem>
+                                <SelectItem value="bracket">方括号</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Title Decoration */}
+                          <div>
+                            <Label className="text-[11px]">标题装饰</Label>
+                            <Select 
+                              value={currentStyle.preview.titleDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'titleDecoration'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="underline">下划线</SelectItem>
+                                <SelectItem value="box">方框</SelectItem>
+                                <SelectItem value="ribbon">丝带效果</SelectItem>
+                                <SelectItem value="badge">徽章样式</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* Page Corner */}
+                          <div>
+                            <Label className="text-[11px]">页面角标</Label>
+                            <Select 
+                              value={currentStyle.preview.pageCorner || "none"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'pageCorner'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="fold">折角效果</SelectItem>
+                                <SelectItem value="stamp">印章图标</SelectItem>
+                                <SelectItem value="watermark">水印文字</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          {/* List Bullet Style */}
+                          <div>
+                            <Label className="text-[11px]">列表项目符号</Label>
+                            <Select 
+                              value={currentStyle.preview.bulletStyle || "disc"}
+                              onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'bulletStyle'], v)}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="disc">实心圆点</SelectItem>
+                                <SelectItem value="circle">空心圆点</SelectItem>
+                                <SelectItem value="square">方块</SelectItem>
+                                <SelectItem value="arrow">箭头</SelectItem>
+                                <SelectItem value="check">勾选标记</SelectItem>
+                                <SelectItem value="number">数字序号</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Right: Style preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">实时预览</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        {currentStyle.name}
+                      </Badge>
+                    </div>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-8">
+                      <div 
+                        key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
+                        className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
+                        style={{ 
+                          padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
+                          minHeight: "600px"
+                        }}
+                      >
+                        {/* Header Decoration */}
+                        {currentStyle.preview.headerDecoration && currentStyle.preview.headerDecoration !== 'none' && (
+                          <div className="mb-4">
+                            {currentStyle.preview.headerDecoration === 'line' && (
+                              <div className="h-1 rounded-full" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                            )}
+                            {currentStyle.preview.headerDecoration === 'double-line' && (
+                              <div className="space-y-1">
+                                <div className="h-0.5" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                <div className="h-1" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                              </div>
+                            )}
+                            {currentStyle.preview.headerDecoration === 'gradient' && (
+                              <div 
+                                className="h-2 rounded-full" 
+                                style={{ 
+                                  background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})` 
+                                }} 
+                              />
+                            )}
+                            {currentStyle.preview.headerDecoration === 'pattern' && (
+                              <div className="flex items-center gap-1">
+                                {Array.from({ length: 12 }).map((_, i) => (
+                                  <div 
+                                    key={i} 
+                                    className="flex-1 h-2" 
+                                    style={{ 
+                                      backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
+                                      transform: 'skewX(-15deg)'
+                                    }} 
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Page Corner Decoration */}
+                        {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
+                          <div className="absolute top-4 right-4">
+                            {currentStyle.preview.pageCorner === 'fold' && (
+                              <div 
+                                className="w-8 h-8"
+                                style={{
+                                  background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
+                                  borderBottomLeftRadius: '8px',
+                                }}
+                              />
+                            )}
+                            {currentStyle.preview.pageCorner === 'stamp' && (
+                              <div 
+                                className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
+                                style={{ 
+                                  borderColor: currentStyle.preview.primaryColor,
+                                  color: currentStyle.preview.primaryColor,
+                                }}
+                              >
+                                LEGAL
+                              </div>
+                            )}
+                            {currentStyle.preview.pageCorner === 'watermark' && (
+                              <div 
+                                className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
+                                style={{ color: currentStyle.preview.primaryColor }}
+                              >
+                                CONFIDENTIAL
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Report Header Preview */}
+                        <div 
+                          className={cn(
+                            "text-center mb-8 pb-4",
+                            currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
+                            currentStyle.preview.titleDecoration === 'ribbon' && "relative",
+                            currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
+                            (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
+                          )}
+                          style={{ 
+                            borderColor: currentStyle.preview.primaryColor,
+                            backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
+                          }}
+                        >
+                          {currentStyle.preview.titleDecoration === 'badge' && (
+                            <div 
+                              className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
+                              style={{ 
+                                backgroundColor: `${currentStyle.preview.primaryColor}15`,
+                                color: currentStyle.preview.primaryColor,
+                              }}
+                            >
+                              法律文书
+                            </div>
+                          )}
+                          {currentStyle.preview.titleDecoration === 'ribbon' && (
+                            <div 
+                              className="absolute -left-2 top-0 w-1 h-full rounded-r"
+                              style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                            />
+                          )}
+                          <h1 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                              textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
+                            }}
+                          >
+                            法律尽职调查报告
+                          </h1>
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              color: "#666",
+                            }}
+                          >
+                            {currentProject?.target || "目标公司名称"}
+                          </p>
+                        </div>
+
+                        {/* Sample Section */}
+                        <div className="mb-6">
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            一、公司基本情况
+                          </h2>
+                          
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            1.1 公司设立及历史沿革
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            根据我们审阅的工商登记资料，目标公司成立于2018年3月15日，注册资本人民币5,000万元，已全额实缴。公司统一社会信用代码为91110108MA01XXXXXX。
+                          </p>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            目标公司的经营范围包括：技术开发、技术咨询、技术服务、技术转让；软件开发；数据处理；计算机系统服务。公司经营范围合法合规，未见超范围经营情形。
+                          </p>
+                        </div>
+
+                        {/* Sample Table */}
+                        <div className="mb-6">
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            1.2 股权结构
+                          </h3>
+                          
+                          <table 
+                            className="w-full mb-4"
+                            style={{
+                              fontFamily: currentStyle.tables.default.font,
+                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
+                              borderCollapse: "collapse",
+                            }}
+                          >
+                            <thead>
+                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  序号
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  股东名称
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  持股比例
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { no: 1, name: "张明", ratio: "35%" },
+                                { no: 2, name: "李华", ratio: "25%" },
+                                { no: 3, name: "深圳创新投资", ratio: "20%" },
+                                { no: 4, name: "员工持股平台", ratio: "20%" },
+                              ].map((row) => (
+                                <tr key={row.no}>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.no}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.name}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.ratio}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.caption.font,
+                              fontSize: `${currentStyle.styles.caption.sizePt}pt`,
+                              textAlign: currentStyle.styles.caption.align,
+                              color: "#666",
+                            }}
+                          >
+                            表1：目标公司股权结构
+                          </p>
+                        </div>
+
+                        {/* Quote Sample with decoration styles */}
+                        <div 
+                          className={cn(
+                            "mb-6 relative",
+                            currentStyle.preview.quoteStyle === 'background' && "rounded-lg",
+                          )}
+                          style={{
+                            fontFamily: currentStyle.styles.quote.font,
+                            fontSize: `${currentStyle.styles.quote.sizePt}pt`,
+                            lineHeight: currentStyle.styles.quote.lineSpacing,
+                            marginLeft: `${currentStyle.styles.quote.indentLeftCm}cm`,
+                            paddingLeft: currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle ? "12px" : 
+                                         currentStyle.preview.quoteStyle === 'quotes' ? "24px" :
+                                         currentStyle.preview.quoteStyle === 'bracket' ? "16px" : "16px",
+                            paddingRight: currentStyle.preview.quoteStyle === 'bracket' ? "16px" : 
+                                          currentStyle.preview.quoteStyle === 'background' ? "16px" : "0",
+                            paddingTop: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
+                            paddingBottom: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
+                            borderLeft: (currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle) ? `3px solid ${currentStyle.preview.primaryColor}` : "none",
+                            backgroundColor: currentStyle.preview.quoteStyle === 'background' ? `${currentStyle.preview.primaryColor}10` : "transparent",
+                            color: "#555",
+                          }}
+                        >
+                          {/* Quote marks decoration */}
+                          {currentStyle.preview.quoteStyle === 'quotes' && (
+                            <>
+                              <span 
+                                className="absolute left-0 top-0 text-3xl leading-none opacity-30"
+                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
+                              >
+                                "
+                              </span>
+                              <span 
+                                className="absolute right-0 bottom-0 text-3xl leading-none opacity-30"
+                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
+                              >
+                                "
+                              </span>
+                            </>
+                          )}
+                          {/* Bracket decoration */}
+                          {currentStyle.preview.quoteStyle === 'bracket' && (
+                            <>
+                              <span 
+                                className="absolute left-0 top-0 bottom-0 w-2 border-l-2 border-t-2 border-b-2 rounded-l"
+                                style={{ borderColor: currentStyle.preview.primaryColor }}
+                              />
+                              <span 
+                                className="absolute right-0 top-0 bottom-0 w-2 border-r-2 border-t-2 border-b-2 rounded-r"
+                                style={{ borderColor: currentStyle.preview.primaryColor }}
+                              />
+                            </>
+                          )}
+                          根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。
+                        </div>
+
+                        {/* Chapter 2: 资产情况 */}
+                        <div className="mb-6 pt-4">
+                          {/* Section Divider */}
+                          {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
+                            <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
+                          )}
+                          {currentStyle.preview.sectionDivider === 'dotted' && (
+                            <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
+                          )}
+                          {currentStyle.preview.sectionDivider === 'diamond' && (
+                            <div className="mb-4 flex items-center gap-2">
+                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                              <div 
+                                className="w-2 h-2 transform rotate-45"
+                                style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                              />
+                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                            </div>
+                          )}
+                          {currentStyle.preview.sectionDivider === 'wave' && (
+                            <div className="mb-4">
+                              <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
+                                <path 
+                                  d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" 
+                                  fill="none" 
+                                  stroke={currentStyle.preview.primaryColor + '60'} 
+                                  strokeWidth="1"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                          {currentStyle.preview.sectionDivider === 'none' && (
+                            <div className="mb-4" />
+                          )}
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            二、资产情况
+                          </h2>
+                          
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            2.1 固定资产
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            经审阅目标公司提供的固定资产清单及相关权属证明文件，截至2024年12月31日，目标公司主要固定资产包括房屋建筑物、机器设备、电子设备等，账面价值合计人民币3,500万元。
+                          </p>
+
+                          <h3 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h2.font,
+                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                              color: currentStyle.preview.secondaryColor,
+                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                            }}
+                          >
+                            2.2 无形资产
+                          </h3>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            目标公司拥有注册商标15项、软件著作权28项、实用新型专利5项。上述知识产权均在有效期内，权属清晰，不存在权属争议或被质押、冻结等情形。
+                          </p>
+                        </div>
+
+                        {/* Chapter 3: 合同情况 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            三、重大合同
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            我们审阅了目标公司近三年签订的金额超过人民币500万元的重大合同，主要包括销售合同、采购合同、技术开发合同等。经核查，上述合同条款完整，履行情况正常，未发现重大违约或纠纷。
+                          </p>
+
+                          <table 
+                            className="w-full mb-4"
+                            style={{
+                              fontFamily: currentStyle.tables.default.font,
+                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
+                              borderCollapse: "collapse",
+                            }}
+                          >
+                            <thead>
+                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  合同类型
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  数量
+                                </th>
+                                <th style={{
+                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
+                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                }}>
+                                  总金额
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { type: "销售合同", count: "12份", amount: "8,500万" },
+                                { type: "采购合同", count: "8份", amount: "3,200万" },
+                                { type: "技术开发合同", count: "5份", amount: "1,500万" },
+                              ].map((row, idx) => (
+                                <tr key={idx}>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.type}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.count}
+                                  </td>
+                                  <td style={{
+                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
+                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
+                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
+                                  }}>
+                                    {row.amount}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Chapter 4: 诉讼情况 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            四、诉讼及仲裁
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            根据目标公司声明及我们的尽职调查，截至本报告出具日，目标公司作为原告或被告的正在进行的诉讼、仲裁案件共计2起，涉案金额合计人民币120万元，均为普通商业纠纷，不构成对公司正常经营的重大影响。
+                          </p>
+                        </div>
+
+                        {/* Chapter 5: 结论 */}
+                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
+                          <h2 
+                            style={{ 
+                              fontFamily: currentStyle.styles.h1.font,
+                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                              color: currentStyle.preview.primaryColor,
+                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                            }}
+                          >
+                            五、结论与建议
+                          </h2>
+                          
+                          <p 
+                            style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                            }}
+                          >
+                            综上所述，目标公司系依法设立并有效存续的有限责任公司，公司治理结构完善，主要资产权属清晰，重大合同履行正常，不存在重大法律风险。我们建议关注以下事项：
+                          </p>
+
+                          {/* List with bullet style */}
+                          {(currentStyle.preview.bulletStyle === 'number' ? (
+                            <ol style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              marginLeft: '1.5em',
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                              listStyleType: 'decimal',
+                            }}>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>完善知识产权管理制度，加强商业秘密保护</span>
+                              </li>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>及时办理部分到期合同的续签手续</span>
+                              </li>
+                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
+                                <span style={{ color: '#333' }}>持续关注进行中的诉讼案件进展</span>
+                              </li>
+                            </ol>
+                          ) : (
+                            <ul style={{ 
+                              fontFamily: currentStyle.styles.body.font,
+                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                              lineHeight: currentStyle.styles.body.lineSpacing,
+                              marginLeft: '1.5em',
+                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                              listStyleType: currentStyle.preview.bulletStyle === 'disc' || !currentStyle.preview.bulletStyle ? 'disc' :
+                                            currentStyle.preview.bulletStyle === 'circle' ? 'circle' :
+                                            currentStyle.preview.bulletStyle === 'square' ? 'square' : 'none',
+                            }}>
+                              {['完善知识产权管理制度，加强商业秘密保护', '及时办理部分到期合同的续签手续', '持续关注进行中的诉讼案件进展'].map((item, idx) => (
+                                <li key={idx} style={{ marginBottom: '4pt', display: currentStyle.preview.bulletStyle === 'arrow' || currentStyle.preview.bulletStyle === 'check' ? 'flex' : 'list-item', alignItems: 'flex-start', gap: '8px' }}>
+                                  {currentStyle.preview.bulletStyle === 'arrow' && (
+                                    <span style={{ color: currentStyle.preview.primaryColor }}>→</span>
+                                  )}
+                                  {currentStyle.preview.bulletStyle === 'check' && (
+                                    <span style={{ color: currentStyle.preview.primaryColor }}>✓</span>
+                                  )}
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ))}
+
+                          <div 
+                            className="mt-8 p-4 rounded"
+                            style={{
+                              backgroundColor: currentStyle.preview.primaryColor + '10',
+                              borderLeft: `4px solid ${currentStyle.preview.primaryColor}`,
+                            }}
+                          >
+                            <p 
+                              style={{ 
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                fontWeight: 'bold',
+                                color: currentStyle.preview.primaryColor,
+                                marginBottom: '8pt',
+                              }}
+                            >
+                              免责声明
+                            </p>
+                            <p 
+                              style={{ 
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
+                                lineHeight: currentStyle.styles.body.lineSpacing,
+                                color: '#666',
+                              }}
+                            >
+                              本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            </TabsContent>
+
             {/* TOC Tab - Real Data */}
             <TabsContent value="toc" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Chapter list */}
-              <div className="w-5/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">报告目录</span>
+                {/* Left: Chapter list */}
+                <div className="w-5/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">报告目录</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
-                  </p>
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <ChapterTree chapters={chapters} />
+                  </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <ChapterTree chapters={chapters} />
-                </div>
-              </div>
 
-              {/* Right: TOC preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">目录预览</span>
+                {/* Right: TOC preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">目录预览</span>
+                    </div>
                   </div>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
-                    <div className="space-y-2 text-[14px]">
-                      {chapters.map((chapter, idx) => (
-                        <div key={chapter.id}>
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
-                            <span className="flex-1 font-semibold">{chapter.title}</span>
-                            <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                            <span className="text-muted-foreground">1</span>
-                          </div>
-                          {chapter.children?.map((child, childIdx) => (
-                            <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
-                              <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
-                              <span className="flex-1">{child.title}</span>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
+                      <div className="space-y-2 text-[14px]">
+                        {chapters.map((chapter, idx) => (
+                          <div key={chapter.id}>
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
+                              <span className="flex-1 font-semibold">{chapter.title}</span>
                               <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
                               <span className="text-muted-foreground">1</span>
                             </div>
-                          ))}
-                        </div>
-                      ))}
+                            {chapter.children?.map((child, childIdx) => (
+                              <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
+                                <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
+                                <span className="flex-1">{child.title}</span>
+                                <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                                <span className="text-muted-foreground">1</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
@@ -956,203 +2258,88 @@ export default function TemplateFingerprint() {
               </div>
             </TabsContent>
 
-            {/* Typography Tab */}
-            <TabsContent value="typography" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8 space-y-6">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3"
-                  >
-                    <Palette className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">排版样式已提取</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        以下样式Token从样本报告中自动提取，将应用于最终生成的DOCX报告。样式已锁定。
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      标题样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="一级标题 H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
-                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子���题" />
-                      <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <AlignJustify className="w-4 h-4" />
-                      正文样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="正文 Body" token={mockTemplateFingerprint.styles.body} description="报告主体内容的段落样式" />
-                      <StyleTokenCard label="引用 Quote" token={mockTemplateFingerprint.styles.quote} description="用于引用原始文件内容" />
-                      <StyleTokenCard label="图注 Caption" token={mockTemplateFingerprint.styles.caption} description="图表的标题和注释" />
-                      <StyleTokenCard label="脚注 Footnote" token={mockTemplateFingerprint.styles.footnote} description="页面底部的脚注文字" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <List className="w-4 h-4" />
-                      列表样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard
-                        label="无序列表 Bullet"
-                        token={{
-                          glyph: mockTemplateFingerprint.lists.bullet.glyph,
-                          indentLeftCm: mockTemplateFingerprint.lists.bullet.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.bullet.hangingCm,
-                        }}
-                      />
-                      <StyleTokenCard
-                        label="有序列表 Ordered"
-                        token={{
-                          format: mockTemplateFingerprint.lists.ordered.format,
-                          indentLeftCm: mockTemplateFingerprint.lists.ordered.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.ordered.hangingCm,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Image className="w-4 h-4" />
-                      图表样式
-                    </h3>
-                    <StyleTokenCard
-                      label="图表设置 Figures"
-                      token={{
-                        captionFormat: mockTemplateFingerprint.figures.captionFormat,
-                        captionStyle: mockTemplateFingerprint.figures.captionStyle,
-                        placeCaption: mockTemplateFingerprint.figures.placeCaption === "below" ? "图下方" : "图上方",
-                        maxWidthPercent: `${mockTemplateFingerprint.figures.maxWidthPercent}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Tables Tab */}
-            <TabsContent value="tables" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3 mb-6"
-                  >
-                    <Table2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">表格样式</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        定义报告中表格的边框、颜色、字体等样式，确保与样本一致。
-                      </div>
-                    </div>
-                  </motion.div>
-                  <TableStylePanel tables={mockTemplateFingerprint.tables} />
-                </div>
-              </div>
-            </TabsContent>
-
             {/* Intro Tab */}
             <TabsContent value="intro" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Variables */}
-              <div className="w-4/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <Edit3 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">可编辑变量</span>
+                {/* Left: Variables */}
+                <div className="w-4/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Edit3 className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">可编辑变量</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      填写变量值，将自动替换引言中的占位符
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    填写变量值，将自动替换引言中的占位符
-                  </p>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <div className="space-y-4">
-                    {variables.map((v) => (
-                      <div key={v.id}>
-                        <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
-                          {v.name}
-                          {v.required && <span className="text-red-500">*</span>}
-                        </Label>
-                        <Input
-                          value={v.value}
-                          onChange={(e) => handleVariableChange(v.id, e.target.value)}
-                          placeholder={v.placeholder}
-                          className="mt-1"
-                        />
-                      </div>
-                    ))}
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <div className="space-y-4">
+                      {variables.map((v) => (
+                        <div key={v.id}>
+                          <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
+                            {v.name}
+                            {v.required && <span className="text-red-500">*</span>}
+                          </Label>
+                          <Input
+                            value={v.value}
+                            onChange={(e) => handleVariableChange(v.id, e.target.value)}
+                            placeholder={v.placeholder}
+                            className="mt-1"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 p-4 border-t border-border">
-                  <Button onClick={handleSaveVariables} className="w-full gap-2">
-                    <Save className="w-4 h-4" />
-                    保存变量
-                  </Button>
-                </div>
-              </div>
-
-              {/* Right: Intro preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">引言预览</span>
+                  <div className="shrink-0 p-4 border-t border-border">
+                    <Button onClick={handleSaveVariables} className="w-full gap-2">
+                      <Save className="w-4 h-4" />
+                      保存变量
+                    </Button>
                   </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.background}
-                      </p>
-                    </section>
+                {/* Right: Intro preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">引言预览</span>
+                    </div>
+                  </div>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.scope}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.background}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.methodology}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.scope}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.disclaimer}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.methodology}
+                        </p>
+                      </section>
+
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.disclaimer}
+                        </p>
+                      </section>
+                    </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
@@ -1198,6 +2385,24 @@ export default function TemplateFingerprint() {
           </div>
         </Tabs>
       )}
+      
+      {/* Reset Template Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置模板？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作将删除当前所有章节结构，此操作无法撤销。您确定要继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmResetTemplate} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              确认重置
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

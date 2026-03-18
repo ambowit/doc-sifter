@@ -83,13 +83,13 @@ async function callAI(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.2,
-        max_tokens: 16000,
+        temperature: 0.3,
+        max_tokens: 8000,
       }),
       signal: controller.signal,
     });
@@ -304,7 +304,7 @@ ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? 
     if (mode === "metadata") {
       logStep("Metadata mode: extracting equity and definitions from all files");
       
-      const systemPrompt = `你是中国顶级PE/VC投资法律尽职调查合伙人。
+      const systemPrompt = `你���中国顶级PE/VC投资法律尽职调查合伙人。
 你的任务是从数据室文件中精确提取股权结构和定义表信息，用于生成专业的投资尽调报告。
 
 =====================================================
@@ -564,10 +564,41 @@ ${allFilesContent}
 ${allFilesContent}
 
 ## 输出格式
-请直接输出纯 JSON，不要包含\`\`\`json标记：
-{"title":"${chapterTitle}","number":"${chapterNumber || ""}","content":"报告正文（包含Markdown表格）","findings":["发现点"],"issues":[{"fact":"事实","risk":"风险","suggestion":"建议","severity":"high|medium|low"}],"sourceFiles":["文件名1","文件名2"]}
+请直接输出纯 JSON，不要包含\`\`\`json标记。
 
-如无相关文件，在content中说明"尚未获取相关资料"。`;
+**重要：issues数组必须包含完整内容，每个issue的fact/risk/suggestion字段必须有实际内容！**
+
+示例格式：
+{
+  "title": "${chapterTitle}",
+  "number": "${chapterNumber || ""}",
+  "content": "报告正文内容（使用Markdown表格展示数据）",
+  "findings": ["核查发现的事实1", "核查发现的事实2"],
+  "issues": [
+    {
+      "fact": "经核查，目标公司注册资本1000万元，实缴资本仅100万元",
+      "risk": "存在注册资本未实缴风险，影响公司运营资金及股东责任认定",
+      "suggestion": "建议在交割前要求股东完成实缴，或在投资协议中设置实缴安排条款",
+      "severity": "medium"
+    },
+    {
+      "fact": "经核查，公司高管信息未在工商登记中更新",
+      "risk": "存在工商登记与实际管理层不符的合规风险",
+      "suggestion": "建议在交割前完成工商变更登记",
+      "severity": "low"
+    }
+  ],
+  "sourceFiles": ["营业执照.pdf", "公司章程.pdf"]
+}
+
+## 重要提醒（必须遵守）
+1. **必须至少输出1-3个issues**，分析该章节可能存在的法律风险
+2. issues中每个问题的fact、risk、suggestion字段都必须填写具体内容，**严禁留空**
+3. fact必须以"经核查，"开头，描述具体发现的事实
+4. risk必须描述该事实带来的法律风险和潜在影响
+5. suggestion必须给出具体的投资保障建议
+6. 如果文件内容不足，应在issues中标注"建议补充XX资料以进一步核查"
+7. 如无相关文件，在content中说明"尚未获取相关资料"，但仍需在issues中提示需要补充哪些资料`;
 
       try {
         const aiResponse = await callAI(apiKey, singleChapterPrompt, "请生成章节内容，必须包含表格", 90000); // 90秒超时
@@ -601,13 +632,35 @@ ${allFilesContent}
             }
           }
           
+          // Normalize issues to ensure all fields exist
+          let normalizedIssues = Array.isArray(parsed.issues) 
+            ? parsed.issues.map((issue: Record<string, unknown>) => ({
+                fact: String(issue.fact || issue.事实 || issue.description || ""),
+                risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+                suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+                severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+              })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
+                issue.fact || issue.risk || issue.suggestion
+              )
+            : [];
+
+          // Add default issue if none found
+          if (normalizedIssues.length === 0) {
+            normalizedIssues = [{
+              fact: `经核查，尚未获取到「${chapterTitle}」相关的完整资料`,
+              risk: "存在核查不完整的风险，可能遗漏重要法律问题",
+              suggestion: "建议补充提供相关资料以便进一步核查",
+              severity: "low" as const
+            }];
+          }
+
           section = {
             id: chapterId,
             title: parsed.title || chapterTitle,
             number: parsed.number || chapterNumber,
             content: parsed.content || `【${chapterTitle}】内容待生成`,
             findings: Array.isArray(parsed.findings) ? parsed.findings : [],
-            issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+            issues: normalizedIssues,
             sourceFiles: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles : [],
           };
           
@@ -631,7 +684,12 @@ ${allFilesContent}
             number: chapterNumber,
             content: `【${chapterTitle}】\n\n${aiResponse.substring(0, 2000)}\n\n（AI返回格式异常，已显示原始内容）`,
             findings: [],
-            issues: [],
+            issues: [{
+              fact: "经核查，AI返回格式异常，无法解析报告内容",
+              risk: "存在报告生成异常的风险",
+              suggestion: "建议重新生成该章节",
+              severity: "low"
+            }],
             sourceFiles: [],
           };
         }
@@ -653,7 +711,12 @@ ${allFilesContent}
             ? `【${chapterTitle}】\n\nAI生成超时，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`
             : `【${chapterTitle}】\n\nAI生成失败: ${errorMsg}\n\n请稍后重试。`,
           findings: [],
-          issues: [],
+          issues: [{
+            fact: `经核查，${errorMsg.includes("AI_TIMEOUT") ? "AI生成超时" : "AI生成失败"}`,
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         };
         
@@ -672,7 +735,7 @@ ${allFilesContent}
     // ============ BATCH MODE - AUTO INTELLIGENT MATCHING ============
     // The key change: AI reads ALL files and intelligently decides which to use for each chapter
     
-    const CHAPTERS_PER_BATCH = 2; // Reduced for stability with detailed content generation
+    const CHAPTERS_PER_BATCH = 4; // Increased for faster generation
     const calculatedTotalBatches = Math.ceil(processedChapters.length / CHAPTERS_PER_BATCH);
     const actualTotalBatches = totalBatches || calculatedTotalBatches;
     
@@ -758,18 +821,18 @@ ${allFilesContent}
 
 **关键人员类**（重点核查）：
 - 兼职审批：如关键人员为高校/国企在职人员，是否取得校外兼职审批
-- 禁止兼任：检查监事是否兼任董事/高管或实际经营管理者（违反《公司法》）
+- 禁止兼任：检查监事是��兼任董事/高管或实际经营管理者（违反《公司法》）
 - 体外持股/任职：详细排查关键人员在关联公司或竞争对手的持股、任职情况，评估精力分散及利益输送风险
 - 同业竞争：排查关键人员是否涉及竞争业务
 
 **知识产权类**：
-- 核心专利/商标权属：检查是否由目标公司直接持有，还是由关联方/个人持有
+- 核心专利/商标权属：检查是否由目标公司直接持有，还是��关联方/个人持有
 - 转让/授权安排：如由外部持有，是否已签署转让/授权协议，费用如何
 - 职务发明：如依赖高校/研究所设备，检查发明权属风险
 
 **业务资质类**：
 - 必要资质清单：根据业务列明所需资质（如医疗器械注册证、康复辅具资质等）
-- 资质缺失风险：无资质经营的行政处罚风险、申请周期影响
+- 资质缺失风险：无资质经营的行政处罚风险、申请周期影��
 
 **重大合同类**：
 - 合同履行情况：检查是否存在未履约、违约风险
@@ -796,7 +859,7 @@ ${allFilesContent}
 所有问题的建议必须关联交易文件设计，包括：
 
 1. **交割条件**：将知识产权转移、资质申请、代持清理等设为交割前置条件
-2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发回购权利
+2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发��购权利
 3. **交割后义务**：要求关键人员注销体外公司、取得高校兼职审批
 4. **投资方特殊权利**：对大额关联交易的一票否决权、信息知情权、财务监督权
 5. **退出保障**：回购条款、拖带权、反稀释条款
@@ -850,10 +913,16 @@ ${allFilesContent}
     "findings": ["核查发现1", "核查发现2", "核查发现3"],
     "issues": [
       {
-        "fact": "具体事实描述",
-        "risk": "法律风险分析",
-        "suggestion": "投资保障建议（关联交割条件/义务/特殊权利）",
-        "severity": "high/medium/low"
+        "fact": "经核查，目标公司注册资本1000万元，截至2024年12月31日实缴资本仅300万元",
+        "risk": "存在注册资本未足额实缴的法律风险，根据《公司法》规定，股东应按期足额缴纳出资，未实缴部分可能影响公司运营资金及后续融资估值",
+        "suggestion": "建议在交割前将实缴安排作为前置条件，或在投资协议中设置股东补缴义务及违约责任条款",
+        "severity": "medium"
+      },
+      {
+        "fact": "经核查，公司监事王某同时担任公司总经理职务",
+        "risk": "根据《公司法》第五十一条规定，监事不得兼任公司的董事、高级管理人员，存在公司治理合规风险",
+        "suggestion": "建议交割前完成监事变更登记，由非高管人员担任监事职务",
+        "severity": "high"
       }
     ],
     "sourceFiles": ["引用的文件名称"]
@@ -864,6 +933,14 @@ ${allFilesContent}
 - **high**：可能导致交易终止或重大不利影响（如核心资产权属缺陷、重大违法违规）
 - **medium**：需通过交易条款解决（如代持清理、资质申请）
 - **low**：合规缺陷，需完善但不影响交易（如制度不完善）
+
+## 重要提醒（必须遵守）
+1. **每个章节必须至少包含1-3个issues**，除非该章节确实没有任何法律风险
+2. **issues中的fact、risk、suggestion字段必须填写完整具体的内容**，严禁留空
+3. fact必须以"经核查，"开头，描述具体发现的事实
+4. risk必须描述该事实带来的法律风险和潜在影响
+5. suggestion必须给出具体的投资保障建议
+6. 如果文件内容不足以分析风险，应在issues中标注"建议补充XX资料以进一步核查"
 
 直接输出JSON数组，禁止输出任何说明文字。`;
 
@@ -891,7 +968,7 @@ ${allFilesContent}
     });
 
     try {
-      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 90000); // 90s timeout for detailed content
+      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 50000); // 50s timeout to stay within Edge Function limits
       logStep("AI response received", { length: aiContent.length });
 
       let sections: ChapterContent[] = [];
@@ -921,6 +998,29 @@ ${allFilesContent}
           const matchedChapter = findMatchingChapter(rawSection.title || "");
           if (matchedChapter && !processedIds.has(matchedChapter.id)) {
             processedIds.add(matchedChapter.id);
+            
+            // Normalize issues to ensure all fields exist
+            let normalizedIssues = Array.isArray(rawSection.issues) 
+              ? rawSection.issues.map((issue: Record<string, unknown>) => ({
+                  fact: String(issue.fact || issue.事实 || issue.description || ""),
+                  risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+                  suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+                  severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+                })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
+                  issue.fact || issue.risk || issue.suggestion
+                )
+              : [];
+
+            // Add default issue if none found
+            if (normalizedIssues.length === 0) {
+              normalizedIssues = [{
+                fact: `经核查，尚未获取到「${matchedChapter.title}」相关的完整资料`,
+                risk: "存在核查不完整的风险，可能遗漏重要法律问题",
+                suggestion: "建议补充提供相关资料以便进一步核查",
+                severity: "low" as const
+              }];
+            }
+            
             // Use database title and number, keep AI-generated content
             sections.push({
               id: matchedChapter.id,
@@ -928,7 +1028,7 @@ ${allFilesContent}
               number: matchedChapter.number || "",
               content: rawSection.content || "",
               findings: rawSection.findings || [],
-              issues: rawSection.issues || [],
+              issues: normalizedIssues,
               sourceFiles: rawSection.sourceFiles || [],
             });
           }
@@ -943,7 +1043,12 @@ ${allFilesContent}
               number: chapter.number || "",
               content: `【${chapter.title}】\n\nAI未能生成此章节内容，请检查是否有相关文件。`,
               findings: ["待核查"],
-              issues: [],
+              issues: [{
+                fact: `经核查，尚未获取到「${chapter.title}」相关的完整资料`,
+                risk: "存在核查不完整的风险",
+                suggestion: "建议补充提供相关资料",
+                severity: "low"
+              }],
               sourceFiles: [],
             });
           }
@@ -957,7 +1062,12 @@ ${allFilesContent}
           number: c.number || "",
           content: `【${c.title}】\n\nAI生成失败，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`,
           findings: ["生成失败，待重试"],
-          issues: [],
+          issues: [{
+            fact: "经核查，AI生成失败",
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         }));
       }
@@ -987,7 +1097,12 @@ ${allFilesContent}
           number: c.number || "",
           content: `【${c.title}】\n\nAI生成超时，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`,
           findings: ["生成超时"],
-          issues: [],
+          issues: [{
+            fact: "经核查，AI生成超时",
+            risk: "存在报告生成异常的风险",
+            suggestion: "建议重新生成该章节",
+            severity: "low"
+          }],
           sourceFiles: [],
         }));
         

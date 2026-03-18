@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { mockChapters, mockUploadedFiles, type Chapter, type UploadedFile } from "@/lib/mockData";
+import { ChapterStatus } from "@/lib/enums";
 
 export interface MappingState {
   chapters: Chapter[];
@@ -26,11 +27,11 @@ const updateChapterMapping = (
       // Update status based on matched files
       let status: Chapter["status"];
       if (matchedFiles.length === 0) {
-        status = "未匹配";
+        status = ChapterStatus.UNMATCHED;
       } else if (matchedFiles.length >= 2) {
-        status = "已匹配";
+        status = ChapterStatus.MATCHED;
       } else {
-        status = "资料不足";
+        status = ChapterStatus.INSUFFICIENT_DATA;
       }
 
       return { ...chapter, matchedFiles, status };
@@ -52,8 +53,8 @@ const calculateStats = (chapters: Chapter[]) => {
   let unmatched = 0;
 
   const countStatus = (ch: Chapter) => {
-    if (ch.status === "已匹配") matched++;
-    else if (ch.status === "资料不足") insufficient++;
+    if (ch.status === ChapterStatus.MATCHED) matched++;
+    else if (ch.status === ChapterStatus.INSUFFICIENT_DATA) insufficient++;
     else unmatched++;
     ch.children?.forEach(countStatus);
   };

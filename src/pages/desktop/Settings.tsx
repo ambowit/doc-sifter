@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { ReportLanguage, ReportLanguageLabels, type ReportLanguageType } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,7 +68,7 @@ export default function Settings() {
   const [reportGenerated, setReportGenerated] = useState(true);
 
   // Report settings
-  const [defaultLanguage, setDefaultLanguage] = useState("中文");
+  const [defaultLanguage, setDefaultLanguage] = useState<ReportLanguageType>(ReportLanguage.ZH);
   const [strictMode, setStrictMode] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
 
@@ -298,14 +299,14 @@ export default function Settings() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[13px]">默认报告语言</Label>
-                <Select value={defaultLanguage} onValueChange={setDefaultLanguage}>
+                <Select value={defaultLanguage} onValueChange={(v) => setDefaultLanguage(v as ReportLanguageType)}>
                   <SelectTrigger className="text-[13px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="中文">中文</SelectItem>
-                    <SelectItem value="英文">English</SelectItem>
-                    <SelectItem value="中英双语">中英双语</SelectItem>
+                    <SelectItem value={ReportLanguage.ZH}>{ReportLanguageLabels[ReportLanguage.ZH]}</SelectItem>
+                    <SelectItem value={ReportLanguage.EN}>{ReportLanguageLabels[ReportLanguage.EN]}</SelectItem>
+                    <SelectItem value={ReportLanguage.ZH_EN}>{ReportLanguageLabels[ReportLanguage.ZH_EN]}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

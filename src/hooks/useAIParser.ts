@@ -36,11 +36,10 @@ function flattenChapters(
   parentNumber: string = ""
 ): CreateChapterData[] {
   const result: CreateChapterData[] = [];
-  
+
   chapters.forEach((chapter, index) => {
-    const chapterId = crypto.randomUUID();
     const orderIndex = index;
-    
+
     result.push({
       projectId,
       parentId,
@@ -50,20 +49,18 @@ function flattenChapters(
       orderIndex,
       description: chapter.description || "",
     });
-    
+
     if (chapter.children && chapter.children.length > 0) {
-      // Note: We can't set the actual parentId here since we don't have the created chapter's ID yet
-      // The bulk create will handle this by ordering properly
       const childChapters = flattenChapters(
         chapter.children,
         projectId,
-        null, // Will be resolved by level/order
+        null,
         chapter.number
       );
       result.push(...childChapters);
     }
   });
-  
+
   return result;
 }
 
@@ -71,25 +68,25 @@ function flattenChapters(
 function parseTemplateContent(content: string): ChapterStructure[] {
   const chapters: ChapterStructure[] = [];
   const lines = content.split("\n");
-  
+
   let currentChapter: ChapterStructure | null = null;
   let chapterIndex = 0;
   let subChapterIndex = 0;
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    
+
     // Detect chapter headers
     // Pattern: ## 第X章 or # 章节 or 1. or 一、
     const level1Match = trimmed.match(/^(?:##?\s*)?(?:第[一二三四五六七八九十\d]+章|[一二三四五六七八九十]+[、.])\s*(.+)/);
     const level2Match = trimmed.match(/^(?:###\s*)?(?:\d+\.\d+|[（(][一二三四五六七八九十\d]+[)）])\s*(.+)/);
-    
+
     if (level1Match) {
       chapterIndex++;
       subChapterIndex = 0;
       currentChapter = {
-        number: String(chapterIndex),
+        number: String(chapterIndex), // Use simple numbering
         title: level1Match[1] || trimmed,
         level: 1,
         description: "",
@@ -115,7 +112,7 @@ function parseTemplateContent(content: string): ChapterStructure[] {
       currentChapter.description = trimmed;
     }
   }
-  
+
   return chapters;
 }
 
@@ -141,23 +138,23 @@ export function useParseTemplate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ 
-      projectId, 
-      content, 
+    mutationFn: async ({
+      projectId,
+      content,
       filename,
       fileData,
       mimeType,
-    }: { 
-      projectId: string; 
-      content: string; 
+    }: {
+      projectId: string;
+      content: string;
       filename?: string;
       fileData?: string;
       mimeType?: string;
     }) => {
       if (!user) throw new Error("User not authenticated");
 
-      console.log("[ParseTemplate] Starting AI parsing", { 
-        filename, 
+      console.log("[ParseTemplate] Starting AI parsing", {
+        filename,
         contentLength: content?.length,
         projectId,
         hasFileData: !!fileData,
@@ -175,17 +172,17 @@ export function useParseTemplate() {
 
       try {
         console.log("[ParseTemplate] Calling Edge Function...");
-        
+
         // Use fetch directly for better timeout control
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        
+
         const requestBody: Record<string, unknown> = {
           type: "template",
           content,
           filename,
         };
-        
+
         // Include file data if provided (for server-side parsing)
         if (fileData) {
           requestBody.fileData = fileData;
@@ -195,7 +192,7 @@ export function useParseTemplate() {
             mimeType,
           });
         }
-        
+
         const response = await fetch(`${supabaseUrl}/functions/v1/parse`, {
           method: "POST",
           headers: {
@@ -226,10 +223,10 @@ export function useParseTemplate() {
         }
 
         const result = data as TemplateParseResult;
-        console.log("[ParseTemplate] AI result:", { 
-          chaptersCount: result.chapters?.length 
+        console.log("[ParseTemplate] AI result:", {
+          chaptersCount: result.chapters?.length
         });
-        
+
         if (!result.chapters || result.chapters.length === 0) {
           throw new Error("AI未能生成报告结构");
         }
@@ -244,7 +241,7 @@ export function useParseTemplate() {
       } catch (fetchError) {
         clearTimeout(timeoutId);
         console.error("[ParseTemplate] Fetch error:", fetchError);
-        
+
         if (fetchError instanceof Error) {
           if (fetchError.name === "AbortError") {
             throw new Error("AI解析超时（90秒），请重试");
@@ -267,13 +264,13 @@ export function useParseDocument() {
   const updateFileStatus = useUpdateFileStatus();
 
   return useMutation({
-    mutationFn: async ({ 
-      fileId, 
-      content, 
-      filename 
-    }: { 
-      fileId: string; 
-      content: string; 
+    mutationFn: async ({
+      fileId,
+      content,
+      filename
+    }: {
+      fileId: string;
+      content: string;
       filename?: string;
     }) => {
       if (!user) throw new Error("User not authenticated");
@@ -299,7 +296,7 @@ export function useParseDocument() {
         }
 
         const result = data as DocumentParseResult;
-        
+
         // Update file with parsed content
         await updateFileStatus.mutateAsync({
           fileId,
@@ -341,7 +338,7 @@ export function useBatchParseDocuments() {
             error: error instanceof Error ? error.message : "Unknown error",
           });
         }
-        
+
         // Small delay between requests
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -361,7 +358,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
 
   // For PDF and Word files, we'll use a simplified approach
   // In production, you'd use PDF.js or mammoth.js for proper parsing
-  
+
   // Try to read as text (works for some file types)
   try {
     const text = await file.text();
@@ -450,6 +447,50 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     ],
   },
   {
+    number: "第二章",
+    title: "公司治理",
+    level: 1,
+    description: "核查公司治理结构的合法性和有效性",
+    children: [
+      { number: "2.1", title: "公司章程", level: 2, description: "公司章程的合法性、有效性及主要条款" },
+      { number: "2.2", title: "股东会/董事会决议", level: 2, description: "历次股东会、董事会决议的合法性" },
+      { number: "2.3", title: "高级管理人员", level: 2, description: "高管人员的任职资格、竞业限制等" },
+    ],
+  },
+  {
+    number: "第三章",
+    title: "重大资产",
+    level: 1,
+    description: "核查目标公司的重大资产状况",
+    children: [
+      { number: "3.1", title: "房产及土地", level: 2, description: "不动产权属、租赁情况" },
+      { number: "3.2", title: "知识产权", level: 2, description: "专利、商标、著作权等知识产权状况" },
+      { number: "3.3", title: "其他重大资产", level: 2, description: "车辆、设备等其他重大资产" },
+    ],
+  },
+  {
+    number: "第四章",
+    title: "重大合同",
+    level: 1,
+    description: "核查重大合同的合法性和风险",
+    children: [
+      { number: "4.1", title: "股权投资/收购协议", level: 2, description: "重大投资或收购协议" },
+      { number: "4.2", title: "借款及担保合同", level: 2, description: "借款、担保合同及风险" },
+      { number: "4.3", title: "重大业务合同", level: 2, description: "与主营业务相关的重大合同" },
+    ],
+  },
+  {
+    number: "第五章",
+    title: "劳动人事",
+    level: 1,
+    description: "核查劳动人事合规情况",
+    children: [
+      { number: "5.1", title: "劳动合同", level: 2, description: "劳动合同签订及执行情况" },
+      { number: "5.2", title: "社会保险及公积金", level: 2, description: "社保及公积金缴纳情况" },
+      { number: "5.3", title: "劳动争议", level: 2, description: "现有及潜在劳动争议" },
+    ],
+  },
+  {
     number: "7",
     title: "诉讼、仲裁及行政处罚",
     level: 1,
@@ -517,9 +558,9 @@ export function useAIMapping() {
         number?: string;
       }>;
     }) => {
-      console.log("[AI Mapping] Starting mapping analysis", { 
-        fileCount: files.length, 
-        chapterCount: chapters.length 
+      console.log("[AI Mapping] Starting mapping analysis", {
+        fileCount: files.length,
+        chapterCount: chapters.length
       });
 
       const { data, error } = await supabase.functions.invoke("ai-mapping", {

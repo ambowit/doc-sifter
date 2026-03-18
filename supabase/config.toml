@@ -1,4 +1,4 @@
-project_id = "teuymwhkrdiwebjyaeum"
+project_id = "osxehjupsoqqmunxdrgj"
 
 [functions.parse]
 verify_jwt = false
@@ -32,3 +32,13 @@ verify_jwt = false
 
 [functions.generate-docx]
 verify_jwt = false
+
+[functions.create-report-job]
+verify_jwt = false
+
+[functions.get-report-job]
+verify_jwt = false
+
+[functions.process-report-job]
+verify_jwt = false
+
