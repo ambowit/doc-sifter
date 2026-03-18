@@ -147,17 +147,20 @@ async function extractTextWithAI(
       const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for AI call
       
       try {
-        const response = await fetch("https://gateway.superun.ai/chat/completions", {
+        const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gemini-2.5-flash",
-            messages: [{ role: "user", content: messageContent }],
-            temperature: 0.1,
-            max_tokens: 16000,
+            capability: "ai.general_user_defined",
+            input: {
+              messages: [{ role: "user", content: messageContent }],
+              temperature: 0.1,
+              max_tokens: 16000,
+            },
+            constraints: { maxCost: 0.05 },
           }),
           signal: controller.signal,
         });
@@ -166,11 +169,15 @@ async function extractTextWithAI(
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(`AI 服务错误: ${response.status} - ${errorText.substring(0, 100)}`);
+          throw new Error(`AI服务错误: ${response.status} - ${errorText.substring(0, 100)}`);
         }
 
         const result = await response.json();
-        const content = result.choices?.[0]?.message?.content || "";
+        // Handle OOOK Gateway response format
+        const content = result.result?.choices?.[0]?.message?.content || 
+                       result.choices?.[0]?.message?.content ||
+                       result.result?.content ||
+                       result.content || "";
         
         // Parse JSON response
         try {
@@ -240,10 +247,10 @@ serve(async (req) => {
     }
 
     // Get API key
-    const apiKey = Deno.env.get("SUPERUN_API_KEY");
+    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "AI API key not configured" }),
+        JSON.stringify({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
       );
     }

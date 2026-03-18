@@ -173,9 +173,9 @@ serve(async (req) => {
       mimeType,
     });
 
-    const apiKey = Deno.env.get("SUPERUN_API_KEY");
+    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     if (!apiKey) {
-      throw new Error("SUPERUN_API_KEY is not configured");
+      throw new Error("OOOK_AI_GATEWAY_TOKEN is not configured");
     }
 
     let systemPrompt: string;
@@ -341,28 +341,31 @@ ${actualContent || `[仅有文件名: ${filename}]`}
 请以JSON格式返回分析结果。`;
     }
 
-    logStep("Calling SuperunAI", { model: "gemini-2.5-flash" });
+    logStep("Calling OOOK AI Gateway", { capability: "ai.general_user_defined" });
 
-    const response = await fetch("https://gateway.superun.ai/chat/completions", {
+    const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.1,
-        max_tokens: 16000,
+        capability: "ai.general_user_defined",
+        input: {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 16000,
+        },
+        constraints: { maxCost: 0.05 },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logStep("SuperunAI error", { status: response.status, error: errorText });
+      logStep("OOOK AI Gateway error", { status: response.status, error: errorText });
       
       // Provide user-friendly error messages based on status code
       if (response.status === 402) {
@@ -378,9 +381,13 @@ ${actualContent || `[仅有文件名: ${filename}]`}
     }
 
     const aiResponse = await response.json();
-    logStep("SuperunAI response received");
+    logStep("OOOK AI Gateway response received");
 
-    const messageContent = aiResponse.choices?.[0]?.message?.content;
+    // Handle OOOK Gateway response format
+    const messageContent = aiResponse.result?.choices?.[0]?.message?.content || 
+                          aiResponse.choices?.[0]?.message?.content ||
+                          aiResponse.result?.content ||
+                          aiResponse.content;
     if (!messageContent) {
       throw new Error("No content in AI response");
     }

@@ -76,20 +76,23 @@ async function callAI(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch("https://gateway.superun.ai/chat/completions", {
+    const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.0-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 8000,
+        capability: "ai.general_user_defined",
+        input: {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 8000,
+        },
+        constraints: { maxCost: 0.05 },
       }),
       signal: controller.signal,
     });
@@ -98,11 +101,15 @@ async function callAI(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`AI API error: ${response.status} - ${errorText}`);
+      throw new Error(`AI服务错误: ${response.status} - ${errorText}`);
     }
 
     const result = await response.json();
-    return result.choices?.[0]?.message?.content || "";
+    // Handle OOOK Gateway response format
+    return result.result?.choices?.[0]?.message?.content || 
+           result.choices?.[0]?.message?.content ||
+           result.result?.content ||
+           result.content || "";
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
@@ -212,10 +219,10 @@ serve(async (req) => {
     }
 
     // Get API key
-    const apiKey = Deno.env.get("SUPERUN_API_KEY");
+    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "AI API key not configured" }),
+        JSON.stringify({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
       );
     }
@@ -304,7 +311,7 @@ ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? 
     if (mode === "metadata") {
       logStep("Metadata mode: extracting equity and definitions from all files");
       
-      const systemPrompt = `你���中国顶级PE/VC投资法律尽职调查合伙人。
+      const systemPrompt = `你����中国顶级PE/VC投资法律尽职调查合伙人。
 你的任务是从数据室文件中精确提取股权结构和定义表信息，用于生成专业的投资尽调报告。
 
 =====================================================
