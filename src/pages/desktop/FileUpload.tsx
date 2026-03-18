@@ -1567,7 +1567,13 @@ export default function FileUpload() {
                         className="h-6 text-[10px] ml-2"
                         onClick={autoMatchFilesToChapters}
                         disabled={isAutoMatching || uploadedFiles.length === 0 || chapters.length === 0}
-                        title="根据文件名自动匹配章节"
+                        title={
+                          chapters.length === 0 
+                            ? "请先设置报告模板章节结构" 
+                            : uploadedFiles.length === 0 
+                              ? "请先上传文件" 
+                              : "根据文件名自动匹配章节"
+                        }
                       >
                         {isAutoMatching ? (
                           <Loader2 className="w-3 h-3 mr-1 animate-spin" />
