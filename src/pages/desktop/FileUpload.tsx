@@ -137,17 +137,11 @@ export default function FileUpload() {
   const { projectId } = useParams<{ projectId: string }>();
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
-  const { data: chapters = [], isLoading: chaptersLoading, error: chaptersError } = useFlatChapters(currentProjectId || undefined);
+  const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
   const { data: mappings = [] } = useMappings(currentProjectId || undefined);
   
   // Debug: Log chapters data
-  console.log("[v0] FileUpload chapters debug:", { 
-    projectId: currentProjectId, 
-    chaptersCount: chapters.length, 
-    chaptersLoading,
-    chaptersError: chaptersError?.message,
-    uploadedFilesCount: existingFiles.length
-  });
+  console.log("[v0] FileUpload chapters debug:", currentProjectId, chapters.length, existingFiles.length);
   const createMappingMutation = useCreateMapping();
   const deleteMappingMutation = useDeleteMapping();
   const createFileMutation = useCreateFile();
@@ -1341,7 +1335,7 @@ export default function FileUpload() {
                   <span className="text-primary font-medium">释放以上传文件</span>
                 ) : (
                   <>
-                    拖放文件到此处，或点击下方按钮选择文件
+                    拖放文件到此处，或点击下方按���选择文件
                     <br />
                     <span className="text-[11px]">支持 PDF、Word、Excel、PPT、图片、ZIP 等多种格式，最大 500MB</span>
                   </>
