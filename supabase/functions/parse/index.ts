@@ -175,8 +175,16 @@ serve(async (req) => {
 
     const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     const gatewayUrl = Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn/";
+    
+    logStep("Environment check", { 
+      hasApiKey: !!apiKey, 
+      apiKeyLength: apiKey?.length,
+      gatewayUrl,
+      allEnvKeys: Object.keys(Deno.env.toObject()).filter(k => k.includes("OOOK") || k.includes("AI"))
+    });
+    
     if (!apiKey) {
-      throw new Error("OOOK_AI_GATEWAY_TOKEN is not configured");
+      throw new Error("OOOK_AI_GATEWAY_TOKEN 未配置，请在 Supabase Dashboard > Edge Functions > Manage secrets 中添加");
     }
 
     let systemPrompt: string;
@@ -354,9 +362,9 @@ ${actualContent || `[仅有文件名: ${filename}]`}
       tokenPrefix: apiKey?.substring(0, 8) + "..."
     });
 
-    // Add timeout controller
+    // Add timeout controller - 60s for AI generation which can be slow
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     let response;
     try {
