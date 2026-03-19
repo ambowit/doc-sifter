@@ -24,6 +24,7 @@ import Register from "@/pages/desktop/Register";
 import AuthCallback from "@/pages/desktop/AuthCallback";
 import Settings from "@/pages/desktop/Settings";
 import Help from "@/pages/desktop/Help";
+import AIGatewayTest from "@/pages/desktop/AIGatewayTest";
 import ProtectedRoute from "@/components/desktop/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
 
@@ -52,6 +53,7 @@ const router = createBrowserRouter(
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/ai-test" element={<AIGatewayTest />} />
 
       {/* Protected: Project list (top-bar only layout) */}
       <Route
