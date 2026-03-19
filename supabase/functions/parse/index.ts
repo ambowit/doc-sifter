@@ -174,6 +174,7 @@ serve(async (req) => {
     });
 
     const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
+    const gatewayUrl = Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn/";
     if (!apiKey) {
       throw new Error("OOOK_AI_GATEWAY_TOKEN is not configured");
     }
@@ -341,9 +342,9 @@ ${actualContent || `[仅有文件名: ${filename}]`}
 请以JSON格式返回分析结果。`;
     }
 
-    logStep("Calling OOOK AI Gateway", { capability: "ai.general_user_defined" });
+    logStep("Calling OOOK AI Gateway", { gatewayUrl, capability: "ai.general_user_defined" });
 
-    const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
+    const response = await fetch(`${gatewayUrl}api/ai/execute`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -356,8 +357,6 @@ ${actualContent || `[仅有文件名: ${filename}]`}
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.1,
-          max_tokens: 16000,
         },
         constraints: { maxCost: 0.05 },
       }),
