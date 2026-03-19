@@ -409,14 +409,19 @@ ${actualContent || `[仅有文件名: ${filename}]`}
     }
 
     const aiResponse = await response.json();
-    logStep("OOOK AI Gateway response received");
+    logStep("OOOK AI Gateway response received", { 
+      success: aiResponse.success,
+      hasData: !!aiResponse.data,
+      contentPreview: aiResponse.data?.content?.substring(0, 100)
+    });
 
-    // Handle OOOK Gateway response format
-    const messageContent = aiResponse.result?.choices?.[0]?.message?.content || 
+    // Handle OOOK Gateway response format: { success: true, data: { content: "..." } }
+    const messageContent = aiResponse.data?.content ||
+                          aiResponse.result?.choices?.[0]?.message?.content || 
                           aiResponse.choices?.[0]?.message?.content ||
-                          aiResponse.result?.content ||
                           aiResponse.content;
     if (!messageContent) {
+      logStep("No content found in response", { responseKeys: Object.keys(aiResponse) });
       throw new Error("No content in AI response");
     }
 
