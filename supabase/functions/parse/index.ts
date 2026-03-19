@@ -342,25 +342,54 @@ ${actualContent || `[仅有文件名: ${filename}]`}
 请以JSON格式返回分析结果。`;
     }
 
-    logStep("Calling OOOK AI Gateway", { gatewayUrl, capability: "ai.general_user_defined" });
-
-    const response = await fetch(`${gatewayUrl}api/ai/execute`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        capability: "ai.general_user_defined",
-        input: {
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        },
-        constraints: { maxCost: 0.05 },
-      }),
+    // Build full URL - ensure no double slashes
+    const fullUrl = gatewayUrl.endsWith('/') 
+      ? `${gatewayUrl}api/ai/execute` 
+      : `${gatewayUrl}/api/ai/execute`;
+    
+    logStep("Calling OOOK AI Gateway", { 
+      fullUrl, 
+      capability: "ai.general_user_defined",
+      hasToken: !!apiKey,
+      tokenPrefix: apiKey?.substring(0, 8) + "..."
     });
+
+    // Add timeout controller
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let response;
+    try {
+      response = await fetch(fullUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          capability: "ai.general_user_defined",
+          input: {
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+          },
+          constraints: { maxCost: 0.05 },
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      logStep("Fetch error", { error: errMsg });
+      if (errMsg.includes("abort")) {
+        throw new Error("AI服务请求超时，请稍后重试");
+      }
+      throw new Error(`AI服务网络错误: ${errMsg}`);
+    }
+    clearTimeout(timeoutId);
+
+    logStep("Response received", { status: response.status, ok: response.ok });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -374,9 +403,9 @@ ${actualContent || `[仅有文件名: ${filename}]`}
       } else if (response.status === 429) {
         throw new Error("AI服务请求过于频繁，请稍后重试");
       } else if (response.status >= 500) {
-        throw new Error("AI服务暂时不可用，请稍后重试");
+        throw new Error(`AI服务暂时不可用(${response.status})，请稍后重试`);
       }
-      throw new Error(`AI服务错误: ${response.status}`);
+      throw new Error(`AI服务错误: ${response.status} - ${errorText.substring(0, 200)}`);
     }
 
     const aiResponse = await response.json();
