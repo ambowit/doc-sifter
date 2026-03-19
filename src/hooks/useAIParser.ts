@@ -171,8 +171,6 @@ export function useParseTemplate() {
       }, TIMEOUT_MS);
 
       try {
-        console.log("[ParseTemplate] Calling API route...");
-
         const requestBody: Record<string, unknown> = {
           type: "template",
           content,
@@ -189,12 +187,35 @@ export function useParseTemplate() {
           });
         }
 
-        // Use Next.js API route instead of Supabase Edge Function
-        const response = await fetch("/api/parse", {
-          method: "POST",
-          headers: {
+        // Determine API endpoint based on environment
+        // In production (Vercel), use /api/parse
+        // In development, use Supabase Edge Function
+        const isProduction = import.meta.env.PROD;
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        
+        let apiUrl: string;
+        let headers: Record<string, string>;
+        
+        if (isProduction) {
+          // Production: use Vercel API route
+          apiUrl = "/api/parse";
+          headers = { "Content-Type": "application/json" };
+          console.log("[ParseTemplate] Using Vercel API route (production)");
+        } else {
+          // Development: use Supabase Edge Function
+          apiUrl = `${supabaseUrl}/functions/v1/parse`;
+          headers = {
             "Content-Type": "application/json",
-          },
+            "Authorization": `Bearer ${anonKey}`,
+            "apikey": anonKey,
+          };
+          console.log("[ParseTemplate] Using Supabase Edge Function (development)");
+        }
+
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers,
           body: JSON.stringify(requestBody),
           signal: controller.signal,
         });
@@ -459,7 +480,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     description: "核查目标公���的重大资产状况",
     children: [
       { number: "3.1", title: "房产及土地", level: 2, description: "不动产权属、租赁情况" },
-      { number: "3.2", title: "知识产权", level: 2, description: "专利、商标、著作权等知识产权状况" },
+      { number: "3.2", title: "知识产权", level: 2, description: "专利、商标、���作权等知识产权状况" },
       { number: "3.3", title: "其他重大资产", level: 2, description: "车辆、设备等其他重大资产" },
     ],
   },
