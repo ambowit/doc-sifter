@@ -171,11 +171,7 @@ export function useParseTemplate() {
       }, TIMEOUT_MS);
 
       try {
-        console.log("[ParseTemplate] Calling Edge Function...");
-
-        // Use fetch directly for better timeout control
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        console.log("[ParseTemplate] Calling API route...");
 
         const requestBody: Record<string, unknown> = {
           type: "template",
@@ -193,12 +189,11 @@ export function useParseTemplate() {
           });
         }
 
-        const response = await fetch(`${supabaseUrl}/functions/v1/parse`, {
+        // Use Next.js API route instead of Supabase Edge Function
+        const response = await fetch("/api/parse", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${anonKey}`,
-            "apikey": anonKey,
           },
           body: JSON.stringify(requestBody),
           signal: controller.signal,
@@ -216,9 +211,9 @@ export function useParseTemplate() {
         const data = await response.json();
         console.log("[ParseTemplate] Response data received");
 
-        // Check if data contains an error from the Edge Function
+        // Check if data contains an error from the API
         if (data && typeof data === "object" && "error" in data) {
-          console.error("[ParseTemplate] Edge Function returned error:", data.error);
+          console.error("[ParseTemplate] API returned error:", data.error);
           throw new Error(`AI解析失败: ${data.error}`);
         }
 
@@ -461,7 +456,7 @@ const DEMO_CHAPTERS: ChapterStructure[] = [
     number: "第三章",
     title: "重大资产",
     level: 1,
-    description: "核查目标公司的重大资产状况",
+    description: "核查目标公���的重大资产状况",
     children: [
       { number: "3.1", title: "房产及土地", level: 2, description: "不动产权属、租赁情况" },
       { number: "3.2", title: "知识产权", level: 2, description: "专利、商标、著作权等知识产权状况" },
