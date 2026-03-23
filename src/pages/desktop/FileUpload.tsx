@@ -2,21 +2,21 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { validateProjectExists, clearInvalidProject } from "@/hooks/useProjects";
-import { 
-  useFiles, 
-  useCreateFile, 
+import {
+  useFiles,
+  useCreateFile,
   useDeleteFile,
-  uploadFile, 
-  detectFileType, 
+  uploadFile,
+  detectFileType,
   formatFileSize,
   canOcrFile,
   useBatchOcrExtract,
   getFileDownloadUrl,
-  type FileType 
+  type FileType
 } from "@/hooks/useFiles";
-import { 
-  isArchiveFile, 
-  isZipFile, 
+import {
+  isArchiveFile,
+  isZipFile,
   extractZipFile,
   detectArchiveType,
 } from "@/lib/archiveExtractor";
@@ -144,17 +144,17 @@ export default function FileUpload() {
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
-  
+
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
-  
+
   // Selected chapter for left-right panel view
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [hasInitializedChapter, setHasInitializedChapter] = useState(false);
-  
+
   // Expanded parent chapters in sidebar
   const [expandedParentChapters, setExpandedParentChapters] = useState<Set<string>>(new Set());
-  
+
   const [dataRoomDragOver, setDataRoomDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<{
     name: string;
@@ -183,7 +183,7 @@ export default function FileUpload() {
     currentFile: string;
   } | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  
+
   const dataRoomInputRef = useRef<HTMLInputElement>(null);
 
   // Check if template is ready (chapters exist)
@@ -233,13 +233,13 @@ export default function FileUpload() {
   // Get files for the selected chapter
   const selectedChapterFiles = useMemo(() => {
     if (!selectedChapterId) return [];
-    
+
     if (selectedChapterId === 'unassigned') {
       // Get files not mapped to any chapter
       const mappedFileIds = new Set(mappings.map(m => m.fileId));
       return uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
     }
-    
+
     // Get files mapped to selected chapter
     const chapterMappings = mappings.filter(m => m.chapterId === selectedChapterId);
     const fileIdToFile = new Map(uploadedFiles.filter(f => f.id).map(f => [f.id!, f]));
@@ -271,13 +271,13 @@ export default function FileUpload() {
       });
       return { parentChapters, childrenMap };
     }
-    
+
     // Method 2: Use level field if available
     const hasLevelField = chapters.some(c => c.level && c.level > 1);
     if (hasLevelField) {
       const parentChapters = chapters.filter(c => c.level === 1);
       const childrenMap = new Map<string, typeof chapters>();
-      
+
       // For level-based, we need to determine parent by order
       let currentParentId: string | null = null;
       chapters.forEach(c => {
@@ -291,7 +291,7 @@ export default function FileUpload() {
       });
       return { parentChapters, childrenMap };
     }
-    
+
     // Method 3: Use chapter number to determine hierarchy
     // Count dots in number to determine level
     const getLevel = (num: string | null): number => {
@@ -302,16 +302,16 @@ export default function FileUpload() {
       const dotCount = (num.match(/\./g) || []).length;
       return dotCount + 1;
     };
-    
+
     const getParentNumber = (num: string | null): string | null => {
       if (!num || !num.includes('.')) return null;
       const parts = num.split('.');
       return parts.slice(0, -1).join('.');
     };
-    
+
     const parentChapters = chapters.filter(c => getLevel(c.number) === 1);
     const childrenMap = new Map<string, typeof chapters>();
-    
+
     // Build a map from parent number to parent chapter id
     const numberToParentId = new Map<string, string>();
     parentChapters.forEach(p => {
@@ -319,7 +319,7 @@ export default function FileUpload() {
         numberToParentId.set(p.number, p.id);
       }
     });
-    
+
     // Group children by their parent's number
     chapters.forEach(c => {
       if (getLevel(c.number) === 2) {
@@ -334,12 +334,12 @@ export default function FileUpload() {
         }
       }
     });
-    
+
     // If no hierarchy found, treat all as flat list with first level
     if (parentChapters.length === 0) {
       return { parentChapters: chapters, childrenMap: new Map() };
     }
-    
+
     return { parentChapters, childrenMap };
   }, [chapters]);
 
@@ -375,7 +375,7 @@ export default function FileUpload() {
       const unmappedFiles = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
 
       if (unmappedFiles.length === 0) {
-        toast.info("所有文件已有章节������属");
+        toast.info("所有文件已有章节所属");
         setIsAutoMatching(false);
         return;
       }
@@ -383,41 +383,41 @@ export default function FileUpload() {
       // Create matching rules based on chapter info
       const chapterPatterns = chapters.map(ch => {
         const patterns: string[] = [];
-        
+
         // Add chapter number patterns (e.g., "1.1", "1.2")
         if (ch.number) {
           patterns.push(ch.number.replace(/\./g, '\\.'));
           // Also match without dots (e.g., "11" for "1.1")
           patterns.push(ch.number.replace(/\./g, ''));
         }
-        
+
         // Add chapter title keywords (split by common separators)
         const titleKeywords = ch.title
           .replace(/[及、，,/\\]/g, ' ')
           .split(/\s+/)
           .filter(k => k.length >= 2);
         patterns.push(...titleKeywords);
-        
+
         return { chapter: ch, patterns };
       });
 
       // Match each unmapped file
       for (const file of unmappedFiles) {
         const fileName = file.name.toLowerCase();
-        
+
         // Find best matching chapter
         let bestMatch: { chapter: Chapter; score: number } | null = null;
-        
+
         for (const { chapter, patterns } of chapterPatterns) {
           let score = 0;
-          
+
           for (const pattern of patterns) {
             if (fileName.includes(pattern.toLowerCase())) {
               // Higher score for number matches
               score += pattern.match(/^\d/) ? 10 : 5;
             }
           }
-          
+
           // Also check if file type matches chapter title
           if (chapter.title.includes('合同') && file.type === '合同') score += 3;
           if (chapter.title.includes('章程') && fileName.includes('章程')) score += 5;
@@ -425,12 +425,12 @@ export default function FileUpload() {
           if (chapter.title.includes('知识产权') && file.type === '知识产权') score += 3;
           if (chapter.title.includes('诉讼') && file.type === '诉讼') score += 3;
           if (chapter.title.includes('财务') && file.type === '财务') score += 3;
-          
+
           if (score > 0 && (!bestMatch || score > bestMatch.score)) {
             bestMatch = { chapter, score };
           }
         }
-        
+
         // Create mapping if we found a match
         if (bestMatch && file.id) {
           try {
@@ -449,7 +449,7 @@ export default function FileUpload() {
       if (matchCount > 0) {
         toast.success(`已自动匹配 ${matchCount} 个文件`);
       } else {
-        toast.info("未能自���匹配任何文件，请手动分配");
+        toast.info("未能自动匹配任何文件，请手动分配");
       }
     } catch (error) {
       console.error("[FileUpload] Auto-match error:", error);
@@ -465,7 +465,7 @@ export default function FileUpload() {
       // Check if there are unassigned files
       const mappedFileIds = new Set(mappings.map(m => m.fileId));
       const hasUnassigned = uploadedFiles.some(f => f.id && !mappedFileIds.has(f.id));
-      
+
       // Select unassigned section if there are unassigned files, otherwise first chapter
       setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
       setHasInitializedChapter(true);
@@ -500,10 +500,10 @@ export default function FileUpload() {
     // Create a stable fingerprint to detect actual changes
     const currentFingerprint = existingFiles.map(f => `${f.id}:${f.ocrProcessed}`).join(",");
     const fingerprintChanged = currentFingerprint !== prevFilesFingerprintRef.current;
-    
+
     // Skip if nothing actually changed
     if (hasInitializedRef.current && !fingerprintChanged) return;
-    
+
     prevFilesFingerprintRef.current = currentFingerprint;
     hasInitializedRef.current = true;
 
@@ -606,7 +606,7 @@ export default function FileUpload() {
     downloadUrl?: string;
   }) => {
     let downloadUrl = file.downloadUrl || "";
-    
+
     if (!downloadUrl) {
       try {
         downloadUrl = await getFileDownloadUrl(file.storagePath);
@@ -616,12 +616,12 @@ export default function FileUpload() {
         return;
       }
     }
-    
+
     if (!downloadUrl) {
       toast.error("无法获取文件下载链接");
       return;
     }
-    
+
     setPreviewFile({
       ...file,
       downloadUrl,
@@ -635,7 +635,7 @@ export default function FileUpload() {
     storagePath: string;
   }) => {
     if (!currentProjectId) return;
-    
+
     try {
       if (file.id) {
         await deleteFileMutation.mutateAsync({
@@ -644,7 +644,7 @@ export default function FileUpload() {
           storagePath: file.storagePath,
         });
       }
-      
+
       setUploadedFiles(prev => prev.filter(f => f.storagePath !== file.storagePath));
       toast.success(`已删除: ${file.name}`);
     } catch (error) {
@@ -689,11 +689,11 @@ export default function FileUpload() {
   // Delete selected files
   const handleDeleteSelectedFiles = async () => {
     if (!currentProjectId || selectedFiles.size === 0) return;
-    
+
     const filesToDelete = uploadedFiles.filter(f => selectedFiles.has(f.storagePath));
     const totalCount = filesToDelete.length;
     let successCount = 0;
-    
+
     for (const file of filesToDelete) {
       try {
         if (file.id) {
@@ -708,10 +708,10 @@ export default function FileUpload() {
         console.error("[FileUpload] Delete file error:", error);
       }
     }
-    
+
     setUploadedFiles(prev => prev.filter(f => !selectedFiles.has(f.storagePath)));
     setSelectedFiles(new Set());
-    
+
     if (successCount === totalCount) {
       toast.success(`已删除 ${successCount} 个文件`);
     } else {
@@ -730,7 +730,7 @@ export default function FileUpload() {
     options?: { autoRedirect?: boolean }
   ) => {
     if (files.length === 0) return;
-    
+
     const fileIds = files.map(f => f.fileId);
     setOcrProcessingIds(prev => {
       const newSet = new Set(prev);
@@ -743,12 +743,12 @@ export default function FileUpload() {
       fileIds.forEach(id => newSet.delete(id));
       return newSet;
     });
-    
+
     toast.info(`正在智能分析 ${files.length} 个文件...`, { duration: 3000 });
-    
+
     try {
       const result = await batchOcrMutation.mutateAsync(files);
-      
+
       // Track which files failed
       if (result.results) {
         const failedFileIds: string[] = [];
@@ -765,10 +765,10 @@ export default function FileUpload() {
           });
         }
       }
-      
+
       if (result.successful > 0) {
         toast.success(`已完成 ${result.successful} 个文件的智能分析`);
-        
+
         // Auto redirect only if ALL succeeded
         if (options?.autoRedirect && hasTemplate && result.failed === 0) {
           toast.info("正在跳转到定义管理...", { duration: 2000 });
@@ -779,7 +779,7 @@ export default function FileUpload() {
       }
       if (result.failed > 0) {
         const uniqueErrors = [...new Set(result.errors || [])];
-        const errorSummary = uniqueErrors.length > 0 
+        const errorSummary = uniqueErrors.length > 0
           ? `（${uniqueErrors.slice(0, 2).join("；")}${uniqueErrors.length > 2 ? "等" : ""}）`
           : "";
         toast.warning(`${result.failed} 个文件分析���败${errorSummary}`, { duration: 5000 });
@@ -806,25 +806,25 @@ export default function FileUpload() {
   // Handle manual OCR for selected files
   const handleOcrSelectedFiles = async () => {
     if (!currentProjectId || selectedFiles.size === 0) return;
-    
+
     const filesToProcess: Array<{
       fileId: string;
       fileUrl: string;
       mimeType: string;
       fileName: string;
     }> = [];
-    
+
     for (const storagePath of selectedFiles) {
       const file = uploadedFiles.find(f => f.storagePath === storagePath);
       if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) continue;
       if (file.ocrProcessed) continue;
-      
+
       try {
         let downloadUrl = file.downloadUrl;
         if (!downloadUrl) {
           downloadUrl = await getFileDownloadUrl(storagePath);
         }
-        
+
         if (downloadUrl) {
           filesToProcess.push({
             fileId: file.id,
@@ -837,12 +837,12 @@ export default function FileUpload() {
         console.error("[FileUpload] Failed to get download URL for OCR:", error);
       }
     }
-    
+
     if (filesToProcess.length === 0) {
       toast.info("所选文件无需提取或已提取过");
       return;
     }
-    
+
     await handleBatchOcr(filesToProcess);
     setSelectedFiles(new Set());
   };
@@ -974,7 +974,7 @@ export default function FileUpload() {
 
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
-    
+
     if (!currentProjectId) {
       toast.error("请先选择或创建一个项目");
       navigate("/");
@@ -991,10 +991,10 @@ export default function FileUpload() {
 
     const fileArray = Array.from(files);
     let filesToUpload: File[] = [];
-    
+
     for (const file of fileArray) {
       console.log("[FileUpload] Processing file:", file.name, file.type, file.size);
-      
+
       // Office Open XML files (.docx, .xlsx, .pptx) and ODF files are ZIP-based
       // but must NOT be treated as archives — check extension first
       const officeExtensions = [".docx", ".xlsx", ".pptx", ".dotx", ".xltx", ".potx", ".odt", ".ods", ".odp"];
@@ -1003,7 +1003,7 @@ export default function FileUpload() {
 
       let isArchive = !isOfficeFile && isArchiveFile(file);
       let archiveType: "zip" | "rar" | "7z" | null = null;
-      
+
       if (!isArchive && !isOfficeFile && file.size > 0) {
         archiveType = await detectArchiveType(file);
         if (archiveType) {
@@ -1011,15 +1011,15 @@ export default function FileUpload() {
           isArchive = true;
         }
       }
-      
+
       if (isArchive) {
         console.log("[FileUpload] Detected archive file:", file.name);
-        
+
         const canExtract = archiveType === "zip" || (!archiveType && isZipFile(file));
-        const reason = !canExtract 
+        const reason = !canExtract
           ? `${archiveType === "rar" ? "RAR" : archiveType === "7z" ? "7Z" : "该"}格式暂不支持在线解压。建议：使用 WinRAR/7-Zip 转换为 ZIP 格式，或在本地解压后上传`
           : undefined;
-        
+
         if (canExtract) {
           setExtractionStatus({
             isExtracting: true,
@@ -1027,9 +1027,9 @@ export default function FileUpload() {
             progress: 0,
             currentFile: "正在读取压缩包...",
           });
-          
+
           toast.info(`正在解压 ${file.name}...`);
-          
+
           const extractionResult = await extractZipFile(file, (progress, currentFile) => {
             setExtractionStatus(prev => prev ? {
               ...prev,
@@ -1037,13 +1037,13 @@ export default function FileUpload() {
               currentFile,
             } : null);
           });
-          
+
           setExtractionStatus(null);
-          
+
           if (extractionResult.success && extractionResult.files.length > 0) {
             console.log(`[FileUpload] Extracted ${extractionResult.files.length} files from ${file.name}`);
             toast.success(`从 ${file.name} 提取了 ${extractionResult.files.length} 个文��`);
-            
+
             for (const extractedFile of extractionResult.files) {
               const error = validateFile(extractedFile.file);
               if (!error) {
@@ -1078,7 +1078,7 @@ export default function FileUpload() {
     }
 
     console.log("[FileUpload] Starting upload for", filesToUpload.length, "files");
-    
+
     setUploadingFiles(filesToUpload.map(f => ({
       file: f,
       progress: 0,
@@ -1088,12 +1088,12 @@ export default function FileUpload() {
     const uploadPromises = filesToUpload.map(async (file, index) => {
       try {
         console.log(`[FileUpload] Starting upload for file ${index + 1}:`, file.name);
-        
+
         const { downloadUrl, storagePath } = await uploadFile(
           file,
           currentProjectId,
           (progress) => {
-            setUploadingFiles(prev => 
+            setUploadingFiles(prev =>
               prev.map((uf, i) => i === index ? { ...uf, progress } : uf)
             );
           }
@@ -1114,7 +1114,7 @@ export default function FileUpload() {
 
         console.log(`[FileUpload] Database record created:`, createdFile.id);
 
-        setUploadingFiles(prev => 
+        setUploadingFiles(prev =>
           prev.map((uf, i) => i === index ? { ...uf, status: "completed", progress: 100 } : uf)
         );
 
@@ -1134,10 +1134,10 @@ export default function FileUpload() {
         return { success: true, file, fileId: createdFile.id, downloadUrl, mimeType };
       } catch (error) {
         console.error(`[FileUpload] Failed to upload ${file.name}:`, error);
-        setUploadingFiles(prev => 
-          prev.map((uf, i) => i === index ? { 
-            ...uf, 
-            status: "error", 
+        setUploadingFiles(prev =>
+          prev.map((uf, i) => i === index ? {
+            ...uf,
+            status: "error",
             error: error instanceof Error ? error.message : "上传失败"
           } : uf)
         );
@@ -1162,7 +1162,7 @@ export default function FileUpload() {
 
     if (successCount > 0) {
       toast.success(`成功上传 ${successCount} 个文件`);
-      
+
       const ocrCandidates = results
         .filter(r => r.success && r.downloadUrl && r.mimeType && canOcrFile(r.mimeType, r.fileName))
         .map(r => ({
@@ -1171,7 +1171,7 @@ export default function FileUpload() {
           mimeType: r.mimeType!,
           fileName: r.file.name,
         }));
-      
+
       if (ocrCandidates.length > 0) {
         console.log(`[FileUpload] Auto-triggering OCR for ${ocrCandidates.length} files`);
         setTimeout(() => {
@@ -1565,7 +1565,7 @@ export default function FileUpload() {
                       <Badge variant="secondary" className="text-[10px]">
                         {uploadedFiles.length} 个文件
                       </Badge>
-                      
+
                       {/* Auto-match Button */}
                       <Button
                         variant="outline"
@@ -1574,10 +1574,10 @@ export default function FileUpload() {
                         onClick={autoMatchFilesToChapters}
                         disabled={isAutoMatching || uploadedFiles.length === 0 || chapters.length === 0}
                         title={
-                          chapters.length === 0 
-                            ? "请先设置报告模板章节结构" 
-                            : uploadedFiles.length === 0 
-                              ? "请先上传文件" 
+                          chapters.length === 0
+                            ? "请先设置报告模板章节结构"
+                            : uploadedFiles.length === 0
+                              ? "请先上传文件"
                               : "根据文件名自动匹配章节"
                         }
                       >
@@ -1600,7 +1600,7 @@ export default function FileUpload() {
                     </Button>
                   </div>
                   {/* Split Panel Layout: Left=章节目录, Right=文件列表 */}
-                  <div 
+                  <div
                     className="flex gap-4 h-[450px] border rounded-lg overflow-hidden"
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -1627,8 +1627,8 @@ export default function FileUpload() {
                                 onClick={() => setSelectedChapterId('unassigned')}
                                 className={cn(
                                   "w-full flex items-center gap-2 px-2 py-2 rounded text-left transition-colors mb-1",
-                                  selectedChapterId === 'unassigned' 
-                                    ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300" 
+                                  selectedChapterId === 'unassigned'
+                                    ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
                                     : "hover:bg-muted text-amber-700 dark:text-amber-400"
                                 )}
                               >
@@ -1642,7 +1642,7 @@ export default function FileUpload() {
                           }
                           return null;
                         })()}
-                        
+
                         {/* Chapter list with hierarchy */}
                         {chaptersHierarchy.parentChapters.map((parentChapter) => {
                           const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
@@ -1650,13 +1650,13 @@ export default function FileUpload() {
                           const isExpanded = expandedParentChapters.has(parentChapter.id);
                           const parentFileCount = mappings.filter(m => m.chapterId === parentChapter.id).length;
                           const isParentSelected = selectedChapterId === parentChapter.id;
-                          
+
                           // Calculate total files for parent (including children)
-                          const childFileCount = children.reduce((sum, child) => 
+                          const childFileCount = children.reduce((sum, child) =>
                             sum + mappings.filter(m => m.chapterId === child.id).length, 0
                           );
                           const totalFileCount = parentFileCount + childFileCount;
-                          
+
                           return (
                             <div key={parentChapter.id} className="mb-0.5">
                               {/* Parent Chapter */}
@@ -1679,8 +1679,8 @@ export default function FileUpload() {
                                   onClick={() => setSelectedChapterId(parentChapter.id)}
                                   className={cn(
                                     "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
-                                    isParentSelected 
-                                      ? "bg-primary/10 text-primary" 
+                                    isParentSelected
+                                      ? "bg-primary/10 text-primary"
                                       : "hover:bg-muted text-foreground"
                                   )}
                                 >
@@ -1694,8 +1694,8 @@ export default function FileUpload() {
                                   <span className="flex-1 text-[12px] font-medium truncate">
                                     {parentChapter.title}
                                   </span>
-                                  <Badge 
-                                    variant={totalFileCount > 0 ? "secondary" : "outline"} 
+                                  <Badge
+                                    variant={totalFileCount > 0 ? "secondary" : "outline"}
                                     className={cn(
                                       "text-[9px] h-4 min-w-[18px] justify-center",
                                       totalFileCount === 0 && "text-muted-foreground"
@@ -1705,7 +1705,7 @@ export default function FileUpload() {
                                   </Badge>
                                 </button>
                               </div>
-                              
+
                               {/* Children Chapters */}
                               {hasChildren && isExpanded && (
                                 <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
@@ -1718,8 +1718,8 @@ export default function FileUpload() {
                                         onClick={() => setSelectedChapterId(child.id)}
                                         className={cn(
                                           "w-full flex items-center gap-2 px-2 py-1 rounded text-left transition-colors",
-                                          isChildSelected 
-                                            ? "bg-primary/10 text-primary" 
+                                          isChildSelected
+                                            ? "bg-primary/10 text-primary"
                                             : "hover:bg-muted text-foreground"
                                         )}
                                       >
@@ -1729,8 +1729,8 @@ export default function FileUpload() {
                                         <span className="flex-1 text-[11px] truncate">
                                           {child.title}
                                         </span>
-                                        <Badge 
-                                          variant={childFileCount > 0 ? "secondary" : "outline"} 
+                                        <Badge
+                                          variant={childFileCount > 0 ? "secondary" : "outline"}
                                           className={cn(
                                             "text-[9px] h-4 min-w-[18px] justify-center",
                                             childFileCount === 0 && "text-muted-foreground"
@@ -1748,7 +1748,7 @@ export default function FileUpload() {
                         })}
                       </div>
                     </div>
-                    
+
                     {/* Right Panel: 文件列表 */}
                     <div className="flex-1 flex flex-col overflow-hidden">
                       {/* Right Panel Header */}
@@ -1821,7 +1821,7 @@ export default function FileUpload() {
                           )}
                         </div>
                       </div>
-                      
+
                       {/* File List */}
                       <div className="flex-1 overflow-y-auto">
                         {!selectedChapterId ? (
@@ -1852,14 +1852,14 @@ export default function FileUpload() {
                               >
                                 {getFileIcon(file.name)}
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
-                                
+
                                 <span className="w-16 text-center text-[10px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                                   {file.type}
                                 </span>
                                 <span className="w-20 text-right text-[10px] text-muted-foreground font-mono">
                                   {formatFileSize(file.size)}
                                 </span>
-                                
+
                                 {/* File Actions */}
                                 <div className="w-32 flex items-center justify-center gap-0.5">
                                   {/* Preview */}
@@ -1870,7 +1870,7 @@ export default function FileUpload() {
                                   >
                                     <Eye className="w-3.5 h-3.5 text-muted-foreground" />
                                   </button>
-                                  
+
                                   {/* Download */}
                                   <button
                                     onClick={async () => {
@@ -1890,7 +1890,7 @@ export default function FileUpload() {
                                   >
                                     <Download className="w-3.5 h-3.5 text-muted-foreground" />
                                   </button>
-                                  
+
                                   {/* Edit Chapter Assignment */}
                                   {file.id && (
                                     <Popover>
@@ -1945,7 +1945,7 @@ export default function FileUpload() {
                                       </PopoverContent>
                                     </Popover>
                                   )}
-                                  
+
                                   {/* Remove from current chapter */}
                                   {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
                                     <button
@@ -1959,7 +1959,7 @@ export default function FileUpload() {
                                       <X className="w-3.5 h-3.5 text-destructive" />
                                     </button>
                                   )}
-                                  
+
                                   {/* Delete file */}
                                   <button
                                     onClick={() => handleDeleteFile(file)}
@@ -1997,7 +1997,7 @@ export default function FileUpload() {
             {previewFile && (() => {
               const previewType = getPreviewType(previewFile.name);
               const url = previewFile.downloadUrl || "";
-              
+
               if (!url) {
                 return (
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -2006,7 +2006,7 @@ export default function FileUpload() {
                   </div>
                 );
               }
-              
+
               if (previewType === "image") {
                 return (
                   <div className="flex items-center justify-center bg-muted/30 rounded-lg p-4 min-h-[400px]">
@@ -2022,7 +2022,7 @@ export default function FileUpload() {
                   </div>
                 );
               }
-              
+
               if (previewType === "pdf") {
                 return (
                   <div className="flex flex-col h-full">
@@ -2040,7 +2040,7 @@ export default function FileUpload() {
                   </div>
                 );
               }
-              
+
               if (previewType === "text") {
                 return (
                   <iframe
@@ -2050,7 +2050,7 @@ export default function FileUpload() {
                   />
                 );
               }
-              
+
               return (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <File className="w-16 h-16 mb-4" />
