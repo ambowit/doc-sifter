@@ -12,7 +12,7 @@ async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
   if (!docXml) return "";
   const xmlContent = await docXml.async("text");
   return xmlContent
-    .replace(/<w:p[ >]/g, "\n<w:p ")
+    .replace(/<w:p[^>]*>/g, "\n")
     .replace(/<w:tab\/>/g, "\t")
     .replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, "$1")
     .replace(/<[^>]+>/g, "")
