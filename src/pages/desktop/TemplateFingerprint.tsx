@@ -1620,539 +1620,111 @@ export default function TemplateFingerprint() {
                           </p>
                         </div>
 
-                        {/* Sample Section */}
-                        <div className="mb-6">
-                          <h2 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                            }}
-                          >
-                            一、公司基本情况
-                          </h2>
-                          
-                          <h3 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h2.font,
-                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.preview.secondaryColor,
-                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
-                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
-                            }}
-                          >
-                            1.1 公司设立及历史沿革
-                          </h3>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            根据我们审阅的工商登记资料，目标公司成立于2018年3月15日，注册资本人民币5,000万元，已全额实缴。公司统一社会信用代码为91110108MA01XXXXXX。
-                          </p>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            目标公司的经营范围包括：技术开发、技术咨询、技术服务、技术转让；软件开发；数据处理；计算机系统服务。公司经营范围合法合规，未见超范围经营情形。
-                          </p>
-                        </div>
+                        {/* Real chapters preview - show first 3 chapters with their children */}
+                        {chapters.slice(0, 3).map((chapter, chapterIdx) => (
+                          <div key={chapter.id} className="mb-6 pt-4">
+                            {/* Section Divider (not for first chapter) */}
+                            {chapterIdx > 0 && (
+                              <>
+                                {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
+                                  <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
+                                )}
+                                {currentStyle.preview.sectionDivider === 'dotted' && (
+                                  <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
+                                )}
+                                {currentStyle.preview.sectionDivider === 'diamond' && (
+                                  <div className="mb-4 flex items-center gap-2">
+                                    <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                    <div className="w-2 h-2 transform rotate-45" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                    <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                  </div>
+                                )}
+                                {currentStyle.preview.sectionDivider === 'wave' && (
+                                  <div className="mb-4">
+                                    <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
+                                      <path d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" fill="none" stroke={currentStyle.preview.primaryColor + '60'} strokeWidth="1" />
+                                    </svg>
+                                  </div>
+                                )}
+                                {currentStyle.preview.sectionDivider === 'none' && <div className="mb-4" />}
+                              </>
+                            )}
 
-                        {/* Sample Table */}
-                        <div className="mb-6">
-                          <h3 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h2.font,
-                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.preview.secondaryColor,
-                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
-                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
-                            }}
-                          >
-                            1.2 股权结构
-                          </h3>
-                          
-                          <table 
-                            className="w-full mb-4"
-                            style={{
-                              fontFamily: currentStyle.tables.default.font,
-                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
-                              borderCollapse: "collapse",
-                            }}
-                          >
-                            <thead>
-                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  序号
-                                </th>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  股东名称
-                                </th>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  持股比例
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[
-                                { no: 1, name: "张明", ratio: "35%" },
-                                { no: 2, name: "李华", ratio: "25%" },
-                                { no: 3, name: "深圳创新投资", ratio: "20%" },
-                                { no: 4, name: "员工持股平台", ratio: "20%" },
-                              ].map((row) => (
-                                <tr key={row.no}>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.no}
-                                  </td>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.name}
-                                  </td>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.ratio}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.caption.font,
-                              fontSize: `${currentStyle.styles.caption.sizePt}pt`,
-                              textAlign: currentStyle.styles.caption.align,
-                              color: "#666",
-                            }}
-                          >
-                            表1：目标公司股权结构
-                          </p>
-                        </div>
-
-                        {/* Quote Sample with decoration styles */}
-                        <div 
-                          className={cn(
-                            "mb-6 relative",
-                            currentStyle.preview.quoteStyle === 'background' && "rounded-lg",
-                          )}
-                          style={{
-                            fontFamily: currentStyle.styles.quote.font,
-                            fontSize: `${currentStyle.styles.quote.sizePt}pt`,
-                            lineHeight: currentStyle.styles.quote.lineSpacing,
-                            marginLeft: `${currentStyle.styles.quote.indentLeftCm}cm`,
-                            paddingLeft: currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle ? "12px" : 
-                                         currentStyle.preview.quoteStyle === 'quotes' ? "24px" :
-                                         currentStyle.preview.quoteStyle === 'bracket' ? "16px" : "16px",
-                            paddingRight: currentStyle.preview.quoteStyle === 'bracket' ? "16px" : 
-                                          currentStyle.preview.quoteStyle === 'background' ? "16px" : "0",
-                            paddingTop: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
-                            paddingBottom: currentStyle.preview.quoteStyle === 'background' ? "12px" : "0",
-                            borderLeft: (currentStyle.preview.quoteStyle === 'border-left' || !currentStyle.preview.quoteStyle) ? `3px solid ${currentStyle.preview.primaryColor}` : "none",
-                            backgroundColor: currentStyle.preview.quoteStyle === 'background' ? `${currentStyle.preview.primaryColor}10` : "transparent",
-                            color: "#555",
-                          }}
-                        >
-                          {/* Quote marks decoration */}
-                          {currentStyle.preview.quoteStyle === 'quotes' && (
-                            <>
-                              <span 
-                                className="absolute left-0 top-0 text-3xl leading-none opacity-30"
-                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
-                              >
-                                "
-                              </span>
-                              <span 
-                                className="absolute right-0 bottom-0 text-3xl leading-none opacity-30"
-                                style={{ color: currentStyle.preview.primaryColor, fontFamily: 'Georgia, serif' }}
-                              >
-                                "
-                              </span>
-                            </>
-                          )}
-                          {/* Bracket decoration */}
-                          {currentStyle.preview.quoteStyle === 'bracket' && (
-                            <>
-                              <span 
-                                className="absolute left-0 top-0 bottom-0 w-2 border-l-2 border-t-2 border-b-2 rounded-l"
-                                style={{ borderColor: currentStyle.preview.primaryColor }}
-                              />
-                              <span 
-                                className="absolute right-0 top-0 bottom-0 w-2 border-r-2 border-t-2 border-b-2 rounded-r"
-                                style={{ borderColor: currentStyle.preview.primaryColor }}
-                              />
-                            </>
-                          )}
-                          根据公司章程第十二条规定，股东会是公司的最高权力机构，对公司增加或者减少注册资本、分配利润等重大事项作出决议。
-                        </div>
-
-                        {/* Chapter 2: 资产情况 */}
-                        <div className="mb-6 pt-4">
-                          {/* Section Divider */}
-                          {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
-                            <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
-                          )}
-                          {currentStyle.preview.sectionDivider === 'dotted' && (
-                            <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
-                          )}
-                          {currentStyle.preview.sectionDivider === 'diamond' && (
-                            <div className="mb-4 flex items-center gap-2">
-                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
-                              <div 
-                                className="w-2 h-2 transform rotate-45"
-                                style={{ backgroundColor: currentStyle.preview.primaryColor }}
-                              />
-                              <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
-                            </div>
-                          )}
-                          {currentStyle.preview.sectionDivider === 'wave' && (
-                            <div className="mb-4">
-                              <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
-                                <path 
-                                  d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" 
-                                  fill="none" 
-                                  stroke={currentStyle.preview.primaryColor + '60'} 
-                                  strokeWidth="1"
-                                />
-                              </svg>
-                            </div>
-                          )}
-                          {currentStyle.preview.sectionDivider === 'none' && (
-                            <div className="mb-4" />
-                          )}
-                          <h2 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                            }}
-                          >
-                            二、资产情况
-                          </h2>
-                          
-                          <h3 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h2.font,
-                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.preview.secondaryColor,
-                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
-                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
-                            }}
-                          >
-                            2.1 固定资产
-                          </h3>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            经审阅目标公司提供的固定资产清单及相关权属证明文件，截至2024年12月31日，目标公司主要固定资产包括房屋建筑物、机器设备、电子设备等，账面价值合计人民币3,500万元。
-                          </p>
-
-                          <h3 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h2.font,
-                              fontSize: `${currentStyle.styles.h2.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                              color: currentStyle.preview.secondaryColor,
-                              marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
-                              marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
-                            }}
-                          >
-                            2.2 无形资产
-                          </h3>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            目标公司拥有注册商标15项、软件著作权28项、实用新型专利5项。上述知识产权均在有效期内，权属清晰，不存在权属争议或被质押、冻结等情形。
-                          </p>
-                        </div>
-
-                        {/* Chapter 3: 合同情况 */}
-                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
-                          <h2 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                            }}
-                          >
-                            三、重大合同
-                          </h2>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            我们审阅了目标公司近三年签订的金额超过人民币500万元的重大合同，主要包括销售合同、采购合同、技术开发合同等。经核查，上述合同条款完整，履行情况正常，未发现重大违约或纠纷。
-                          </p>
-
-                          <table 
-                            className="w-full mb-4"
-                            style={{
-                              fontFamily: currentStyle.tables.default.font,
-                              fontSize: `${currentStyle.tables.default.sizePt}pt`,
-                              borderCollapse: "collapse",
-                            }}
-                          >
-                            <thead>
-                              <tr style={{ backgroundColor: currentStyle.preview.primaryColor + '15' }}>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  合同类型
-                                </th>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  数量
-                                </th>
-                                <th style={{
-                                  border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                  padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                  fontWeight: currentStyle.tables.default.headerBold ? "bold" : "normal",
-                                  textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                }}>
-                                  总金额
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[
-                                { type: "销售合同", count: "12份", amount: "8,500万" },
-                                { type: "采购合同", count: "8份", amount: "3,200万" },
-                                { type: "技术开发合同", count: "5份", amount: "1,500万" },
-                              ].map((row, idx) => (
-                                <tr key={idx}>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.type}
-                                  </td>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.count}
-                                  </td>
-                                  <td style={{
-                                    border: `${currentStyle.tables.default.borderSizePt}pt solid ${currentStyle.tables.default.borderColor}`,
-                                    padding: `${currentStyle.tables.default.cellPaddingPt}pt`,
-                                    textAlign: currentStyle.tables.default.align as "center" | "left" | "right",
-                                  }}>
-                                    {row.amount}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Chapter 4: 诉讼情况 */}
-                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
-                          <h2 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                            }}
-                          >
-                            四、诉讼及仲裁
-                          </h2>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            根据目标公司声明及我们的尽职调查，截至本报告出具日，目标公司作为原告或被告的正在进行的诉讼、仲裁案件共计2起，涉案金额合计人民币120万元，均为普通商业纠纷，不构成对公司正常经营的重大影响。
-                          </p>
-                        </div>
-
-                        {/* Chapter 5: 结论 */}
-                        <div className="mb-6 pt-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }}>
-                          <h2 
-                            style={{ 
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                            }}
-                          >
-                            五、结论与建议
-                          </h2>
-                          
-                          <p 
-                            style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                              textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                            }}
-                          >
-                            综上所述，目标公司系依法设立并有效存续的有限责任公司，公司治理结构完善，主要资产权属清晰，重大合同履行正常，不存在重大法律风险。我们建议关注以下事项：
-                          </p>
-
-                          {/* List with bullet style */}
-                          {(currentStyle.preview.bulletStyle === 'number' ? (
-                            <ol style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              marginLeft: '1.5em',
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                              listStyleType: 'decimal',
-                            }}>
-                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
-                                <span style={{ color: '#333' }}>完善知识产权管理制度，加强商业秘密保护</span>
-                              </li>
-                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
-                                <span style={{ color: '#333' }}>及时办理部分到期合同的续签手续</span>
-                              </li>
-                              <li style={{ marginBottom: '4pt', color: currentStyle.preview.primaryColor }}>
-                                <span style={{ color: '#333' }}>持续关注进行中的诉讼案件进展</span>
-                              </li>
-                            </ol>
-                          ) : (
-                            <ul style={{ 
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              lineHeight: currentStyle.styles.body.lineSpacing,
-                              marginLeft: '1.5em',
-                              marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                              listStyleType: currentStyle.preview.bulletStyle === 'disc' || !currentStyle.preview.bulletStyle ? 'disc' :
-                                            currentStyle.preview.bulletStyle === 'circle' ? 'circle' :
-                                            currentStyle.preview.bulletStyle === 'square' ? 'square' : 'none',
-                            }}>
-                              {['完善知识产权管理制度，加强商业秘密保护', '及时办理部分到期合同的续签手续', '持续关注进行中的诉讼案件进展'].map((item, idx) => (
-                                <li key={idx} style={{ marginBottom: '4pt', display: currentStyle.preview.bulletStyle === 'arrow' || currentStyle.preview.bulletStyle === 'check' ? 'flex' : 'list-item', alignItems: 'flex-start', gap: '8px' }}>
-                                  {currentStyle.preview.bulletStyle === 'arrow' && (
-                                    <span style={{ color: currentStyle.preview.primaryColor }}>→</span>
-                                  )}
-                                  {currentStyle.preview.bulletStyle === 'check' && (
-                                    <span style={{ color: currentStyle.preview.primaryColor }}>✓</span>
-                                  )}
-                                  <span>{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ))}
-
-                          <div 
-                            className="mt-8 p-4 rounded"
-                            style={{
-                              backgroundColor: currentStyle.preview.primaryColor + '10',
-                              borderLeft: `4px solid ${currentStyle.preview.primaryColor}`,
-                            }}
-                          >
-                            <p 
-                              style={{ 
-                                fontFamily: currentStyle.styles.body.font,
-                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                fontWeight: 'bold',
+                            {/* Chapter H1 */}
+                            <h2
+                              style={{
+                                fontFamily: currentStyle.styles.h1.font,
+                                fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                                fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
                                 color: currentStyle.preview.primaryColor,
-                                marginBottom: '8pt',
+                                marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
                               }}
                             >
-                              免责声明
-                            </p>
-                            <p 
-                              style={{ 
-                                fontFamily: currentStyle.styles.body.font,
-                                fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
-                                lineHeight: currentStyle.styles.body.lineSpacing,
-                                color: '#666',
-                              }}
-                            >
-                              本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。
-                            </p>
+                              {chapter.number ? `${chapter.number}、` : ""}{chapter.title}
+                            </h2>
+
+                            {/* Sub-chapters H2 */}
+                            {chapter.children && chapter.children.slice(0, 2).map((child) => (
+                              <div key={child.id}>
+                                <h3
+                                  style={{
+                                    fontFamily: currentStyle.styles.h2.font,
+                                    fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                                    fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                                    color: currentStyle.preview.secondaryColor,
+                                    marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                                    marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                                  }}
+                                >
+                                  {child.number ? `${child.number} ` : ""}{child.title}
+                                </h3>
+                                {child.description && (
+                                  <p
+                                    style={{
+                                      fontFamily: currentStyle.styles.body.font,
+                                      fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                      lineHeight: currentStyle.styles.body.lineSpacing,
+                                      textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                      textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                      marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                      color: "#666",
+                                    }}
+                                  >
+                                    {child.description}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+
+                            {/* Show remaining children count */}
+                            {chapter.children && chapter.children.length > 2 && (
+                              <p
+                                style={{
+                                  fontFamily: currentStyle.styles.body.font,
+                                  fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
+                                  color: currentStyle.preview.primaryColor + "99",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                …还有 {chapter.children.length - 2} 个子章节
+                              </p>
+                            )}
                           </div>
-                        </div>
+                        ))}
+
+                        {/* Show remaining chapters count */}
+                        {chapters.length > 3 && (
+                          <div
+                            className="mt-4 p-3 rounded text-center text-[12px]"
+                            style={{
+                              backgroundColor: currentStyle.preview.primaryColor + '08',
+                              color: currentStyle.preview.primaryColor + 'aa',
+                              border: `1px dashed ${currentStyle.preview.primaryColor}30`,
+                            }}
+                          >
+                            …还有 {chapters.length - 3} 个章节（共 {chapters.length} 章）
+                          </div>
+                        )}
                       </div>
                     </div>
                   </ScrollArea>
