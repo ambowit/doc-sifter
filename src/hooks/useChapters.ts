@@ -47,17 +47,21 @@ const transformChapter = (row: Record<string, unknown>): Chapter => ({
 });
 
 // Build chapter tree from flat list.
-// Priority: parent_id relationship first, then order_index, then insertion order (createdAt).
-// Chapters with empty/null number are treated as unnumbered and kept in their original order.
+// Preserves the original array order from the database at all times — never re-sorts.
+// Uses parent_id links when available, otherwise falls back to level+number-prefix matching.
 function buildChapterTree(chapters: Chapter[]): Chapter[] {
-  // Use parent_id if available (proper relational tree)
-  const hasParentIds = chapters.some(c => c.parentId !== null);
+  // Tag each chapter with its original array position for stable ordering
+  const indexed = chapters.map((c, i) => ({ ...c, _pos: i }));
+
+  const map = new Map<string, (typeof indexed)[0] & { children: (typeof indexed)[0][] }>();
+  indexed.forEach(c => map.set(c.id, { ...c, children: [] }));
+
+  const hasParentIds = indexed.some(c => c.parentId !== null);
 
   if (hasParentIds) {
-    const map = new Map<string, Chapter & { children: Chapter[] }>();
-    chapters.forEach(c => map.set(c.id, { ...c, children: [] }));
-    const roots: (Chapter & { children: Chapter[] })[] = [];
-    chapters.forEach(c => {
+    // Proper relational tree — use parent_id links
+    const roots: (typeof indexed[0] & { children: typeof indexed })[] = [];
+    indexed.forEach(c => {
       const node = map.get(c.id)!;
       if (c.parentId && map.has(c.parentId)) {
         map.get(c.parentId)!.children.push(node);
@@ -65,83 +69,41 @@ function buildChapterTree(chapters: Chapter[]): Chapter[] {
         roots.push(node);
       }
     });
-    // Sort children by orderIndex then createdAt
-    const sortChildren = (nodes: (Chapter & { children: Chapter[] })[]) => {
-      nodes.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0) || a.createdAt.localeCompare(b.createdAt));
-      nodes.forEach(n => sortChildren(n.children as (Chapter & { children: Chapter[] })[]));
+    // Sort children by their original array position (stable)
+    const sortByPos = (nodes: typeof roots) => {
+      nodes.sort((a, b) => a._pos - b._pos);
+      nodes.forEach(n => sortByPos(n.children as typeof roots));
     };
-    sortChildren(roots);
-    return roots;
+    sortByPos(roots);
+    return roots as unknown as Chapter[];
   }
 
-  // No parent_id: group by level, children matched by number prefix, preserve insertion order for unnumbered
-  const level1 = chapters.filter(c => c.level === 1);
-  const level2 = chapters.filter(c => c.level === 2);
-  const level3 = chapters.filter(c => c.level >= 3);
+  // No parent_id: match children by number prefix, preserve original array order throughout
+  const level1 = indexed.filter(c => c.level === 1);
+  const level2 = indexed.filter(c => c.level === 2);
+  const level3 = indexed.filter(c => c.level >= 3);
 
-  // Sort level1: numbered chapters sorted numerically, unnumbered keep original array order
-  const sortByNumber = (arr: Chapter[]) => {
-    return [...arr].sort((a, b) => {
-      const ai = getOrderIndex(a.number);
-      const bi = getOrderIndex(b.number);
-      if (ai !== bi) return ai - bi;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
-  };
-
-  const sortedLevel1 = sortByNumber(level1);
-
-  return sortedLevel1.map(parent => {
+  return level1.map(parent => {
     const parentNum = (parent.number || "").trim();
-    const children = sortByNumber(
-      level2.filter(child => {
+    // Only match numeric-prefixed children; unnumbered chapters have no sub-children
+    const children = level2
+      .filter(child => {
         const childNum = (child.number || "").trim();
-        if (!childNum || !parentNum) return false;
-        // e.g. parent "1", child "1.1" or "1.2"
-        return childNum.startsWith(parentNum + ".");
+        return childNum && parentNum && childNum.startsWith(parentNum + ".");
       })
-    ).map(child => {
-      const childNum = (child.number || "").trim();
-      const grandChildren = sortByNumber(
-        level3.filter(gc => {
-          const gcNum = (gc.number || "").trim();
-          return gcNum.startsWith(childNum + ".");
-        })
-      ).map(gc => ({ ...gc, children: [] }));
-      return { ...child, children: grandChildren };
-    });
+      // already in original array order — no sort needed
+      .map(child => {
+        const childNum = (child.number || "").trim();
+        const grandChildren = level3
+          .filter(gc => {
+            const gcNum = (gc.number || "").trim();
+            return gcNum && gcNum.startsWith(childNum + ".");
+          })
+          .map(gc => ({ ...gc, children: [] }));
+        return { ...child, children: grandChildren };
+      });
     return { ...parent, children };
-  });
-}
-
-// Returns a numeric sort key for a chapter number string.
-// Unnumbered ("" or null) get a large but finite key so they can be interleaved
-// based on their database insertion order (handled at call site via createdAt).
-function getOrderIndex(num: string | null | undefined): number {
-  const s = (num || "").trim();
-  if (!s) return 9000; // unnumbered: after numbered but keep relative order via createdAt
-
-  // Chinese ordinals: 一=1 … 十二=12, 十=10, 十一=11 …
-  const zhMap: Record<string, number> = {
-    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
-    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
-    '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15,
-  };
-  if (zhMap[s] !== undefined) return zhMap[s];
-
-  // "第X章"
-  const zhChap = s.match(/第([一二三四五六七八九十]+(?:[一二三四五六七八九])?)/);
-  if (zhChap && zhMap[zhChap[1]] !== undefined) return zhMap[zhChap[1]];
-
-  // "附件X" → 8000+
-  if (s.startsWith('附件')) return 8000;
-
-  // Arabic numeric prefix "1", "1.2", "1.2.3"
-  const parts = s.split('.');
-  const first = parseInt(parts[0], 10);
-  if (!isNaN(first)) return first + (parts.length > 1 ? parseInt(parts[1], 10) / 100 : 0);
-
-  return 9000;
+  }) as unknown as Chapter[];
 }
 
 // Hook to fetch all chapters for a project
@@ -159,7 +121,8 @@ export function useChapters(projectId: string | undefined) {
         .select("*")
         .eq("project_id", projectId)
         .order("order_index", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
 
       if (error) throw error;
       
@@ -201,7 +164,8 @@ export function useFlatChapters(projectId: string | undefined) {
         .select("*")
         .eq("project_id", projectId)
         .order("order_index", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
 
       if (error) throw error;
       
