@@ -56,7 +56,7 @@ import {
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
-import { useParseTemplate, fileToBase64, extractFileText, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
 import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
@@ -738,7 +738,7 @@ export default function TemplateFingerprint() {
     try {
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: DEMO_TEMPLATE_CONTENT,
+        content: "",
         filename: "标准法律尽调报告模板",
       });
       toast.success("报告模板已生成", {
