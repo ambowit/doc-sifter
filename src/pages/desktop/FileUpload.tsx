@@ -7,6 +7,7 @@ import {
   useCreateFile,
   useDeleteFile,
   useClassifyFiles,
+  useUpdateFileChapter,
   uploadFile,
   detectFileType,
   formatFileSize,
@@ -22,7 +23,7 @@ import {
   detectArchiveType,
 } from "@/lib/archiveExtractor";
 import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
-import { useMappings, useCreateMapping, useDeleteMapping, type ChapterFileMapping } from "@/hooks/useMappings";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -139,13 +140,12 @@ export default function FileUpload() {
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
   const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
-  const { data: mappings = [] } = useMappings(currentProjectId || undefined);
-  const createMappingMutation = useCreateMapping();
-  const deleteMappingMutation = useDeleteMapping();
+
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
   const classifyMutation = useClassifyFiles();
+  const updateFileChapterMutation = useUpdateFileChapter();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -191,64 +191,24 @@ export default function FileUpload() {
   // Check if template is ready (chapters exist)
   const hasTemplate = chapters.length > 0;
 
-  // Get mappings for a specific file
-  const getFileMappings = useCallback((fileId: string): ChapterFileMapping[] => {
-    return mappings.filter(m => m.fileId === fileId);
-  }, [mappings]);
-
   // Get chapter info by ID
   const getChapterById = useCallback((chapterId: string) => {
     return chapters.find(c => c.id === chapterId);
   }, [chapters]);
 
-  // Handle adding a chapter mapping
-  const handleAddMapping = useCallback(async (fileId: string, chapterId: string) => {
-    try {
-      await createMappingMutation.mutateAsync({
-        fileId,
-        chapterId,
-        isConfirmed: true,
-      });
-      toast.success("已关联章节");
-    } catch (error) {
-      console.error("[FileUpload] Failed to add mapping:", error);
-      toast.error("关联章节失败");
-    }
-  }, [createMappingMutation]);
-
-  // Handle removing a chapter mapping
-  const handleRemoveMapping = useCallback(async (mappingId: string) => {
-    try {
-      await deleteMappingMutation.mutateAsync(mappingId);
-      toast.success("已取消关联");
-    } catch (error) {
-      console.error("[FileUpload] Failed to remove mapping:", error);
-      toast.error("取消关联失败");
-    }
-  }, [deleteMappingMutation]);
-
-  // Check if file is already mapped to a chapter
+  // 检查文件是否已关联章节（基于 files.chapter_id）
   const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
-    return mappings.some(m => m.fileId === fileId && m.chapterId === chapterId);
-  }, [mappings]);
+    return existingFiles.some(f => f.id === fileId && f.chapterId === chapterId);
+  }, [existingFiles]);
 
-  // Get files for the selected chapter
+  // Get files for the selected chapter（基于 files.chapter_id）
   const selectedChapterFiles = useMemo(() => {
     if (!selectedChapterId) return [];
-
     if (selectedChapterId === 'unassigned') {
-      // Get files not mapped to any chapter
-      const mappedFileIds = new Set(mappings.map(m => m.fileId));
-      return uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
+      return existingFiles.filter(f => !f.chapterId);
     }
-
-    // Get files mapped to selected chapter
-    const chapterMappings = mappings.filter(m => m.chapterId === selectedChapterId);
-    const fileIdToFile = new Map(uploadedFiles.filter(f => f.id).map(f => [f.id!, f]));
-    return chapterMappings
-      .map(m => fileIdToFile.get(m.fileId))
-      .filter((f): f is NonNullable<typeof f> => f !== undefined);
-  }, [selectedChapterId, mappings, uploadedFiles]);
+    return existingFiles.filter(f => f.chapterId === selectedChapterId);
+  }, [selectedChapterId, existingFiles]);
 
   // Get selected chapter info
   const selectedChapter = useMemo(() => {
@@ -415,14 +375,11 @@ export default function FileUpload() {
   useEffect(() => {
     if (!hasInitializedChapter && chapters.length > 0) {
       // Check if there are unassigned files
-      const mappedFileIds = new Set(mappings.map(m => m.fileId));
-      const hasUnassigned = uploadedFiles.some(f => f.id && !mappedFileIds.has(f.id));
-
-      // Select unassigned section if there are unassigned files, otherwise first chapter
+      const hasUnassigned = existingFiles.some(f => !f.chapterId);
       setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
       setHasInitializedChapter(true);
     }
-  }, [chapters, mappings, uploadedFiles, hasInitializedChapter]);
+  }, [chapters, existingFiles, hasInitializedChapter]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -471,6 +428,7 @@ export default function FileUpload() {
           storagePath: f.storagePath,
           mimeType: f.mimeType,
           ocrProcessed: f.ocrProcessed,
+          chapterId: f.chapterId ?? null,
           downloadUrl: localFile?.downloadUrl,
         };
       });
@@ -1571,8 +1529,7 @@ export default function FileUpload() {
                       <div className="p-1">
                         {/* Unassigned files section */}
                         {(() => {
-                          const mappedFileIds = new Set(mappings.map(m => m.fileId));
-                          const unassignedCount = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id)).length;
+                          const unassignedCount = existingFiles.filter(f => !f.chapterId).length;
                           if (unassignedCount > 0) {
                             return (
                               <button
@@ -1600,12 +1557,12 @@ export default function FileUpload() {
                           const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
                           const hasChildren = children.length > 0;
                           const isExpanded = expandedParentChapters.has(parentChapter.id);
-                          const parentFileCount = mappings.filter(m => m.chapterId === parentChapter.id).length;
+                          const parentFileCount = existingFiles.filter(f => f.chapterId === parentChapter.id).length;
                           const isParentSelected = selectedChapterId === parentChapter.id;
 
                           // Calculate total files for parent (including children)
                           const childFileCount = children.reduce((sum, child) =>
-                            sum + mappings.filter(m => m.chapterId === child.id).length, 0
+                            sum + existingFiles.filter(f => f.chapterId === child.id).length, 0
                           );
                           const totalFileCount = parentFileCount + childFileCount;
 
@@ -1662,7 +1619,7 @@ export default function FileUpload() {
                               {hasChildren && isExpanded && (
                                 <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
                                   {children.map((child) => {
-                                    const childFileCount = mappings.filter(m => m.chapterId === child.id).length;
+                                    const childFileCount = existingFiles.filter(f => f.chapterId === child.id).length;
                                     const isChildSelected = selectedChapterId === child.id;
                                     return (
                                       <button
@@ -1749,8 +1706,8 @@ export default function FileUpload() {
                                             key={file.id}
                                             value={file.name}
                                             onSelect={() => {
-                                              if (file.id && selectedChapterId) {
-                                                handleAddMapping(file.id, selectedChapterId);
+                                              if (file.id && selectedChapterId && selectedChapterId !== 'unassigned') {
+                                                updateFileChapterMutation.mutate({ fileId: file.id, chapterId: selectedChapterId });
                                               }
                                             }}
                                             className="flex items-center gap-2 cursor-pointer"
@@ -1871,12 +1828,11 @@ export default function FileUpload() {
                                                     key={chapter.id}
                                                     value={chapter.number && chapter.number !== chapter.title ? `${chapter.number} ${chapter.title}` : chapter.title}
                                                     onSelect={() => {
-                                                      if (isMapped) {
-                                                        const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);
-                                                        if (mapping) handleRemoveMapping(mapping.id);
-                                                      } else {
-                                                        handleAddMapping(file.id!, chapter.id);
-                                                      }
+                                                      if (!file.id) return;
+                                                      updateFileChapterMutation.mutate({
+                                                        fileId: file.id,
+                                                        chapterId: isMapped ? null : chapter.id,
+                                                      });
                                                     }}
                                                     className="flex items-center gap-2 cursor-pointer"
                                                   >
@@ -1901,10 +1857,7 @@ export default function FileUpload() {
                                   {/* Remove from current chapter */}
                                   {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
                                     <button
-                                      onClick={() => {
-                                        const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === selectedChapterId);
-                                        if (mapping) handleRemoveMapping(mapping.id);
-                                      }}
+                                      onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: null })}
                                       className="p-1.5 hover:bg-destructive/10 rounded"
                                       title="从此章节移除"
                                     >

@@ -525,3 +525,21 @@ export function useBatchOcrExtract() {
     },
   });
 }
+
+// 更新单个文件的章节归属
+export function useUpdateFileChapter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ fileId, chapterId }: { fileId: string; chapterId: string | null }) => {
+      const { error } = await supabase
+        .from("files")
+        .update({ chapter_id: chapterId })
+        .eq("id", fileId);
+      if (error) throw new Error(error.message);
+      return { fileId, chapterId };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+    },
+  });
+}
