@@ -6,6 +6,7 @@ import {
   useFiles,
   useCreateFile,
   useDeleteFile,
+  useClassifyFiles,
   uploadFile,
   detectFileType,
   formatFileSize,
@@ -144,6 +145,7 @@ export default function FileUpload() {
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
+  const classifyMutation = useClassifyFiles();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -359,105 +361,55 @@ export default function FileUpload() {
   // State for auto-matching
   const [isAutoMatching, setIsAutoMatching] = useState(false);
 
-  // Auto-match files to chapters based on file name and chapter title/number
+  // 使用 AI classify-files 自动匹配文件到章节
   const autoMatchFilesToChapters = useCallback(async () => {
-    if (uploadedFiles.length === 0 || chapters.length === 0) {
+    if (!currentProjectId) return;
+    if (existingFiles.length === 0 || chapters.length === 0) {
       toast.error("没有文件或章节可匹配");
       return;
     }
 
+    // 只匹配尚未分配章节的文件
+    const unassignedFiles = existingFiles.filter(f => !f.chapterId);
+    if (unassignedFiles.length === 0) {
+      toast.info("所有文件已有章节所属");
+      return;
+    }
+
     setIsAutoMatching(true);
-    let matchCount = 0;
-
     try {
-      // Get unmapped files
-      const mappedFileIds = new Set(mappings.map(m => m.fileId));
-      const unmappedFiles = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
-
-      if (unmappedFiles.length === 0) {
-        toast.info("所有文件已有章节所属");
-        setIsAutoMatching(false);
-        return;
-      }
-
-      // Create matching rules based on chapter info
-      const chapterPatterns = chapters.map(ch => {
-        const patterns: string[] = [];
-
-        // Add chapter number patterns (e.g., "1.1", "1.2")
-        if (ch.number) {
-          patterns.push(ch.number.replace(/\./g, '\\.'));
-          // Also match without dots (e.g., "11" for "1.1")
-          patterns.push(ch.number.replace(/\./g, ''));
-        }
-
-        // Add chapter title keywords (split by common separators)
-        const titleKeywords = ch.title
-          .replace(/[及、，,/\\]/g, ' ')
-          .split(/\s+/)
-          .filter(k => k.length >= 2);
-        patterns.push(...titleKeywords);
-
-        return { chapter: ch, patterns };
+      const result = await classifyMutation.mutateAsync({
+        projectId: currentProjectId,
+        files: unassignedFiles.map(f => ({
+          id: f.id,
+          name: f.name,
+          extractedText: f.extractedText ?? null,
+          textSummary: f.textSummary ?? null,
+        })),
+        chapters: chapters.map(c => ({
+          id: c.id,
+          number: c.number || "",
+          title: c.title,
+          level: c.level,
+        })),
       });
 
-      // Match each unmapped file
-      for (const file of unmappedFiles) {
-        const fileName = file.name.toLowerCase();
+      const matched = result.results
+        ? (result.results as Array<{ chapterId: string | null }>).filter(r => r.chapterId).length
+        : result.classified;
 
-        // Find best matching chapter
-        let bestMatch: { chapter: Chapter; score: number } | null = null;
-
-        for (const { chapter, patterns } of chapterPatterns) {
-          let score = 0;
-
-          for (const pattern of patterns) {
-            if (fileName.includes(pattern.toLowerCase())) {
-              // Higher score for number matches
-              score += pattern.match(/^\d/) ? 10 : 5;
-            }
-          }
-
-          // Also check if file type matches chapter title
-          if (chapter.title.includes('合同') && file.type === '合同') score += 3;
-          if (chapter.title.includes('章程') && fileName.includes('章程')) score += 5;
-          if (chapter.title.includes('股权') && fileName.includes('股权')) score += 5;
-          if (chapter.title.includes('知识产权') && file.type === '知识产权') score += 3;
-          if (chapter.title.includes('诉讼') && file.type === '诉讼') score += 3;
-          if (chapter.title.includes('财务') && file.type === '财务') score += 3;
-
-          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-            bestMatch = { chapter, score };
-          }
-        }
-
-        // Create mapping if we found a match
-        if (bestMatch && file.id) {
-          try {
-            await createMappingMutation.mutateAsync({
-              fileId: file.id,
-              chapterId: bestMatch.chapter.id,
-              isConfirmed: false, // Mark as auto-matched, not confirmed
-            });
-            matchCount++;
-          } catch (err) {
-            console.error("[FileUpload] Failed to create auto-match:", err);
-          }
-        }
-      }
-
-      if (matchCount > 0) {
-        toast.success(`已自动匹配 ${matchCount} 个文件`);
+      if (matched > 0) {
+        toast.success(`AI 已自动匹配 ${matched} 个文件`);
       } else {
         toast.info("未能自动匹配任何文件，请手动分配");
       }
-    } catch (error) {
-      console.error("[FileUpload] Auto-match error:", error);
-      toast.error("自动匹配失败");
+    } catch (err) {
+      console.error("[FileUpload] Auto-match error:", err);
+      toast.error(`自动匹配失败：${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setIsAutoMatching(false);
     }
-  }, [uploadedFiles, chapters, mappings, createMappingMutation]);
+  }, [currentProjectId, existingFiles, chapters, classifyMutation]);
 
   // Auto-select first chapter on initial load
   useEffect(() => {
