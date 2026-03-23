@@ -70,7 +70,7 @@ export default function ChapterMapping() {
   const updateChapterMutation = useUpdateFileChapter();
 
   // 报告生成相关
-  const { startJob, cancelJob } = useReportJob(projectId);
+  const { createJob, cancelJob } = useReportJob({ projectId: projectId || "" });
   const { job, isPolling } = useActiveReportJob(projectId);
   const jobIsRunning = job?.status === "running" || job?.status === "pending";
   const jobIsSucceeded = job?.status === "succeeded";
@@ -96,7 +96,8 @@ export default function ChapterMapping() {
   const handleStart = async () => {
     if (!projectId) return;
     try {
-      await startJob({ projectId });
+      const jobId = await createJob();
+      if (!jobId) throw new Error("创建任务失败");
       toast.success("报告生成任务已启动");
     } catch {
       toast.error("启动失败，请重试");
