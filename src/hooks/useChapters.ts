@@ -21,6 +21,7 @@ export interface Chapter {
 }
 
 export interface CreateChapterData {
+  id?: string;
   projectId: string;
   parentId?: string | null;
   title: string;
@@ -45,85 +46,102 @@ const transformChapter = (row: Record<string, unknown>): Chapter => ({
   updatedAt: row.updated_at as string,
 });
 
-// Extract numeric prefix from chapter number (e.g., "1.2" -> 1, "第一章" -> 1)
-function getChapterPrefix(num: string | null): number {
-  if (!num) return Infinity;
-  // Handle "第X章" format
-  const zhMatch = num.match(/第([一二三四五六七八九十]+)章/);
-  if (zhMatch) {
-    const zhNums: Record<string, number> = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-    return zhNums[zhMatch[1]] || parseInt(zhMatch[1], 10) || Infinity;
-  }
-  // Handle "X.Y" format - extract the first number
-  const parts = num.split('.');
-  return parseInt(parts[0], 10) || Infinity;
-}
-
-// Parse chapter number for natural sorting (e.g., "1.2" -> [1, 2])
-function parseChapterNumber(num: string | null): number[] {
-  if (!num) return [Infinity];
-  // Handle "第X章" format - treat as single level
-  const zhMatch = num.match(/第([一二三四五六七八九十]+)章/);
-  if (zhMatch) {
-    const zhNums: Record<string, number> = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-    return [zhNums[zhMatch[1]] || 0];
-  }
-  return num.split('.').map(n => parseInt(n, 10) || 0);
-}
-
-// Compare two chapter numbers naturally
-function compareChapterNumbers(a: string | null, b: string | null): number {
-  const partsA = parseChapterNumber(a);
-  const partsB = parseChapterNumber(b);
-  const maxLen = Math.max(partsA.length, partsB.length);
-  
-  for (let i = 0; i < maxLen; i++) {
-    const numA = partsA[i] ?? 0;
-    const numB = partsB[i] ?? 0;
-    if (numA !== numB) return numA - numB;
-  }
-  return 0;
-}
-
-// Build chapter tree from flat list based on level and number prefix
+// Build chapter tree from flat list.
+// Priority: parent_id relationship first, then order_index, then insertion order (createdAt).
+// Chapters with empty/null number are treated as unnumbered and kept in their original order.
 function buildChapterTree(chapters: Chapter[]): Chapter[] {
-  // Separate chapters by level
-  const level1Chapters = chapters.filter(c => c.level === 1);
-  const level2Chapters = chapters.filter(c => c.level === 2);
-  const level3Chapters = chapters.filter(c => c.level >= 3);
+  // Use parent_id if available (proper relational tree)
+  const hasParentIds = chapters.some(c => c.parentId !== null);
 
-  // Sort level 1 chapters by number
-  level1Chapters.sort((a, b) => compareChapterNumbers(a.number, b.number));
+  if (hasParentIds) {
+    const map = new Map<string, Chapter & { children: Chapter[] }>();
+    chapters.forEach(c => map.set(c.id, { ...c, children: [] }));
+    const roots: (Chapter & { children: Chapter[] })[] = [];
+    chapters.forEach(c => {
+      const node = map.get(c.id)!;
+      if (c.parentId && map.has(c.parentId)) {
+        map.get(c.parentId)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+    // Sort children by orderIndex then createdAt
+    const sortChildren = (nodes: (Chapter & { children: Chapter[] })[]) => {
+      nodes.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0) || a.createdAt.localeCompare(b.createdAt));
+      nodes.forEach(n => sortChildren(n.children as (Chapter & { children: Chapter[] })[]));
+    };
+    sortChildren(roots);
+    return roots;
+  }
 
-  // Build tree: assign children based on number prefix matching
-  const rootChapters: Chapter[] = level1Chapters.map(parent => {
-    const parentPrefix = getChapterPrefix(parent.number);
-    
-    // Find level 2 children whose number starts with parent prefix
-    const children = level2Chapters
-      .filter(child => {
-        const childPrefix = getChapterPrefix(child.number);
-        return childPrefix === parentPrefix;
+  // No parent_id: group by level, children matched by number prefix, preserve insertion order for unnumbered
+  const level1 = chapters.filter(c => c.level === 1);
+  const level2 = chapters.filter(c => c.level === 2);
+  const level3 = chapters.filter(c => c.level >= 3);
+
+  // Sort level1: numbered chapters sorted numerically, unnumbered keep original array order
+  const sortByNumber = (arr: Chapter[]) => {
+    return [...arr].sort((a, b) => {
+      const ai = getOrderIndex(a.number);
+      const bi = getOrderIndex(b.number);
+      if (ai !== bi) return ai - bi;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+  };
+
+  const sortedLevel1 = sortByNumber(level1);
+
+  return sortedLevel1.map(parent => {
+    const parentNum = (parent.number || "").trim();
+    const children = sortByNumber(
+      level2.filter(child => {
+        const childNum = (child.number || "").trim();
+        if (!childNum || !parentNum) return false;
+        // e.g. parent "1", child "1.1" or "1.2"
+        return childNum.startsWith(parentNum + ".");
       })
-      .sort((a, b) => compareChapterNumbers(a.number, b.number))
-      .map(child => {
-        // Find level 3 children for this level 2 chapter
-        const childNumber = child.number || "";
-        const grandChildren = level3Chapters
-          .filter(gc => {
-            const gcNumber = gc.number || "";
-            return gcNumber.startsWith(childNumber + ".");
-          })
-          .sort((a, b) => compareChapterNumbers(a.number, b.number))
-          .map(gc => ({ ...gc, children: [] }));
-        
-        return { ...child, children: grandChildren };
-      });
-    
+    ).map(child => {
+      const childNum = (child.number || "").trim();
+      const grandChildren = sortByNumber(
+        level3.filter(gc => {
+          const gcNum = (gc.number || "").trim();
+          return gcNum.startsWith(childNum + ".");
+        })
+      ).map(gc => ({ ...gc, children: [] }));
+      return { ...child, children: grandChildren };
+    });
     return { ...parent, children };
   });
+}
 
-  return rootChapters;
+// Returns a numeric sort key for a chapter number string.
+// Unnumbered ("" or null) get a large but finite key so they can be interleaved
+// based on their database insertion order (handled at call site via createdAt).
+function getOrderIndex(num: string | null | undefined): number {
+  const s = (num || "").trim();
+  if (!s) return 9000; // unnumbered: after numbered but keep relative order via createdAt
+
+  // Chinese ordinals: 一=1 … 十二=12, 十=10, 十一=11 …
+  const zhMap: Record<string, number> = {
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15,
+  };
+  if (zhMap[s] !== undefined) return zhMap[s];
+
+  // "第X章"
+  const zhChap = s.match(/第([一二三四五六七八九十]+(?:[一二三四五六七八九])?)/);
+  if (zhChap && zhMap[zhChap[1]] !== undefined) return zhMap[zhChap[1]];
+
+  // "附件X" → 8000+
+  if (s.startsWith('附件')) return 8000;
+
+  // Arabic numeric prefix "1", "1.2", "1.2.3"
+  const parts = s.split('.');
+  const first = parseInt(parts[0], 10);
+  if (!isNaN(first)) return first + (parts.length > 1 ? parseInt(parts[1], 10) / 100 : 0);
+
+  return 9000;
 }
 
 // Hook to fetch all chapters for a project
@@ -140,8 +158,8 @@ export function useChapters(projectId: string | undefined) {
         .from("chapters")
         .select("*")
         .eq("project_id", projectId)
-        .order("level", { ascending: true })
-        .order("order_index", { ascending: true });
+        .order("order_index", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
       
@@ -182,8 +200,8 @@ export function useFlatChapters(projectId: string | undefined) {
         .from("chapters")
         .select("*")
         .eq("project_id", projectId)
-        .order("level", { ascending: true })
-        .order("order_index", { ascending: true });
+        .order("order_index", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
       
@@ -248,6 +266,7 @@ export function useBulkCreateChapters() {
 
       // Insert new chapters
       const chaptersToInsert = chapters.map(ch => ({
+        ...(ch.id ? { id: ch.id } : {}),
         project_id: ch.projectId,
         parent_id: ch.parentId || null,
         title: ch.title,

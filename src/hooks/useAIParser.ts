@@ -76,36 +76,39 @@ export interface DocumentParseResult {
   summary: DocumentSummary;
 }
 
-// Flatten chapter structure to array with parent references
+// Generate a UUID v4
+function uuidv4(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+// Flatten chapter structure to array with correct parent IDs.
+// Pre-assigns UUIDs so children can reference their parent before insertion.
 function flattenChapters(
   chapters: ChapterStructure[],
   projectId: string,
   parentId: string | null = null,
-  parentNumber: string = ""
 ): CreateChapterData[] {
   const result: CreateChapterData[] = [];
 
   chapters.forEach((chapter, index) => {
-    const orderIndex = index;
+    const id = uuidv4();
 
     result.push({
+      id,
       projectId,
       parentId,
       title: chapter.title,
-      number: chapter.number || null,
+      number: chapter.number || "",
       level: chapter.level,
-      orderIndex,
+      orderIndex: index,
       description: chapter.description || "",
     });
 
     if (chapter.children && chapter.children.length > 0) {
-      const childChapters = flattenChapters(
-        chapter.children,
-        projectId,
-        null,
-        chapter.number
-      );
-      result.push(...childChapters);
+      result.push(...flattenChapters(chapter.children, projectId, id));
     }
   });
 
