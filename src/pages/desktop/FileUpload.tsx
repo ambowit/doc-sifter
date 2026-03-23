@@ -816,7 +816,7 @@ export default function FileUpload() {
     
     for (const storagePath of selectedFiles) {
       const file = uploadedFiles.find(f => f.storagePath === storagePath);
-      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType)) continue;
+      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) continue;
       if (file.ocrProcessed) continue;
       
       try {
@@ -855,7 +855,7 @@ export default function FileUpload() {
     name: string;
     downloadUrl?: string;
   }) => {
-    if (!file.id || !file.mimeType || !canOcrFile(file.mimeType)) return;
+    if (!file.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) return;
 
     let downloadUrl = file.downloadUrl;
     if (!downloadUrl) {
@@ -893,7 +893,7 @@ export default function FileUpload() {
 
     for (const fileId of ocrFailedIds) {
       const file = uploadedFiles.find(f => f.id === fileId);
-      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType)) continue;
+      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) continue;
 
       try {
         let downloadUrl = file.downloadUrl;
@@ -923,7 +923,7 @@ export default function FileUpload() {
 
   // Count files needing extraction (failed + never tried, excluding currently processing)
   const unextractedOcrFiles = uploadedFiles.filter(
-    f => f.id && f.mimeType && canOcrFile(f.mimeType) && !f.ocrProcessed && !ocrProcessingIds.has(f.id)
+    f => f.id && f.mimeType && canOcrFile(f.mimeType, f.name) && !f.ocrProcessed && !ocrProcessingIds.has(f.id)
   );
   const failedOcrFiles = unextractedOcrFiles.filter(f => f.id && ocrFailedIds.has(f.id));
 
@@ -1164,7 +1164,7 @@ export default function FileUpload() {
       toast.success(`成功上传 ${successCount} 个文件`);
       
       const ocrCandidates = results
-        .filter(r => r.success && r.downloadUrl && r.mimeType && canOcrFile(r.mimeType))
+        .filter(r => r.success && r.downloadUrl && r.mimeType && canOcrFile(r.mimeType, r.fileName))
         .map(r => ({
           fileId: r.fileId!,
           fileUrl: r.downloadUrl!,
@@ -1278,7 +1278,7 @@ export default function FileUpload() {
           <div className="flex-1">
             <div className="font-medium text-[14px] text-amber-900">尚未设置报告模板</div>
             <div className="text-[13px] text-amber-700 mt-0.5">
-              请先前往「模板指纹」页面上传样本报告或使用AI生成报告结构，再进行文件映射。
+              请先前往「模板指纹」页面上传样本报告或使用AI生成报告结构，再���行文件映射。
             </div>
           </div>
           <Button
