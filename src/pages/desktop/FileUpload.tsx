@@ -375,7 +375,7 @@ export default function FileUpload() {
       const unmappedFiles = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
 
       if (unmappedFiles.length === 0) {
-        toast.info("所有文件已有章节��属");
+        toast.info("所有文件已有章节����属");
         setIsAutoMatching(false);
         return;
       }
@@ -995,10 +995,16 @@ export default function FileUpload() {
     for (const file of fileArray) {
       console.log("[FileUpload] Processing file:", file.name, file.type, file.size);
       
-      let isArchive = isArchiveFile(file);
+      // Office Open XML files (.docx, .xlsx, .pptx) and ODF files are ZIP-based
+      // but must NOT be treated as archives — check extension first
+      const officeExtensions = [".docx", ".xlsx", ".pptx", ".dotx", ".xltx", ".potx", ".odt", ".ods", ".odp"];
+      const fileExt = "." + file.name.split(".").pop()?.toLowerCase();
+      const isOfficeFile = officeExtensions.includes(fileExt);
+
+      let isArchive = !isOfficeFile && isArchiveFile(file);
       let archiveType: "zip" | "rar" | "7z" | null = null;
       
-      if (!isArchive && file.size > 0) {
+      if (!isArchive && !isOfficeFile && file.size > 0) {
         archiveType = await detectArchiveType(file);
         if (archiveType) {
           console.log(`[FileUpload] Detected ${archiveType.toUpperCase()} by magic bytes:`, file.name);
