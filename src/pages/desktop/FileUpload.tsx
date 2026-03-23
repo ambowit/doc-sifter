@@ -550,7 +550,7 @@ export default function FileUpload() {
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
-      return `文件大小�����过 500MB 限制`;
+      return `文件大小超过 500MB 限制`;
     }
     if (ALLOWED_TYPES.includes(file.type)) {
       return null;
@@ -782,7 +782,7 @@ export default function FileUpload() {
         const errorSummary = uniqueErrors.length > 0
           ? `（${uniqueErrors.slice(0, 2).join("；")}${uniqueErrors.length > 2 ? "等" : ""}）`
           : "";
-        toast.warning(`${result.failed} 个文件分析���败${errorSummary}`, { duration: 5000 });
+        toast.warning(`${result.failed} 个文件分析失败${errorSummary}`, { duration: 5000 });
       }
     } catch (error) {
       console.error("[FileUpload] OCR batch processing error:", error);
@@ -1042,7 +1042,7 @@ export default function FileUpload() {
 
           if (extractionResult.success && extractionResult.files.length > 0) {
             console.log(`[FileUpload] Extracted ${extractionResult.files.length} files from ${file.name}`);
-            toast.success(`从 ${file.name} 提取了 ${extractionResult.files.length} 个文��`);
+            toast.success(`从 ${file.name} 提取了 ${extractionResult.files.length} 个文件`);
 
             for (const extractedFile of extractionResult.files) {
               const error = validateFile(extractedFile.file);
@@ -1278,7 +1278,7 @@ export default function FileUpload() {
           <div className="flex-1">
             <div className="font-medium text-[14px] text-amber-900">尚未设置报告模板</div>
             <div className="text-[13px] text-amber-700 mt-0.5">
-              请先前往「模板指纹」页面上传样本报告或使用AI生成报告结构，再���行文件映射。
+              请先前往「模板指纹」页面上传样本报告或使用AI生成报告结构，再进行文件映射。
             </div>
           </div>
           <Button
@@ -1338,7 +1338,7 @@ export default function FileUpload() {
                   <span className="text-primary font-medium">释放以上传文件</span>
                 ) : (
                   <>
-                    拖放文件到此处，或点击下方按���选择文件
+                    拖放文件到此处，或点击下方按钮选择文件
                     <br />
                     <span className="text-[11px]">支持 PDF、Word、Excel、PPT、图片、ZIP 等多种格式，最大 500MB</span>
                   </>

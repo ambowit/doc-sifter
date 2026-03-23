@@ -67,9 +67,9 @@ interface ReportMetadata {
 
 // Helper function to call AI API with shorter timeout
 async function callAI(
-  apiKey: string, 
-  systemPrompt: string, 
-  userPrompt: string, 
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
   timeoutMs: number = 120000
 ): Promise<string> {
   const controller = new AbortController();
@@ -106,10 +106,10 @@ async function callAI(
 
     const result = await response.json();
     // Handle OOOK Gateway response format
-    return result.result?.choices?.[0]?.message?.content || 
-           result.choices?.[0]?.message?.content ||
-           result.result?.content ||
-           result.content || "";
+    return result.result?.choices?.[0]?.message?.content ||
+      result.choices?.[0]?.message?.content ||
+      result.result?.content ||
+      result.content || "";
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
@@ -122,22 +122,22 @@ async function callAI(
 // Parse JSON from AI response
 function parseAIResponse(content: string): ChapterContent[] {
   let jsonStr = content.trim();
-  
+
   // Remove markdown code block if present
   const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim();
   }
-  
+
   // Find array boundaries
   const arrayStart = jsonStr.indexOf("[");
   const arrayEnd = jsonStr.lastIndexOf("]");
   if (arrayStart !== -1 && arrayEnd !== -1) {
     jsonStr = jsonStr.substring(arrayStart, arrayEnd + 1);
   }
-  
+
   const sections = JSON.parse(jsonStr);
-  
+
   return sections.map((s: ChapterContent) => ({
     id: s.id || "",
     title: s.title || "",
@@ -152,7 +152,7 @@ function parseAIResponse(content: string): ChapterContent[] {
 // Categorize file by name for better AI understanding
 function categorizeFile(fileName: string): string {
   const name = fileName.toLowerCase();
-  
+
   if (name.includes("营业执照") || name.includes("工商")) return "公司基本信息";
   if (name.includes("章程")) return "公司治理";
   if (name.includes("股权") || name.includes("股东") || name.includes("出资")) return "股权结构";
@@ -167,7 +167,7 @@ function categorizeFile(fileName: string): string {
   if (name.includes("资质") || name.includes("许可") || name.includes("备案")) return "资质证照";
   if (name.includes("环保") || name.includes("环境")) return "环保";
   if (name.includes("投资") || name.includes("融资")) return "投融资";
-  
+
   return "其他";
 }
 
@@ -177,8 +177,8 @@ serve(async (req) => {
   }
 
   try {
-    const { 
-      projectId, 
+    const {
+      projectId,
       mode = "batch",  // "batch" | "analyze" | "metadata" | "single"
       batchIndex = 0,
       totalBatches = 1,
@@ -188,7 +188,7 @@ serve(async (req) => {
       chapterTitle = "",
       chapterNumber = "",
     } = await req.json();
-    
+
     logStep("Starting report generation", { projectId, mode, batchIndex, totalBatches, chapterId });
 
     if (!projectId) {
@@ -261,8 +261,8 @@ serve(async (req) => {
       description: c.description || "",
     }));
 
-    logStep("Data fetched", { 
-      files: processedFiles.length, 
+    logStep("Data fetched", {
+      files: processedFiles.length,
       filesWithOcr: processedFiles.filter(f => f.ocrText).length,
       chapters: processedChapters.length
     });
@@ -273,9 +273,9 @@ serve(async (req) => {
     const buildFilesContentSummary = (maxLength: number = 50000): string => {
       let summary = "";
       let currentLength = 0;
-      
+
       // Sort files by category for better organization
-      const sortedFiles = [...processedFiles].sort((a, b) => 
+      const sortedFiles = [...processedFiles].sort((a, b) =>
         a.category.localeCompare(b.category)
       );
 
@@ -283,35 +283,35 @@ serve(async (req) => {
       // More files = less content per file to stay within timeout
       const fileCount = sortedFiles.filter(f => f.ocrText || f.textSummary).length;
       const perFileLimit = fileCount > 50 ? 1000 : fileCount > 30 ? 1500 : 2500;
-      
+
       for (const file of sortedFiles) {
         if (currentLength >= maxLength) break;
-        
+
         const hasContent = file.ocrText || file.textSummary;
         const content = file.textSummary || file.ocrText || "";
         const truncatedContent = content.substring(0, perFileLimit);
-        
+
         const fileBlock = `
 === 文件：${file.name} ===
 分类：${file.category}
 ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? "\n[内容已截断...]" : ""}` : "（无提取内容）"}
 ---
 `;
-        
+
         if (currentLength + fileBlock.length <= maxLength) {
           summary += fileBlock;
           currentLength += fileBlock.length;
         }
       }
-      
+
       return summary;
     };
 
     // ============ METADATA MODE ============
     if (mode === "metadata") {
       logStep("Metadata mode: extracting equity and definitions from all files");
-      
-      const systemPrompt = `你����中国顶级PE/VC投资法律尽职调查合伙人。
+
+      const systemPrompt = `你是中国顶级PE/VC投资法律尽职调查合伙人。
 你的任务是从数据室文件中精确提取股权结构和定义表信息，用于生成专业的投资尽调报告。
 
 =====================================================
@@ -406,7 +406,7 @@ ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? 
 
       // Build content from all files
       const allFilesContent = buildFilesContentSummary(30000);
-      
+
       const fileListByCategory = processedFiles.reduce((acc, f) => {
         if (!acc[f.category]) acc[f.category] = [];
         acc[f.category].push(f.name);
@@ -448,13 +448,13 @@ ${allFilesContent}
           let jsonStr = aiContent.trim();
           const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/);
           if (jsonMatch) jsonStr = jsonMatch[1].trim();
-          
+
           const jsonStart = jsonStr.indexOf("{");
           const jsonEnd = jsonStr.lastIndexOf("}");
           if (jsonStart !== -1 && jsonEnd !== -1) {
             jsonStr = jsonStr.substring(jsonStart, jsonEnd + 1);
           }
-          
+
           metadata = JSON.parse(jsonStr);
         } catch {
           // Generate fallback metadata
@@ -479,8 +479,8 @@ ${allFilesContent}
       } catch (error) {
         logStep("Metadata extraction error", { error: String(error) });
         return new Response(
-          JSON.stringify({ 
-            success: true, 
+          JSON.stringify({
+            success: true,
             mode: "metadata",
             metadata: {
               equityStructure: {
@@ -499,18 +499,18 @@ ${allFilesContent}
     // ============ ANALYZE MODE ============
     if (mode === "analyze") {
       logStep("Analyze mode: consolidating", { sectionsCount: previousSections.length });
-      
+
       const totalIssues = previousSections.reduce((acc: number, s: ChapterContent) => acc + (s.issues?.length || 0), 0);
-      const highRiskCount = previousSections.reduce((acc: number, s: ChapterContent) => 
+      const highRiskCount = previousSections.reduce((acc: number, s: ChapterContent) =>
         acc + (s.issues?.filter((i: { severity: string }) => i.severity === "high").length || 0), 0);
-      const mediumRiskCount = previousSections.reduce((acc: number, s: ChapterContent) => 
+      const mediumRiskCount = previousSections.reduce((acc: number, s: ChapterContent) =>
         acc + (s.issues?.filter((i: { severity: string }) => i.severity === "medium").length || 0), 0);
-      const lowRiskCount = previousSections.reduce((acc: number, s: ChapterContent) => 
+      const lowRiskCount = previousSections.reduce((acc: number, s: ChapterContent) =>
         acc + (s.issues?.filter((i: { severity: string }) => i.severity === "low").length || 0), 0);
 
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           mode: "analyze",
           summary: {
             totalIssues,
@@ -528,7 +528,7 @@ ${allFilesContent}
     // ============ SINGLE MODE - RETRY ONE CHAPTER ============
     if (mode === "single") {
       logStep("Single mode: regenerating one chapter", { chapterId, chapterTitle });
-      
+
       if (!chapterTitle) {
         return new Response(
           JSON.stringify({ error: "Chapter title is required for single mode" }),
@@ -610,25 +610,25 @@ ${allFilesContent}
       try {
         const aiResponse = await callAI(apiKey, singleChapterPrompt, "请生成章节内容，必须包含表格", 90000); // 90秒超时
         logStep("Single chapter AI response", { length: aiResponse.length });
-        
+
         // Parse response - improved to handle nested JSON
         let section: ChapterContent;
         try {
           let jsonStr = aiResponse.trim();
-          
+
           // Remove markdown code blocks if present
           const jsonMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
           if (jsonMatch) jsonStr = jsonMatch[1].trim();
-          
+
           // Extract JSON object
           const objStart = jsonStr.indexOf("{");
           const objEnd = jsonStr.lastIndexOf("}");
           if (objStart !== -1 && objEnd !== -1) {
             jsonStr = jsonStr.substring(objStart, objEnd + 1);
           }
-          
+
           let parsed = JSON.parse(jsonStr);
-          
+
           // Handle nested JSON case: if content itself is JSON string
           if (typeof parsed.content === "string" && parsed.content.startsWith("{")) {
             try {
@@ -638,17 +638,17 @@ ${allFilesContent}
               // Not nested JSON, use as is
             }
           }
-          
+
           // Normalize issues to ensure all fields exist
-          let normalizedIssues = Array.isArray(parsed.issues) 
+          let normalizedIssues = Array.isArray(parsed.issues)
             ? parsed.issues.map((issue: Record<string, unknown>) => ({
-                fact: String(issue.fact || issue.事实 || issue.description || ""),
-                risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
-                suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
-                severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
-              })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
-                issue.fact || issue.risk || issue.suggestion
-              )
+              fact: String(issue.fact || issue.事实 || issue.description || ""),
+              risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+              suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+              severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+            })).filter((issue: { fact: string; risk: string; suggestion: string }) =>
+              issue.fact || issue.risk || issue.suggestion
+            )
             : [];
 
           // Add default issue if none found
@@ -670,14 +670,14 @@ ${allFilesContent}
             issues: normalizedIssues,
             sourceFiles: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles : [],
           };
-          
+
           // Try to extract sourceFiles from content if empty
           if (section.sourceFiles.length === 0) {
             const fileMatches = allFilesContent.match(/=== 文件：(.+?) ===/g);
             if (fileMatches) {
               const availableFiles = fileMatches.map(m => m.replace(/=== 文件：(.+?) ===/, "$1"));
               // Find files mentioned in content
-              section.sourceFiles = availableFiles.filter(f => 
+              section.sourceFiles = availableFiles.filter(f =>
                 section.content.toLowerCase().includes(f.toLowerCase().replace(/\.[^.]+$/, ""))
               ).slice(0, 5);
             }
@@ -708,13 +708,13 @@ ${allFilesContent}
       } catch (aiError) {
         const errorMsg = aiError instanceof Error ? aiError.message : String(aiError);
         logStep("Single chapter AI error", { errorMsg });
-        
+
         // Even on error, return a section with error message so UI can display it
         const errorSection: ChapterContent = {
           id: chapterId,
           title: chapterTitle,
           number: chapterNumber,
-          content: errorMsg.includes("AI_TIMEOUT") 
+          content: errorMsg.includes("AI_TIMEOUT")
             ? `【${chapterTitle}】\n\nAI生成超时，请重试。\n\n数据室共有${processedFiles.length}份文件可供分析。`
             : `【${chapterTitle}】\n\nAI生成失败: ${errorMsg}\n\n请稍后重试。`,
           findings: [],
@@ -726,7 +726,7 @@ ${allFilesContent}
           }],
           sourceFiles: [],
         };
-        
+
         return new Response(
           JSON.stringify({
             success: true, // Return success so frontend can update UI
@@ -741,11 +741,11 @@ ${allFilesContent}
 
     // ============ BATCH MODE - AUTO INTELLIGENT MATCHING ============
     // The key change: AI reads ALL files and intelligently decides which to use for each chapter
-    
+
     const CHAPTERS_PER_BATCH = 4; // Increased for faster generation
     const calculatedTotalBatches = Math.ceil(processedChapters.length / CHAPTERS_PER_BATCH);
     const actualTotalBatches = totalBatches || calculatedTotalBatches;
-    
+
     // Get chapters for this batch
     const startIdx = batchIndex * CHAPTERS_PER_BATCH;
     const endIdx = Math.min(startIdx + CHAPTERS_PER_BATCH, processedChapters.length);
@@ -753,8 +753,8 @@ ${allFilesContent}
 
     if (targetChapters.length === 0) {
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           mode: "batch",
           batchIndex,
           sections: [],
@@ -766,8 +766,8 @@ ${allFilesContent}
       );
     }
 
-    logStep("Batch mode - Auto matching", { 
-      batchIndex, 
+    logStep("Batch mode - Auto matching", {
+      batchIndex,
       totalBatches: actualTotalBatches,
       chaptersInBatch: targetChapters.length,
       totalFiles: processedFiles.length,
@@ -779,7 +779,7 @@ ${allFilesContent}
     const filesWithContent = processedFiles.filter(f => f.ocrText || f.textSummary).length;
     const contentMaxLength = filesWithContent > 50 ? 25000 : filesWithContent > 30 ? 32000 : 40000;
     const allFilesContent = buildFilesContentSummary(contentMaxLength);
-    
+
     logStep("Content optimization", {
       filesWithContent,
       contentMaxLength,
@@ -791,16 +791,16 @@ ${allFilesContent}
       if (!acc[f.category]) acc[f.category] = [];
       acc[f.category].push({ name: f.name, hasContent: !!(f.ocrText || f.textSummary) });
       return acc;
-    }, {} as Record<string, Array<{name: string, hasContent: boolean}>>);
+    }, {} as Record<string, Array<{ name: string, hasContent: boolean }>>);
 
     const fileListSummary = Object.entries(fileListByCategory)
-      .map(([cat, files]) => 
+      .map(([cat, files]) =>
         `【${cat}】（${files.length}份）\n${files.map(f => `  - ${f.name}${f.hasContent ? " ✓" : ""}`).join("\n")}`
       )
       .join("\n\n");
 
     // Build chapter list for this batch with IDs
-    const chapterList = targetChapters.map(c => 
+    const chapterList = targetChapters.map(c =>
       `- ID:${c.id} | ${c.number || ""} ${c.title}${c.description ? `（${c.description}）` : ""}`
     ).join("\n");
 
@@ -839,7 +839,7 @@ ${allFilesContent}
 
 **业务资质类**：
 - 必要资质清单：根据业务列明所需资质（如医疗器械注册证、康复辅具资质等）
-- 资质缺失风险：无资质经营的行政处罚风险、申请周期影��
+- 资质缺失风险：无资质经营的行政处罚风险、申请周期影响
 
 **重大合同类**：
 - 合同履行情况：检查是否存在未履约、违约风险
@@ -866,7 +866,7 @@ ${allFilesContent}
 所有问题的建议必须关联交易文件设计，包括：
 
 1. **交割条件**：将知识产权转移、资质申请、代持清理等设为交割前置条件
-2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发��购权利
+2. **业务里程碑**：设定团队组建、产品研发进度等里程碑，未达标触发收购权利
 3. **交割后义务**：要求关键人员注销体外公司、取得高校兼职审批
 4. **投资方特殊权利**：对大额关联交易的一票否决权、信息知情权、财务监督权
 5. **退出保障**：回购条款、拖带权、反稀释条款
@@ -969,7 +969,7 @@ ${allFilesContent}
 ## 任务
 为上述${targetChapters.length}个章节生成法律尽调报告。智能匹配相关文件，使用专业法律表述，识别风险并评级。直接输出JSON数组：`;
 
-    logStep("Calling AI API for auto-matching...", { 
+    logStep("Calling AI API for auto-matching...", {
       chapters: targetChapters.length,
       totalFilesProvided: processedFiles.length
     });
@@ -981,41 +981,41 @@ ${allFilesContent}
       let sections: ChapterContent[] = [];
       try {
         const rawSections = parseAIResponse(aiContent);
-        
+
         // Build flexible matching: exact title, normalized title, or contains
         const findMatchingChapter = (rawTitle: string) => {
           const normalizedRaw = rawTitle?.trim().replace(/\s+/g, "").toLowerCase() || "";
-          
+
           for (const chapter of targetChapters) {
             const normalizedDb = chapter.title.trim().replace(/\s+/g, "").toLowerCase();
             // Exact match or normalized match or contains
             if (chapter.title.trim() === rawTitle?.trim() ||
-                normalizedDb === normalizedRaw ||
-                normalizedRaw.includes(normalizedDb) ||
-                normalizedDb.includes(normalizedRaw)) {
+              normalizedDb === normalizedRaw ||
+              normalizedRaw.includes(normalizedDb) ||
+              normalizedDb.includes(normalizedRaw)) {
               return chapter;
             }
           }
           return null;
         };
-        
+
         const processedIds = new Set<string>();
-        
+
         for (const rawSection of rawSections) {
           const matchedChapter = findMatchingChapter(rawSection.title || "");
           if (matchedChapter && !processedIds.has(matchedChapter.id)) {
             processedIds.add(matchedChapter.id);
-            
+
             // Normalize issues to ensure all fields exist
-            let normalizedIssues = Array.isArray(rawSection.issues) 
+            let normalizedIssues = Array.isArray(rawSection.issues)
               ? rawSection.issues.map((issue: Record<string, unknown>) => ({
-                  fact: String(issue.fact || issue.事实 || issue.description || ""),
-                  risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
-                  suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
-                  severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
-                })).filter((issue: { fact: string; risk: string; suggestion: string }) => 
-                  issue.fact || issue.risk || issue.suggestion
-                )
+                fact: String(issue.fact || issue.事实 || issue.description || ""),
+                risk: String(issue.risk || issue.风险 || issue.问题 || issue.problem || ""),
+                suggestion: String(issue.suggestion || issue.建议 || issue.advice || issue.recommendation || ""),
+                severity: (issue.severity || issue.级别 || issue.level || "low") as "high" | "medium" | "low",
+              })).filter((issue: { fact: string; risk: string; suggestion: string }) =>
+                issue.fact || issue.risk || issue.suggestion
+              )
               : [];
 
             // Add default issue if none found
@@ -1027,7 +1027,7 @@ ${allFilesContent}
                 severity: "low" as const
               }];
             }
-            
+
             // Use database title and number, keep AI-generated content
             sections.push({
               id: matchedChapter.id,
@@ -1040,7 +1040,7 @@ ${allFilesContent}
             });
           }
         }
-        
+
         // Add fallback for missing chapters
         for (const chapter of targetChapters) {
           if (!processedIds.has(chapter.id)) {
@@ -1082,8 +1082,8 @@ ${allFilesContent}
       logStep("Batch complete", { count: sections.length });
 
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           mode: "batch",
           batchIndex,
           totalBatches: actualTotalBatches,
@@ -1112,9 +1112,9 @@ ${allFilesContent}
           }],
           sourceFiles: [],
         }));
-        
+
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             success: true,
             mode: "batch",
             batchIndex,

@@ -98,35 +98,35 @@ interface ReportMetadata {
 }
 
 // Introduction Template - Fixed content with project variables
-function IntroductionSection({ 
-  project, 
-  fileCount 
-}: { 
-  project: { name: string; target?: string; client?: string }; 
+function IntroductionSection({
+  project,
+  fileCount
+}: {
+  project: { name: string; target?: string; client?: string };
   fileCount: number;
 }) {
   const today = new Date().toISOString().split('T')[0];
-  
+
   return (
     <div className="text-[13px] leading-relaxed text-foreground/90 space-y-4">
       <p className="text-justify">
         受<strong>{project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>{project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。
       </p>
-      
+
       <div>
         <p className="font-medium mb-2">一、报告依据</p>
         <p className="text-justify">
           本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核验。
         </p>
       </div>
-      
+
       <div>
         <p className="font-medium mb-2">二、尽调范围</p>
         <p className="text-justify">
           本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至{today}收到的数据室文件（共{fileCount}份）进行分析。
         </p>
       </div>
-      
+
       <div>
         <p className="font-medium mb-2">三、免责声明</p>
         <ul className="list-decimal pl-5 space-y-1">
@@ -140,9 +140,9 @@ function IntroductionSection({
 }
 
 // Definitions Section - Use database definitions
-function DefinitionsSection({ 
-  definitions 
-}: { 
+function DefinitionsSection({
+  definitions
+}: {
   definitions: Definition[];
 }) {
   // Group by entity type
@@ -152,7 +152,7 @@ function DefinitionsSection({
     acc[type].push(def);
     return acc;
   }, {} as Record<string, Definition[]>);
-  
+
   const typeLabels: Record<string, string> = {
     company: "公司主体",
     individual: "自然人",
@@ -160,9 +160,9 @@ function DefinitionsSection({
     transaction: "交易相关",
     other: "其他",
   };
-  
+
   const orderedTypes = ["company", "individual", "institution", "transaction", "other"];
-  
+
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-foreground/90 mb-4">
@@ -199,9 +199,9 @@ function DefinitionsSection({
 }
 
 // Equity Structure Section - Visual Chart
-function EquityStructureSection({ 
-  metadata 
-}: { 
+function EquityStructureSection({
+  metadata
+}: {
   metadata: ReportMetadata | null;
 }) {
   if (!metadata?.equityStructure?.shareholders?.length) {
@@ -210,13 +210,13 @@ function EquityStructureSection({
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-[13px] text-amber-900">
-            股权结构信息尚未提取，请确保数据室中包含工商登记、�����司章程等相关文件。
+            股权结构信息尚未提取，请确保数据室中包含工商登记、公司章程等相关文件。
           </div>
         </div>
       </div>
     );
   }
-  
+
   // Transform for EquityChart component
   const chartData = {
     companyName: metadata.equityStructure.companyName,
@@ -229,7 +229,7 @@ function EquityStructureSection({
     })),
     notes: metadata.equityStructure.notes || [],
   };
-  
+
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-foreground/90">
@@ -271,19 +271,19 @@ function SectionRenderer({
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
   const hasNoData = section.content.includes("暂无") || section.sourceFiles.length === 0;
-  
+
   // Check if section failed due to timeout
   const isTimeoutError = section.content.includes("超时") || section.content.includes("请重试");
-  
+
   // Check section types for special rendering
   const isIntroSection = section.title.includes("引言") || section.title === "引言";
   const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义") || section.title === "定义";
   const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
-  
+
   // Get styles from template or use defaults
   const styles = templateStyle?.styles;
   const headerColor = templateStyle?.preview.primaryColor || "#000";
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -294,7 +294,7 @@ function SectionRenderer({
       {/* Section Header */}
       <div className="mb-6 pb-4 border-b-2" style={{ borderColor: headerColor }}>
         <div className="flex items-center justify-between">
-          <h2 
+          <h2
             className="font-bold text-foreground"
             style={{
               fontFamily: styles?.h1.font || "inherit",
@@ -336,8 +336,8 @@ function SectionRenderer({
                 onClick={() => onToggleLock(section.id)}
                 className={cn(
                   "h-7 gap-1.5",
-                  isLocked 
-                    ? "bg-amber-500 hover:bg-amber-600 text-white" 
+                  isLocked
+                    ? "bg-amber-500 hover:bg-amber-600 text-white"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 title={isLocked ? "点击解锁，允许重新生成" : "点击锁定，防止重新生成"}
@@ -359,8 +359,8 @@ function SectionRenderer({
                 disabled={isRetrying || isLocked}
                 className={cn(
                   "h-7 gap-1.5",
-                  isLocked 
-                    ? "text-muted-foreground/50 cursor-not-allowed" 
+                  isLocked
+                    ? "text-muted-foreground/50 cursor-not-allowed"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 title={isLocked ? "章节已锁定，无法重新生成" : "重新生成此章节"}
@@ -425,7 +425,7 @@ function SectionRenderer({
             <MarkdownRenderer content={section.content} />
           </div>
         )}
-        
+
         {/* Findings */}
         {hasFindings && !hasNoData && (
           <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded">
@@ -442,7 +442,7 @@ function SectionRenderer({
             </div>
           </div>
         )}
-        
+
         {/* Issues Table */}
         {hasIssues && (
           <div className="mt-6">
@@ -469,7 +469,7 @@ function SectionRenderer({
                       <td className="border border-border p-2">{issue.risk}</td>
                       <td className="border border-border p-2">{issue.suggestion}</td>
                       <td className="border border-border p-2 text-center">
-                        <Badge 
+                        <Badge
                           variant="outline"
                           className={cn(
                             "text-[10px]",
@@ -497,7 +497,7 @@ function SectionRenderer({
 export default function ReportPreview() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
-  
+
   // Data hooks
   const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject(projectId);
   const { data: flatChapters = [], isLoading: isChaptersLoading } = useFlatChapters(projectId);
@@ -505,13 +505,13 @@ export default function ReportPreview() {
   const { data: definitions = [] } = useDefinitions(projectId);
   const { data: latestReport, isLoading: isReportLoading } = useLatestGeneratedReport(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
-  
+
   // State for generated report
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [metadata, setMetadata] = useState<ReportMetadata | null>(null);
   const [hasGenerated, setHasGenerated] = useState(false);
   const [isGenerating] = useState(false);
-  
+
   // Helper to normalize issue fields (handle both English and Chinese field names, and strings)
   const normalizeIssue = (issue: unknown) => {
     if (typeof issue === "string") {
@@ -522,11 +522,11 @@ export default function ReportPreview() {
       } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
         severity = "medium";
       }
-      
+
       let fact = str;
       let risk = "";
       let suggestion = "";
-      
+
       if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
         fact = str;
         if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
@@ -554,7 +554,7 @@ export default function ReportPreview() {
       }
       return { fact, risk, suggestion, severity };
     }
-    
+
     if (typeof issue === "object" && issue !== null) {
       const obj = issue as Record<string, unknown>;
       const fact = String(obj.fact || obj.事实 || obj.description || "");
@@ -568,42 +568,42 @@ export default function ReportPreview() {
         severity,
       };
     }
-    
+
     return { fact: String(issue), risk: "上述情况需要进一步关注", suggestion: "建议进行详细核查", severity: "low" as const };
   };
-  
+
   // Load report data from database
   useEffect(() => {
     if (!latestReport?.reportJson) return;
-    
+
     const reportJson = latestReport.reportJson as { sections?: unknown[]; metadata?: unknown };
     if (!reportJson.sections || !Array.isArray(reportJson.sections)) return;
-    
+
     const rawSections = reportJson.sections as ReportSection[];
-    
+
     const normalizedSections: ReportSection[] = rawSections.map((section) => {
       // Normalize issues - filter out empty ones (handle both object and string formats)
-      const normalizedIssues = Array.isArray(section.issues) 
+      const normalizedIssues = Array.isArray(section.issues)
         ? section.issues.map((issue) => normalizeIssue(issue))
-            .filter((issue) => issue.fact || issue.risk || issue.suggestion)
+          .filter((issue) => issue.fact || issue.risk || issue.suggestion)
         : [];
-      
+
       // Normalize findings - handle both string and object formats
-      const normalizedFindings = Array.isArray(section.findings) 
+      const normalizedFindings = Array.isArray(section.findings)
         ? section.findings.map((finding) => {
-            if (typeof finding === "string") return finding;
-            if (typeof finding === "object" && finding !== null) {
-              const f = finding as Record<string, unknown>;
-              if (f.item) return String(f.item);
-              if (f.detail) return String(f.detail);
-              if (f.text) return String(f.text);
-              if (f.content) return String(f.content);
-              return JSON.stringify(finding);
-            }
-            return String(finding);
-          })
+          if (typeof finding === "string") return finding;
+          if (typeof finding === "object" && finding !== null) {
+            const f = finding as Record<string, unknown>;
+            if (f.item) return String(f.item);
+            if (f.detail) return String(f.detail);
+            if (f.text) return String(f.text);
+            if (f.content) return String(f.content);
+            return JSON.stringify(finding);
+          }
+          return String(finding);
+        })
         : [];
-      
+
       return {
         id: section.id,
         title: section.title || "",
@@ -649,10 +649,10 @@ export default function ReportPreview() {
   const totalIssues = useMemo(() => {
     return sections.reduce((sum, s) => sum + (s.issues?.length || 0), 0);
   }, [sections]);
-  
+
   // Calculate high risk issues
   const highRiskCount = useMemo(() => {
-    return sections.reduce((sum, s) => 
+    return sections.reduce((sum, s) =>
       sum + (s.issues?.filter(i => i.severity === "high").length || 0), 0);
   }, [sections]);
 
@@ -688,19 +688,19 @@ export default function ReportPreview() {
   const [exportFormat, setExportFormat] = useState<"docx" | "pdf" | "html">("docx");
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
-  
+
   // Template style state
   const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
   const currentStyle = useMemo(() => {
     return templateStyles.find(s => s.id === selectedStyleId) || templateStyles[0];
   }, [selectedStyleId]);
-  
+
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
-  
+
   // Locked sections state - persisted to localStorage per project
   const lockedSectionsKey = `locked-sections-${projectId}`;
-  
+
   // Initialize locked sections from localStorage
   const [lockedSectionIds, setLockedSectionIds] = useState<Set<string>>(() => {
     if (!projectId) return new Set();
@@ -717,7 +717,7 @@ export default function ReportPreview() {
     }
     return new Set();
   });
-  
+
   // Persist locked sections to localStorage whenever they change
   useEffect(() => {
     if (!projectId) return;
@@ -728,7 +728,7 @@ export default function ReportPreview() {
       console.error("Failed to save locked sections to localStorage:", e);
     }
   }, [lockedSectionIds, lockedSectionsKey, projectId]);
-  
+
   // Toggle lock state for a section
   const handleToggleLock = (sectionId: string) => {
     setLockedSectionIds(prev => {
@@ -766,9 +766,9 @@ export default function ReportPreview() {
   // Get files referenced by active section (from AI-generated sourceFiles)
   const activeSectionFiles = useMemo(() => {
     if (!activeSection || !activeSection.sourceFiles) return [];
-    return activeSection.sourceFiles.map((name, idx) => ({ 
-      name, 
-      id: `source-${idx}` 
+    return activeSection.sourceFiles.map((name, idx) => ({
+      name,
+      id: `source-${idx}`
     }));
   }, [activeSection]);
 
@@ -782,41 +782,41 @@ export default function ReportPreview() {
   // Retry a single failed section with timeout protection
   const handleRetrySection = async (sectionId: string, sectionTitle: string) => {
     if (!projectId) return;
-    
+
     // Check if section is locked
     if (lockedSectionIds.has(sectionId)) {
       toast.warning(`章节「${sectionTitle}」已锁定，无法重新生成`);
       return;
     }
-    
+
     // Prevent multiple simultaneous retries
     if (retryingSectionId) {
       toast.warning("请等待当前重试完成");
       return;
     }
-    
+
     console.log("[ReportPreview] Starting retry for section:", sectionId, sectionTitle);
     setRetryingSectionId(sectionId);
-    
+
     // Timeout protection - auto-clear after 120s (backend timeout is 90s)
     const timeoutId = setTimeout(() => {
       console.warn("[ReportPreview] Retry timeout, clearing state");
       setRetryingSectionId(null);
       toast.error("重试超时，请稍后再试");
     }, 120000);
-    
+
     try {
-      toast.info(`正在重新���成「${sectionTitle}」...`);
-      
+      toast.info(`正在重新生成「${sectionTitle}」...`);
+
       // Get current session for JWT auth
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         throw new Error("请重新登录后再试");
       }
-      
+
       // Find the chapter info for this section
       const chapter = flatChapters.find(c => c.id === sectionId || c.title === sectionTitle);
-      
+
       const { data, error } = await supabase.functions.invoke("generate-report", {
         body: {
           projectId,
@@ -827,20 +827,20 @@ export default function ReportPreview() {
         },
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      
+
       // Clear timeout on response
       clearTimeout(timeoutId);
-      
+
       console.log("[ReportPreview] Retry response:", { success: data?.success, error, data });
-      
+
       // Handle Supabase invoke error
       if (error) throw error;
-      
+
       // Handle API-level error (success: false)
       if (data?.success === false) {
         throw new Error(data?.error || "生成失败，请稍后重试");
       }
-      
+
       if (data?.section) {
         // Helper to normalize issue fields (handle both objects and strings)
         // Reuse the same logic as the main normalizeIssue function
@@ -853,11 +853,11 @@ export default function ReportPreview() {
             } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
               severity = "medium";
             }
-            
+
             let fact = str;
             let risk = "";
             let suggestion = "";
-            
+
             if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
               fact = str;
               if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
@@ -865,7 +865,7 @@ export default function ReportPreview() {
                 suggestion = "建议补充提供相关资料以便进一步核查";
               } else if (str.includes("无法") || str.includes("不能")) {
                 risk = "存在核查不完整的风险，可能遗漏重要法律问题";
-                suggestion = "建议进一步核实并补充相关证明文����";
+                suggestion = "建议进一步核实并补充相关证明文件";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
                 suggestion = "建议关注并进行进一步核查";
@@ -902,27 +902,27 @@ export default function ReportPreview() {
         };
 
         // Normalize issues from AI response
-        const normalizedIssues = Array.isArray(data.section.issues) 
+        const normalizedIssues = Array.isArray(data.section.issues)
           ? data.section.issues.map((issue: unknown) => normalizeIssueRetry(issue))
-              .filter((issue: { fact: string; risk: string; suggestion: string }) => issue.fact || issue.risk || issue.suggestion)
+            .filter((issue: { fact: string; risk: string; suggestion: string }) => issue.fact || issue.risk || issue.suggestion)
           : [];
-        
+
         console.log("[v0] Retry section issues:", data.section.issues, "normalized:", normalizedIssues);
 
         // Normalize findings - handle both string and object formats
-        const normalizedFindings = Array.isArray(data.section.findings) 
+        const normalizedFindings = Array.isArray(data.section.findings)
           ? data.section.findings.map((finding: unknown) => {
-              if (typeof finding === "string") return finding;
-              if (typeof finding === "object" && finding !== null) {
-                const f = finding as Record<string, unknown>;
-                if (f.item) return String(f.item);
-                if (f.detail) return String(f.detail);
-                if (f.text) return String(f.text);
-                if (f.content) return String(f.content);
-                return JSON.stringify(finding);
-              }
-              return String(finding);
-            })
+            if (typeof finding === "string") return finding;
+            if (typeof finding === "object" && finding !== null) {
+              const f = finding as Record<string, unknown>;
+              if (f.item) return String(f.item);
+              if (f.detail) return String(f.detail);
+              if (f.text) return String(f.text);
+              if (f.content) return String(f.content);
+              return JSON.stringify(finding);
+            }
+            return String(finding);
+          })
           : [];
 
         // Ensure all required fields have defaults
@@ -943,7 +943,7 @@ export default function ReportPreview() {
         });
 
         await saveReportData(updatedSections, metadata);
-        
+
         toast.success(`「${sectionTitle}」生成成功`);
         console.log("[ReportPreview] Retry completed successfully");
       } else {
@@ -965,9 +965,9 @@ export default function ReportPreview() {
   // Export handler
   const handleExport = async () => {
     if (!currentProject || sections.length === 0) return;
-    
+
     setIsExporting(true);
-    
+
     try {
       const projectData = {
         name: currentProject.name,
@@ -1037,7 +1037,7 @@ export default function ReportPreview() {
           <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h2 className="text-lg font-semibold mb-2">请先选择项目</h2>
           <p className="text-muted-foreground text-sm mb-4">
-            返回仪表板��择一个项目以查看报告
+            返回仪表板选择一个项目以查看报告
           </p>
           <Button onClick={() => navigate("/")}>返回项目列表</Button>
         </div>
@@ -1075,8 +1075,8 @@ export default function ReportPreview() {
                   {templateStyles.map(style => (
                     <SelectItem key={style.id} value={style.id} className="text-[12px]">
                       <div className="flex items-center gap-2">
-                        <span 
-                          className="w-3 h-3 rounded-full border" 
+                        <span
+                          className="w-3 h-3 rounded-full border"
                           style={{ backgroundColor: style.preview.primaryColor }}
                         />
                         {style.name}
@@ -1107,8 +1107,8 @@ export default function ReportPreview() {
                 <RefreshCw className="w-4 h-4" />
                 重新生成
               </Button>
-              <Button 
-                onClick={() => setIsExportDialogOpen(true)} 
+              <Button
+                onClick={() => setIsExportDialogOpen(true)}
                 className="gap-2"
                 disabled={sections.length === 0}
               >
@@ -1155,7 +1155,7 @@ export default function ReportPreview() {
               请先在「AI 智能分析」页面生成报告内容，
               生成完成后可在此页面预览和下载。
             </p>
-            
+
             {/* Stats preview */}
             {fileStats && (
               <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
@@ -1188,7 +1188,7 @@ export default function ReportPreview() {
               <ArrowLeft className="w-5 h-5" />
               前往 AI 智能分析
             </Button>
-            
+
             {flatChapters.length === 0 && (
               <p className="text-amber-600 text-[12px] mt-3">
                 请先在「模板指纹」页面设置报告章节结构
@@ -1273,7 +1273,7 @@ export default function ReportPreview() {
             <div>
               <div className="font-medium text-[13px] text-blue-900">AI 智能分析</div>
               <div className="text-[12px] text-blue-700 mt-0.5">
-                AI 已自动阅��所有数据室文件，根据每个章节主题智能匹配相关证据。
+                AI 已自动阅读所有数据室文件，根据每个章节主题智能匹配相关证据。
                 报告内容��格基于文件实际内容生成，未找到相关文件的章节将显示"待补充资料"。
               </div>
             </div>
@@ -1565,9 +1565,9 @@ export default function ReportPreview() {
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
                   <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 </div>
-                <h3 className="font-semibold text-[15px]">��在导出报告</h3>
+                <h3 className="font-semibold text-[15px]">正在导出报告</h3>
                 <p className="text-[13px] text-muted-foreground">
-                  正在生��{exportFormat.toUpperCase()}格式...
+                  正在生成{exportFormat.toUpperCase()}格式...
                 </p>
               </div>
               <Progress value={undefined} className="h-2" />
@@ -1594,39 +1594,39 @@ export default function ReportPreview() {
 // Convert Markdown to HTML (basic support for tables and formatting)
 function markdownToHTML(markdown: string): string {
   let html = markdown;
-  
+
   // Convert Markdown tables to HTML tables
   const tableRegex = /\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g;
   html = html.replace(tableRegex, (_, headerRow, bodyRows) => {
     const headers = headerRow.split("|").map((h: string) => h.trim()).filter(Boolean);
-    const rows = bodyRows.trim().split("\n").map((row: string) => 
+    const rows = bodyRows.trim().split("\n").map((row: string) =>
       row.split("|").map((c: string) => c.trim()).filter(Boolean)
     );
-    
+
     return `<table>
       <thead><tr>${headers.map((h: string) => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((cells: string[]) => `<tr>${cells.map((c: string) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
     </table>`;
   });
-  
+
   // Convert bold **text** to <strong>
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  
+
   // Convert italic *text* to <em>
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  
+
   // Convert headers
   html = html.replace(/^### (.+)$/gm, "<h4>$1</h4>");
   html = html.replace(/^## (.+)$/gm, "<h3>$1</h3>");
   html = html.replace(/^# (.+)$/gm, "<h2>$1</h2>");
-  
+
   // Convert unordered lists
   html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
   html = html.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
-  
+
   // Convert numbered lists
   html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-  
+
   // Convert paragraphs (lines not already converted)
   const lines = html.split("\n");
   html = lines.map(line => {
@@ -1635,7 +1635,7 @@ function markdownToHTML(markdown: string): string {
     if (trimmed.startsWith("<")) return line; // Already HTML
     return `<p>${trimmed}</p>`;
   }).join("\n");
-  
+
   return html;
 }
 
@@ -1658,7 +1658,7 @@ function generateReportHTML(
   const tables = templateStyle?.tables;
   const page = templateStyle?.page;
   const preview = templateStyle?.preview;
-  
+
   // Font family mapping - comprehensive list
   const fontFamilyMap: Record<string, string> = {
     "宋体": '"SimSun", "宋体", "STSong", serif',
@@ -1669,17 +1669,17 @@ function generateReportHTML(
     "Times New Roman": '"Times New Roman", "Georgia", serif',
     "Arial": '"Arial", "Helvetica", sans-serif',
   };
-  
+
   const getFont = (font?: string) => fontFamilyMap[font || "宋体"] || fontFamilyMap["宋体"];
-  
+
   // Use preview colors which are explicitly set for each template
   const primaryColor = preview?.primaryColor || "#000000";
   const accentColor = preview?.accentColor || "#333333";
-  
+
   // Page settings
   const pageSize = page?.size || "A4";
   const margins = page?.margin || { top: 2.5, bottom: 2.5, left: 2.8, right: 2.8, unit: "cm" };
-  
+
   // Style values
   const h1Style = styles?.h1 || { font: "宋体", sizePt: 16, bold: true, color: "#000000", lineSpacing: 1.2 };
   const h2Style = styles?.h2 || { font: "宋体", sizePt: 14, bold: true, color: "#000000", lineSpacing: 1.2 };
@@ -1990,7 +1990,7 @@ function generateReportHTML(
     const isIntroSection = section.title.includes("引言") || section.title === "引言";
     const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义");
     const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
-    
+
     html += `
   <div class="section">
               <h2 class="section-title">${(section.number && section.number.trim() && section.number !== section.title) ? section.number + " " : ""}${section.title}</h2>
@@ -2003,9 +2003,9 @@ function generateReportHTML(
     <div class="content">
       <p>受<strong>${project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>${project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。</p>
       <p><strong>一、报告依据</strong></p>
-      <p>本报���依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未��文件的真实性、完整性进行独立核���。</p>
+      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未��文件的真实性、完整性进行独立核查。</p>
       <p><strong>二、尽调范围</strong></p>
-      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运��等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
+      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>
@@ -2091,7 +2091,7 @@ function generateReportHTML(
     </div>
 `;
     }
-    
+
     // Add findings if present
     if (section.findings && section.findings.length > 0) {
       html += `
