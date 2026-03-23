@@ -24,6 +24,11 @@ export interface UploadedFile {
   extractedEntities: string[] | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
+  // AI 分类字段
+  chapterId: string | null;
+  aiSummary: string | null;
+  aiClassifiedAt: string | null;
+  classificationConfidence: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +63,10 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   extractedEntities: row.extracted_entities as string[] | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
+  chapterId: row.chapter_id as string | null,
+  aiSummary: row.ai_summary as string | null,
+  aiClassifiedAt: row.ai_classified_at as string | null,
+  classificationConfidence: row.classification_confidence as number | null,
   createdAt: row.created_at as string,
   updatedAt: row.updated_at as string,
 });
@@ -390,6 +399,54 @@ export function useOcrExtract() {
     onSuccess: () => {
       // Invalidate files query to refresh OCR status - use refetchType to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
+    },
+  });
+}
+
+// Hook to call AI classify-files Edge Function
+export function useClassifyFiles() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      files,
+      chapters,
+    }: {
+      projectId: string;
+      files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
+      chapters: Array<{ id: string; number: string; title: string; level: number }>;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("classify-files", {
+        body: { projectId, files, chapters },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: boolean; classified: number; results: unknown[] };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["files", variables.projectId] });
+    },
+  });
+}
+
+// Hook to manually update a single file's chapter assignment
+export function useUpdateFileChapter() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ fileId, chapterId, projectId }: { fileId: string; chapterId: string | null; projectId: string }) => {
+      const { data, error } = await supabase
+        .from("files")
+        .update({ chapter_id: chapterId })
+        .eq("id", fileId)
+        .select()
+        .single();
+      if (error) throw error;
+      return { file: transformFile(data), projectId };
+    },
+    onSuccess: ({ projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ["files", projectId] });
     },
   });
 }
