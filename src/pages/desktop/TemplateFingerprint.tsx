@@ -669,7 +669,7 @@ export default function TemplateFingerprint() {
     try {
       // Save all edited styles to localStorage
       localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
-      toast.success("样式���保存", {
+      toast.success("样式�����保存", {
         description: `「${currentStyle.name}」的样式配置已保存到本地`,
       });
       setIsEditingStyle(false);
@@ -795,8 +795,15 @@ export default function TemplateFingerprint() {
         preview: extractedText.substring(0, 200),
       });
 
-      // Always pass fileData as server-side fallback, especially when browser extraction is insufficient
-      const fileData = await fileToBase64(file);
+      // 如果浏览器提取文本不足100字，传 fileData 让服务端重新提取
+      const needServerExtract = extractedText.length < 100;
+      const fileData = needServerExtract ? await fileToBase64(file) : undefined;
+
+      console.log("[TemplateFingerprint] Sending to AI", {
+        contentLen: extractedText.length,
+        needServerExtract,
+        hasFileData: !!fileData,
+      });
 
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
