@@ -375,7 +375,7 @@ export default function FileUpload() {
       const unmappedFiles = uploadedFiles.filter(f => f.id && !mappedFileIds.has(f.id));
 
       if (unmappedFiles.length === 0) {
-        toast.info("所有文件已有章节����属");
+        toast.info("所有文件已有章节������属");
         setIsAutoMatching(false);
         return;
       }
@@ -1917,7 +1917,7 @@ export default function FileUpload() {
                                                 return (
                                                   <CommandItem
                                                     key={chapter.id}
-                                                    value={`${chapter.number} ${chapter.title}`}
+                                                    value={chapter.number && chapter.number !== chapter.title ? `${chapter.number} ${chapter.title}` : chapter.title}
                                                     onSelect={() => {
                                                       if (isMapped) {
                                                         const mapping = mappings.find(m => m.fileId === file.id && m.chapterId === chapter.id);

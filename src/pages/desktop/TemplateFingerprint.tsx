@@ -1661,7 +1661,7 @@ export default function TemplateFingerprint() {
                                 marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
                               }}
                             >
-                              {chapter.number ? `${chapter.number}、` : ""}{chapter.title}
+                              {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
                             </h2>
 
                             {/* Sub-chapters H2 */}
@@ -1677,7 +1677,7 @@ export default function TemplateFingerprint() {
                                     marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
                                   }}
                                 >
-                                  {child.number ? `${child.number} ` : ""}{child.title}
+                                  {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
                                 </h3>
                                 {child.description && (
                                   <p
