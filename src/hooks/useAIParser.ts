@@ -236,11 +236,12 @@ export function useParseTemplate() {
         }
 
         // Call OOOK AI Gateway directly from browser (works in both dev and prod)
-        const oookToken = import.meta.env.VITE_OOOK_AI_GATEWAY_TOKEN;
-        const oookUrl = (import.meta.env.VITE_OOOK_AI_GATEWAY_URL || "https://gateway.oook.cn/").replace(/\/$/, "");
+        // Support both VITE_ prefixed (browser) and non-prefixed (server) env var names
+        const oookToken = import.meta.env.VITE_OOOK_AI_GATEWAY_TOKEN || import.meta.env.OOOK_AI_GATEWAY_TOKEN;
+        const oookUrl = (import.meta.env.VITE_OOOK_AI_GATEWAY_URL || import.meta.env.OOOK_AI_GATEWAY_URL || "https://gateway.oook.cn/").replace(/\/$/, "");
 
         if (!oookToken) {
-          throw new Error("VITE_OOOK_AI_GATEWAY_TOKEN 未配置，请在项目环境变量中添加");
+          throw new Error("AI Token 未配置，请在项目环境变量中添加 VITE_OOOK_AI_GATEWAY_TOKEN");
         }
 
         // Build prompts based on whether we have real file content
@@ -328,7 +329,7 @@ ${(requestBody.content as string).length > 15000 ? `\n[内容已截断，共${(r
 
         if (!gatewayResponse.ok) {
           const errText = await gatewayResponse.text();
-          if (gatewayResponse.status === 401) throw new Error("AI服务认证失败，请检查 VITE_OOOK_AI_GATEWAY_TOKEN 配置");
+          if (gatewayResponse.status === 401) throw new Error("AI服务认证失败，请检查 OOOK_AI_GATEWAY_TOKEN 是否正确");
           if (gatewayResponse.status === 402) throw new Error("AI服务额度不足，请联系管理员充值");
           if (gatewayResponse.status === 429) throw new Error("AI请求过于频繁，请稍后重试");
           throw new Error(`AI服务错误(${gatewayResponse.status}): ${errText.substring(0, 200)}`);
