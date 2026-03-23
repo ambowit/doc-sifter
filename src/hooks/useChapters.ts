@@ -69,12 +69,12 @@ function buildChapterTree(chapters: Chapter[]): Chapter[] {
         roots.push(node);
       }
     });
-    // Sort children by their original array position (stable)
-    const sortByPos = (nodes: typeof roots) => {
-      nodes.sort((a, b) => a._pos - b._pos);
-      nodes.forEach(n => sortByPos(n.children as typeof roots));
+    // Sort by orderIndex (globally unique, set during flattenChapters)
+    const sortByOrder = (nodes: typeof roots) => {
+      nodes.sort((a, b) => a.orderIndex - b.orderIndex);
+      nodes.forEach(n => sortByOrder(n.children as typeof roots));
     };
-    sortByPos(roots);
+    sortByOrder(roots);
     return roots as unknown as Chapter[];
   }
 
