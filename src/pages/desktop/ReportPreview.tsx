@@ -210,7 +210,7 @@ function EquityStructureSection({
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-[13px] text-amber-900">
-            股权结构信息尚未提取，请确保数据室中包含工商登记、���司章程等相关文件。
+            股权结构信息尚未提取，请确保数据室中包含工商登记、�����司章程等相关文件。
           </div>
         </div>
       </div>
@@ -806,7 +806,7 @@ export default function ReportPreview() {
     }, 120000);
     
     try {
-      toast.info(`正在重新��成「${sectionTitle}」...`);
+      toast.info(`正在重新���成「${sectionTitle}」...`);
       
       // Get current session for JWT auth
       const { data: { session } } = await supabase.auth.getSession();
@@ -1567,7 +1567,7 @@ export default function ReportPreview() {
                 </div>
                 <h3 className="font-semibold text-[15px]">��在导出报告</h3>
                 <p className="text-[13px] text-muted-foreground">
-                  正在生成{exportFormat.toUpperCase()}格式...
+                  正在生��{exportFormat.toUpperCase()}格式...
                 </p>
               </div>
               <Progress value={undefined} className="h-2" />
@@ -1977,7 +1977,7 @@ function generateReportHTML(
     <h2>目 录</h2>
     ${sections.map((section, idx) => `
       <div class="toc-item">
-        <span class="toc-title">${section.number && section.number !== section.title ? section.number + " " : ""}${section.title}</span>
+              <span class="toc-title">${(section.number && section.number.trim() && section.number !== section.title) ? section.number + " " : ""}${section.title}</span>
         <span class="toc-page">${idx + 1}</span>
       </div>
     `).join("")}
@@ -1993,7 +1993,7 @@ function generateReportHTML(
     
     html += `
   <div class="section">
-    <h2 class="section-title">${section.number && section.number !== section.title ? section.number + " " : ""}${section.title}</h2>
+              <h2 class="section-title">${(section.number && section.number.trim() && section.number !== section.title) ? section.number + " " : ""}${section.title}</h2>
 `;
 
     if (isIntroSection) {
@@ -2003,7 +2003,7 @@ function generateReportHTML(
     <div class="content">
       <p>受<strong>${project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>${project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。</p>
       <p><strong>一、报告依据</strong></p>
-      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未��文件的真实性、完整性进行独立核���。</p>
+      <p>本报���依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未��文件的真实性、完整性进行独立核���。</p>
       <p><strong>二、尽调范围</strong></p>
       <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运��等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>

@@ -1764,20 +1764,25 @@ export default function TemplateFingerprint() {
                     <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
                       <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
                       <div className="space-y-2 text-[14px]">
-                        {chapters.map((chapter, idx) => (
+                        {chapters.map((chapter) => (
                           <div key={chapter.id}>
                             <div className="flex items-baseline gap-2">
-                              <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
+                              {/* 有编号时单独展示编号列，无编号则列保持空白 */}
+                              <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                {chapter.number && chapter.number !== chapter.title ? chapter.number : ""}
+                              </span>
                               <span className="flex-1 font-semibold">{chapter.title}</span>
-                              <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                              <span className="text-muted-foreground">1</span>
+                              <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                              <span className="text-muted-foreground flex-shrink-0">1</span>
                             </div>
-                            {chapter.children?.map((child, childIdx) => (
-                              <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
-                                <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
+                            {chapter.children?.map((child) => (
+                              <div key={child.id} className="flex items-baseline gap-2 ml-10 mt-1">
+                                <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                  {child.number && child.number !== child.title ? child.number : ""}
+                                </span>
                                 <span className="flex-1">{child.title}</span>
-                                <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                                <span className="text-muted-foreground">1</span>
+                                <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                                <span className="text-muted-foreground flex-shrink-0">1</span>
                               </div>
                             ))}
                           </div>

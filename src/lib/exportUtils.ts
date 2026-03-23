@@ -111,6 +111,12 @@ function getSeverityColor(severity: string): string {
 }
 
 // Convert Markdown to HTML for PDF export
+// 生成章节标题显示文本，避免无编号章节（number="" 或 number===title）重复显示
+function sectionLabel(number: string | null | undefined, title: string): string {
+  const n = (number || "").trim();
+  return n && n !== title ? `${n} ${title}` : title;
+}
+
 function markdownToHTMLForPDF(markdown: string): string {
   let html = markdown;
   
@@ -261,7 +267,7 @@ function generatePDFHTML(
     sectionsHTML += `
       <div style="page-break-inside: avoid; margin-bottom: 32px;">
         <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
-          ${section.number} ${section.title}
+          ${sectionLabel(section.number, section.title)}
         </h2>
         <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
           ${markdownToHTMLForPDF(section.content)}
@@ -475,7 +481,7 @@ function generatePDFHTML(
             .map(
               (section, idx) => `
             <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #d1d5db;">
-              <span>${section.number} ${section.title}</span>
+              <span>${sectionLabel(section.number, section.title)}</span>
             </div>
           `
             )
@@ -716,7 +722,7 @@ export async function exportToWord(
       new Paragraph({
         children: [
           new TextRun({
-            text: `${section.number} ${section.title}`,
+            text: sectionLabel(section.number, section.title),
             size: bodySize,
             font: fontFamily,
           }),
@@ -874,7 +880,7 @@ export async function exportToWord(
       new Paragraph({
         children: [
           new TextRun({
-            text: `${section.number} ${section.title}`,
+            text: sectionLabel(section.number, section.title),
             bold: true,
             size: h1Size,
             color: primaryColor,
