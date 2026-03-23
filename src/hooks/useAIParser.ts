@@ -187,58 +187,143 @@ export function useParseTemplate() {
           });
         }
 
-        // Determine API endpoint based on environment
-        // In production (Vercel), use /api/parse
-        // In development, use Supabase Edge Function
-        const isProduction = import.meta.env.PROD;
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        
-        let apiUrl: string;
-        let headers: Record<string, string>;
-        
-        if (isProduction) {
-          // Production: use Vercel API route
-          apiUrl = "/api/parse";
-          headers = { "Content-Type": "application/json" };
-          console.log("[ParseTemplate] Using Vercel API route (production)");
-        } else {
-          // Development: use Supabase Edge Function
-          apiUrl = `${supabaseUrl}/functions/v1/parse`;
-          headers = {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${anonKey}`,
-            "apikey": anonKey,
-          };
-          console.log("[ParseTemplate] Using Supabase Edge Function (development)");
+        // Call OOOK AI Gateway directly from browser (works in both dev and prod)
+        const oookToken = import.meta.env.VITE_OOOK_AI_GATEWAY_TOKEN;
+        const oookUrl = (import.meta.env.VITE_OOOK_AI_GATEWAY_URL || "https://gateway.oook.cn/").replace(/\/$/, "");
+
+        if (!oookToken) {
+          throw new Error("VITE_OOOK_AI_GATEWAY_TOKEN 未配置，请在项目环境变量中添加");
         }
 
-        const response = await fetch(apiUrl, {
+        // Build prompts based on whether we have real file content
+        const hasContent = requestBody.content && typeof requestBody.content === "string" && (requestBody.content as string).trim().length > 50;
+
+        let systemPrompt: string;
+        let userPrompt: string;
+
+        if (hasContent) {
+          systemPrompt = `你是一个专业的法律尽调报告分析专家。你的任务是从用户上传的尽调报告中完整提取目录结构。
+
+## 识别所有章节层级
+
+### 一级章节标记模式：
+- 中文数字编号："一、"、"二、"、"三、"..."十、" 等
+- 阿拉伯数字："1."、"2."、"3." 或 "1、"、"2、"
+- 第X章格式："第一章"、"第二章"
+- 无编号的独立标题：如 "引言"、"定义"、"报告正文"、"股权结构图" 等
+
+### 二级章节标记模式：
+- "(一)"、"(二)"、"(三)" 等括号中文编号
+- "1.1"、"1.2"、"2.1" 等层级编号
+- "(1)"、"(2)"、"(3)" 等括号阿拉伯数字
+
+## 输出要求
+- 必须完整提取所有一级章节，不要遗漏任何大章
+- 保持原文档的编号和标题
+- 如果章节有页码，忽略页码只提取标题
+
+必须仅返回合法的JSON，不要加任何说明文字：
+{"chapters":[{"number":"一","title":"章节标题","level":1,"description":"简短描述","children":[{"number":"(一)","title":"子章节","level":2,"description":"简短描述"}]}]}`;
+          userPrompt = `请完整提取以下法律尽调报告的目录结构${requestBody.filename ? `（文件名：${requestBody.filename}）` : ""}：
+
+---
+${(requestBody.content as string).substring(0, 15000)}
+---
+${(requestBody.content as string).length > 15000 ? `\n[内容已截断，共${(requestBody.content as string).length}字符]` : ""}
+
+要求：
+1. 找出文档中所有的一级章节
+2. 每个一级章节下找出其子章节
+3. 保持原文档的编号格式
+4. description字段保持10字以内
+
+仅返回JSON，不要其他内容。`;
+        } else {
+          systemPrompt = `你是一个专业的法律尽调报告专家，具有丰富的并购、投融资项目经验。
+
+你需要生成一份专业、完整的法律尽职调查报告章节结构。
+
+必须仅返回合法的JSON，不要加任何说明文字：
+{"chapters":[{"number":"1","title":"章节标题","level":1,"description":"核查要点说明","children":[{"number":"1.1","title":"子章节","level":2,"description":"核查要点"}]}]}
+
+要求：
+- 生成8-10个一级章节
+- 每个一级章节包含2-4个子章节
+- description说明该章节需要核查的具体要点
+- 结构应专业、完整、符合行业标准
+- 仅返回JSON，不要其他内容`;
+          const contextInfo = [];
+          if (requestBody.filename) contextInfo.push(`文件名: ${requestBody.filename}`);
+          userPrompt = `请生成一份专业的法律尽职调查报告章节结构。${contextInfo.length > 0 ? `\n\n项目背景：\n${contextInfo.join("\n")}` : ""}\n\n仅返回JSON，不要其他内容。`;
+        }
+
+        const gatewayResponse = await fetch(`${oookUrl}/api/ai/execute`, {
           method: "POST",
-          headers,
-          body: JSON.stringify(requestBody),
+          headers: {
+            "Authorization": `Bearer ${oookToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            capability: "ai.general_user_defined",
+            input: {
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt },
+              ],
+            },
+            constraints: { maxCost: 0.1 },
+          }),
           signal: controller.signal,
         });
 
         clearTimeout(timeoutId);
-        console.log("[ParseTemplate] Response status:", response.status);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("[ParseTemplate] Response error:", errorText);
-          throw new Error(`AI解析失败: ${response.status} ${errorText}`);
+        if (!gatewayResponse.ok) {
+          const errText = await gatewayResponse.text();
+          if (gatewayResponse.status === 401) throw new Error("AI服务认证失败，请检查 VITE_OOOK_AI_GATEWAY_TOKEN 配置");
+          if (gatewayResponse.status === 402) throw new Error("AI服务额度不足，请联系管理员充值");
+          if (gatewayResponse.status === 429) throw new Error("AI请求过于频繁，请稍后重试");
+          throw new Error(`AI服务错误(${gatewayResponse.status}): ${errText.substring(0, 200)}`);
         }
 
-        const data = await response.json();
-        console.log("[ParseTemplate] Response data received");
+        const gatewayData = await gatewayResponse.json();
+        const rawContent: string = gatewayData.data?.content || gatewayData.content || "";
 
-        // Check if data contains an error from the API
-        if (data && typeof data === "object" && "error" in data) {
-          console.error("[ParseTemplate] API returned error:", data.error);
-          throw new Error(`AI解析失败: ${data.error}`);
+        if (!rawContent) {
+          throw new Error("AI返回内容为空，请重试");
         }
 
-        const result = data as TemplateParseResult;
+        // Extract JSON from AI response
+        let jsonStr = rawContent.trim();
+        const jsonCodeMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonCodeMatch?.[1]) {
+          jsonStr = jsonCodeMatch[1].trim();
+        } else {
+          const start = jsonStr.indexOf("{");
+          const end = jsonStr.lastIndexOf("}");
+          if (start !== -1 && end !== -1) jsonStr = jsonStr.substring(start, end + 1);
+        }
+
+        let parsed: TemplateParseResult;
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch {
+          // Attempt repair
+          jsonStr = jsonStr.replace(/,\s*([\]\}])/g, "$1");
+          const ob = (jsonStr.match(/\{/g) || []).length;
+          const cb = (jsonStr.match(/\}/g) || []).length;
+          const oq = (jsonStr.match(/\[/g) || []).length;
+          const cq = (jsonStr.match(/\]/g) || []).length;
+          const lastClose = jsonStr.lastIndexOf("}");
+          if (lastClose > 0) {
+            jsonStr = jsonStr.substring(0, lastClose + 1);
+            for (let i = 0; i < oq - cq; i++) jsonStr += "]";
+            for (let i = 0; i < ob - cb; i++) jsonStr += "}";
+          }
+          parsed = JSON.parse(jsonStr);
+        }
+
+        const result = parsed as TemplateParseResult;
         console.log("[ParseTemplate] AI result:", {
           chaptersCount: result.chapters?.length
         });
