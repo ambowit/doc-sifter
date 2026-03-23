@@ -3,6 +3,54 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useBulkCreateChapters, type CreateChapterData } from "@/hooks/useChapters";
 import { useUpdateFileStatus, type FileStatus } from "@/hooks/useFiles";
+import JSZip from "jszip";
+
+// Extract text from DOCX file (ArrayBuffer) using JSZip
+async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const docXml = zip.file("word/document.xml");
+  if (!docXml) return "";
+  const xmlContent = await docXml.async("text");
+  return xmlContent
+    .replace(/<w:p[ >]/g, "\n<w:p ")
+    .replace(/<w:tab\/>/g, "\t")
+    .replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\s+|\s+$/gm, "")
+    .trim();
+}
+
+// Extract text from file object (DOCX or PDF) before sending to AI
+export async function extractFileText(file: File): Promise<string> {
+  const isDocx =
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.name.endsWith(".docx");
+
+  if (isDocx) {
+    const buffer = await file.arrayBuffer();
+    const text = await extractDocxText(buffer);
+    console.log("[extractFileText] DOCX extracted", { length: text.length, preview: text.substring(0, 200) });
+    return text;
+  }
+
+  // PDF: use basic text extraction (readable characters)
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  const raw = decoder.decode(bytes);
+  const chinese = raw.match(/[\u4E00-\u9FFF\u3000-\u303F]{2,}/g) || [];
+  const ascii = raw.match(/[A-Za-z0-9\u0020-\u007E]{4,}/g) || [];
+  const combined = [...chinese, ...ascii].join("\n").substring(0, 20000);
+  console.log("[extractFileText] PDF extracted", { length: combined.length, chineseCount: chinese.length });
+  return combined;
+}
 
 export interface ChapterStructure {
   number: string;

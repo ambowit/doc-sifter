@@ -56,7 +56,7 @@ import {
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
-import { useParseTemplate, fileToBase64, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { useParseTemplate, fileToBase64, extractFileText, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
 import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
@@ -669,7 +669,7 @@ export default function TemplateFingerprint() {
     try {
       // Save all edited styles to localStorage
       localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
-      toast.success("样式已保存", {
+      toast.success("样式���保存", {
         description: `「${currentStyle.name}」的样式配置已保存到本地`,
       });
       setIsEditingStyle(false);
@@ -785,22 +785,24 @@ export default function TemplateFingerprint() {
     }
 
     try {
-      toast.info(`正在解析 ${file.name}，AI 正在提取报告结构...`, { duration: 5000 });
+      toast.info(`正在读取 ${file.name}，AI 正在提取报告结构...`, { duration: 10000 });
 
-      // Convert file to base64 for server-side parsing
-      const fileData = await fileToBase64(file);
+      // Extract text from file in browser first
+      const extractedText = await extractFileText(file);
 
-      console.log("[TemplateFingerprint] File converted to base64:", {
-        fileDataLength: fileData.length,
-        mimeType: file.type,
+      console.log("[TemplateFingerprint] Text extracted from file:", {
+        length: extractedText.length,
+        preview: extractedText.substring(0, 200),
       });
+
+      if (!extractedText || extractedText.trim().length < 20) {
+        toast.warning("文件内容读取有限，将基于文件名生成通用模板");
+      }
 
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: "", // Empty content, will use fileData for extraction
+        content: extractedText, // Pass extracted text directly to AI
         filename: file.name,
-        fileData,
-        mimeType: file.type,
       });
 
       toast.success("模板解析成功", {
@@ -1250,7 +1252,7 @@ export default function TemplateFingerprint() {
                               </Select>
                             </div>
                             <div>
-                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Label className="text-[11px]">字�� (pt)</Label>
                               <Input 
                                 type="number"
                                 value={currentStyle.styles.body.sizePt}
