@@ -226,6 +226,8 @@ export function useParseTemplate() {
           type: "template",
           content,
           filename,
+          // Always pass fileData so Edge Function can do server-side extraction as fallback
+          ...(fileData ? { fileData, mimeType } : {}),
         };
 
         // Call Supabase Edge Function which reads secrets via Deno.env.get()

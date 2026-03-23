@@ -795,14 +795,15 @@ export default function TemplateFingerprint() {
         preview: extractedText.substring(0, 200),
       });
 
-      if (!extractedText || extractedText.trim().length < 20) {
-        toast.warning("文件内容读取有限，将基于文件名生成通用模板");
-      }
+      // Always pass fileData as server-side fallback, especially when browser extraction is insufficient
+      const fileData = await fileToBase64(file);
 
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: extractedText, // Pass extracted text directly to AI
+        content: extractedText,
         filename: file.name,
+        fileData,
+        mimeType: file.type,
       });
 
       toast.success("模板解析成功", {
