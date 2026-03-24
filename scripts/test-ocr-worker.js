@@ -2,6 +2,7 @@
  * 测试 OCR Worker /extract-text 接口
  * 用法：node scripts/test-ocr-worker.js
  */
+import { createHmac, randomUUID } from "node:crypto";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,18 +18,9 @@ if (!HMAC_SECRET) {
   process.exit(1);
 }
 
-// HMAC-SHA256 签名
-async function hmacSign(secret, canonical) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(canonical));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+// HMAC-SHA256 签名（使用 node:crypto，兼容所有 Node 版本）
+function hmacSign(secret, canonical) {
+  return createHmac("sha256", secret).update(canonical).digest("hex");
 }
 
 // 生成 Supabase Storage 签名 URL（用 REST API，不引入 npm 包）
@@ -68,9 +60,9 @@ async function testFile(label, storagePath, bucket = "dd-files") {
   // 2. 调用 Worker /extract-text
   const body = JSON.stringify({ file_url: signedUrl, max_chars: 3000 });
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID();
+  const nonce = randomUUID();
   const canonical = `${timestamp}.${nonce}.${body}`;
-  const signature = await hmacSign(HMAC_SECRET, canonical);
+  const signature = hmacSign(HMAC_SECRET, canonical);
 
   const start = Date.now();
   let res, data;
