@@ -23,6 +23,7 @@ import {
   detectArchiveType,
 } from "@/lib/archiveExtractor";
 import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
+import { useBatchEntityTask, type EntityTaskFile } from "@/hooks/useEntityTask";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,8 @@ import {
   BookOpen,
   Check,
   Unlink,
+  Fingerprint,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -146,6 +149,7 @@ export default function FileUpload() {
   const batchOcrMutation = useBatchOcrExtract();
   const classifyMutation = useClassifyFiles();
   const updateFileChapterMutation = useUpdateFileChapter();
+  const batchEntityTaskMutation = useBatchEntityTask();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -837,6 +841,42 @@ export default function FileUpload() {
   );
   const failedOcrFiles = unextractedOcrFiles.filter(f => f.id && ocrFailedIds.has(f.id));
 
+  // 已提取文字、尚未完成实体识别的文件（不含 pending/processing 中的）
+  const pendingEntityFiles = uploadedFiles.filter(
+    f => f.id && f.ocrProcessed && !f.entityTaskStatus && canOcrFile(f.mimeType, f.name)
+  );
+
+  // 批量发起实体识别
+  const handleBatchEntityTask = async () => {
+    if (pendingEntityFiles.length === 0) return;
+
+    const filesToProcess: EntityTaskFile[] = [];
+    for (const file of pendingEntityFiles) {
+      if (!file.id) continue;
+      try {
+        let downloadUrl = file.downloadUrl;
+        if (!downloadUrl) {
+          downloadUrl = await getFileDownloadUrl(file.storagePath);
+        }
+        if (downloadUrl) {
+          filesToProcess.push({ fileId: file.id, fileUrl: downloadUrl, fileName: file.name });
+        }
+      } catch (e) {
+        console.error("[FileUpload] Entity task URL error:", file.name, e);
+      }
+    }
+
+    if (filesToProcess.length === 0) {
+      toast.error("无法获取文件下载链接");
+      return;
+    }
+
+    toast.info(`正在提交 ${filesToProcess.length} 个实体识别任务...`);
+    const result = await batchEntityTaskMutation.mutateAsync(filesToProcess);
+    if (result.success > 0) toast.success(`${result.success} 个文件已提交实体识别`);
+    if (result.failed > 0) toast.error(`${result.failed} 个文件提交失败`);
+  };
+
   // Handle extracting all unextracted files
   const handleExtractAllUnextracted = async () => {
     if (unextractedOcrFiles.length === 0) return;
@@ -967,7 +1007,7 @@ export default function FileUpload() {
           }
         } else {
           toast.error(`${file.name}: 不支持的压缩格式`, {
-            description: reason || "建议将压缩包转换为 ZIP 格式后重新上传，或者在本地解压后直接上传文件",
+            description: reason || "建议将压缩包转换为 ZIP 格式后重新上传，或者��本地解压后直接上传文件",
             duration: 8000,
           });
         }
@@ -1466,6 +1506,41 @@ export default function FileUpload() {
                     </motion.div>
                   )}
 
+                  {/* Entity Recognition Banner */}
+                  {pendingEntityFiles.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <Fingerprint className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-blue-900">
+                          {pendingEntityFiles.length} 个文件可进行实体识别
+                        </div>
+                        <div className="text-[11px] text-blue-700 mt-0.5">
+                          识别后可生成脱敏文件并提取关键实体
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-300 text-blue-800 hover:bg-blue-100 gap-1.5 flex-shrink-0"
+                        onClick={handleBatchEntityTask}
+                        disabled={batchEntityTaskMutation.isPending}
+                      >
+                        {batchEntityTaskMutation.isPending ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Fingerprint className="w-3.5 h-3.5" />
+                        )}
+                        {batchEntityTaskMutation.isPending ? "提交中..." : "全部识别"}
+                      </Button>
+                    </motion.div>
+                  )}
+
                   {/* Header with actions */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -1863,6 +1938,55 @@ export default function FileUpload() {
                                     >
                                       <X className="w-3.5 h-3.5 text-destructive" />
                                     </button>
+                                  )}
+
+                                  {/* Entity Task Status / Trigger */}
+                                  {file.id && file.ocrProcessed && canOcrFile(file.mimeType, file.name) && (
+                                    file.entityTaskStatus === "completed" ? (
+                                      <button
+                                        className="p-1.5 rounded cursor-default"
+                                        title={`实体识别完成${file.entities ? `，${(file.entities as unknown[]).length} 个实体` : ""}`}
+                                      >
+                                        <ShieldCheck className="w-3.5 h-3.5 text-green-600" />
+                                      </button>
+                                    ) : file.entityTaskStatus === "pending" || file.entityTaskStatus === "processing" ? (
+                                      <button className="p-1.5 rounded cursor-default" title="实体识别进行中">
+                                        <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                                      </button>
+                                    ) : file.entityTaskStatus === "failed" ? (
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            let url = file.downloadUrl;
+                                            if (!url) url = await getFileDownloadUrl(file.storagePath);
+                                            if (!url) { toast.error("获取链接失败"); return; }
+                                            await batchEntityTaskMutation.mutateAsync([{ fileId: file.id!, fileUrl: url, fileName: file.name }]);
+                                            toast.success("已重新提交实体识别");
+                                          } catch { toast.error("提交失败"); }
+                                        }}
+                                        className="p-1.5 hover:bg-red-50 rounded"
+                                        title="实体识别失败，点击重试"
+                                      >
+                                        <Fingerprint className="w-3.5 h-3.5 text-red-500" />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            let url = file.downloadUrl;
+                                            if (!url) url = await getFileDownloadUrl(file.storagePath);
+                                            if (!url) { toast.error("获取链接失败"); return; }
+                                            await batchEntityTaskMutation.mutateAsync([{ fileId: file.id!, fileUrl: url, fileName: file.name }]);
+                                            toast.success("已提交实体识别任务");
+                                          } catch { toast.error("提交失败"); }
+                                        }}
+                                        className="p-1.5 hover:bg-blue-50 rounded"
+                                        title="提交实体识别"
+                                        disabled={batchEntityTaskMutation.isPending}
+                                      >
+                                        <Fingerprint className="w-3.5 h-3.5 text-muted-foreground hover:text-blue-600" />
+                                      </button>
+                                    )
                                   )}
 
                                   {/* Delete file */}

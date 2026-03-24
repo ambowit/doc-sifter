@@ -23,6 +23,11 @@ export interface UploadedFile {
   textSummary: string | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
+  // 实体识别字段
+  entities: unknown[] | null;
+  redactedFileUrl: string | null;
+  entityTaskId: string | null;
+  entityTaskStatus: string | null;
   // AI 分类字段
   chapterId: string | null;
   aiSummary: string | null;
@@ -61,6 +66,10 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   textSummary: row.text_summary as string | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
+  entities: row.entities as unknown[] | null,
+  redactedFileUrl: row.redacted_file_url as string | null,
+  entityTaskId: row.entity_task_id as string | null,
+  entityTaskStatus: row.entity_task_status as string | null,
   chapterId: row.chapter_id as string | null,
   aiSummary: row.ai_summary as string | null,
   aiClassifiedAt: row.ai_classified_at as string | null,
