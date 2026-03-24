@@ -70,8 +70,8 @@ export default function AppLayout() {
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
           <BrandLogoSvg className="h-10 w-auto" />
           <div>
-            <span className="font-semibold text-sm text-foreground">DD Organizer</span>
-            <span className="block text-[10px] text-muted-foreground tracking-wide">
+            <span className="font-semibold text-base text-foreground">DD Organizer</span>
+            <span className="block text-xs text-muted-foreground tracking-wide">
               尽职调查文档整理
             </span>
           </div>

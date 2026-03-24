@@ -65,8 +65,8 @@ function BrandLogo({ collapsed = false }: { collapsed?: boolean }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <span className="font-semibold text-sm text-foreground whitespace-nowrap">DD Organizer</span>
-            <span className="block text-[10px] text-muted-foreground tracking-wide whitespace-nowrap">
+            <span className="font-semibold text-base text-foreground whitespace-nowrap">DD Organizer</span>
+            <span className="block text-xs text-muted-foreground tracking-wide whitespace-nowrap">
               尽职调查文档整理
             </span>
           </motion.div>
