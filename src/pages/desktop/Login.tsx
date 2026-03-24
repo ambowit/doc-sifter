@@ -401,7 +401,7 @@ export default function Login() {
                   to="/forgot-password"
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  忘记密���？
+                  忘记密码？
                 </Link>
               </div>
               <div className="relative">
