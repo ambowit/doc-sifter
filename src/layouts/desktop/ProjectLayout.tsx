@@ -50,28 +50,10 @@ const roleColors: Record<string, string> = {
   assistant: "bg-amber-100 text-amber-700",
 };
 
-function BrandLogo({ collapsed = false }: { collapsed?: boolean }) {
+function BrandLogo() {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-shrink-0">
-        <BrandLogoSvg className="h-10 w-auto" />
-      </div>
-      <AnimatePresence>
-        {!collapsed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex flex-col"
-          >
-            <span className="font-semibold text-base text-foreground leading-tight">DD Organizer</span>
-            <span className="text-xs text-muted-foreground tracking-wide leading-tight">
-              尽职调查文档整理
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="flex items-center">
+      <BrandLogoSvg className="h-10 w-auto" />
     </div>
   );
 }
