@@ -374,6 +374,13 @@ export function canOcrFile(mimeType: string, fileName?: string): boolean {
   return false;
 }
 
+// 获取当前用户 access_token，用于手动附加 Authorization header
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
+  return { Authorization: `Bearer ${session.access_token}` };
+}
+
 // Hook to trigger OCR extraction for a file
 export function useOcrExtract() {
   const queryClient = useQueryClient();
@@ -390,16 +397,15 @@ export function useOcrExtract() {
       mimeType: string; 
       fileName: string;
     }) => {
+      // 手动附加 Bearer token，确保 Edge Function 能验证用户身份
+      const headers = await getAuthHeaders();
       const { data, error } = await supabase.functions.invoke("ocr-extract", {
         body: { fileId, fileUrl, mimeType, fileName },
+        headers,
       });
 
       if (error) throw error;
-      
-      // Check if the response indicates an error
-      if (data?.error) {
-        throw new Error(data.error);
-      }
+      if (data?.error) throw new Error(data.error);
       
       return data as { 
         success: boolean; 
@@ -407,12 +413,11 @@ export function useOcrExtract() {
         summary: string;
         method: string;
         pageCount: number;
-        ocrFallbackUsed: boolean;
+        isScannedDocument: boolean;
         skipped?: boolean;
       };
     },
     onSuccess: () => {
-      // Invalidate files query to refresh OCR status - use refetchType to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
     },
   });
@@ -480,12 +485,16 @@ export function useBatchOcrExtract() {
     }>) => {
       const results: PromiseSettledResult<{ fileId: string; success?: boolean; error?: string }>[] = [];
       
+      // 一次性获取 token，所有请求复用
+      const headers = await getAuthHeaders();
+
       // Process files sequentially with small delay between requests
       // This avoids overwhelming the Edge Function and reduces timeouts
       for (const file of files) {
         try {
           const { data, error } = await supabase.functions.invoke("ocr-extract", {
             body: file,
+            headers,
           });
           
           if (error) {
