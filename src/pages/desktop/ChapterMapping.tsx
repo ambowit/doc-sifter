@@ -70,7 +70,12 @@ export default function ChapterMapping() {
   const updateChapterMutation = useUpdateFileChapter();
 
   // 报告生成相关
-  const { createJob, cancelJob } = useReportJob({ projectId: projectId || "" });
+  const { createJob, cancelJob, error: jobError } = useReportJob({ projectId: projectId || "" });
+
+  // 当 hook 内部报错时弹出 toast
+  useEffect(() => {
+    if (jobError) toast.error(jobError);
+  }, [jobError]);
   const { job, isPolling } = useActiveReportJob(projectId);
   const jobIsRunning = job?.status === "running" || job?.status === "pending";
   const jobIsSucceeded = job?.status === "succeeded";
@@ -95,24 +100,19 @@ export default function ChapterMapping() {
 
   const handleStart = async () => {
     if (!projectId) return;
-    try {
-      const jobId = await createJob();
-      if (!jobId) throw new Error("创建任务失败");
+    const jobId = await createJob();
+    if (jobId) {
       toast.success("报告生成任务已启动");
-    } catch {
-      toast.error("启动失败，请重试");
     }
+    // createJob 内部已通过 setError 设置错误状态，无需额外 toast
   };
 
-  const handleCancelJob = async () => {
-    if (!job?.id || !projectId) return;
+  const handleCancelJob = () => {
+    if (!job?.id) return;
     setIsCancelling(true);
-    try {
-      await cancelJob({ jobId: job.id, projectId });
-      toast.info("任务已取消");
-    } finally {
-      setIsCancelling(false);
-    }
+    cancelJob();
+    toast.info("任务已取消");
+    setIsCancelling(false);
   };
 
   // ── AI 分类 ──────────────────────────────────────────────
