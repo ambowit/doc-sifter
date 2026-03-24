@@ -3,7 +3,7 @@ interface BrandLogoSvgProps {
   color?: string;
 }
 
-export default function BrandLogoSvg({ className = "h-8" }: BrandLogoSvgProps) {
+export default function BrandLogoSvg({ className = "h-12" }: BrandLogoSvgProps) {
   return (
     <img 
       src="/images/logo.png" 
