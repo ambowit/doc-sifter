@@ -21,7 +21,6 @@ export interface UploadedFile {
   parsedContent: Record<string, unknown> | null;
   extractedText: string | null;
   textSummary: string | null;
-  extractedEntities: string[] | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
   // AI 分类字段
@@ -60,7 +59,6 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   parsedContent: row.parsed_content as Record<string, unknown> | null,
   extractedText: row.extracted_text as string | null,
   textSummary: row.text_summary as string | null,
-  extractedEntities: row.extracted_entities as string[] | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
   chapterId: row.chapter_id as string | null,
@@ -397,8 +395,10 @@ export function useOcrExtract() {
       return data as { 
         success: boolean; 
         text: string; 
-        summary: string; 
-        entities: string[];
+        summary: string;
+        method: string;
+        pageCount: number;
+        ocrFallbackUsed: boolean;
         skipped?: boolean;
       };
     },
