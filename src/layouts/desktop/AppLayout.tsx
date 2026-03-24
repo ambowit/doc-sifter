@@ -71,9 +71,9 @@ export default function AppLayout() {
           <div className="flex-shrink-0">
             <BrandLogoSvg className="h-10 w-auto" />
           </div>
-          <div className="min-w-0">
-            <span className="font-semibold text-base text-foreground whitespace-nowrap block">DD Organizer</span>
-            <span className="block text-xs text-muted-foreground tracking-wide whitespace-nowrap">
+          <div className="flex flex-col">
+            <span className="font-semibold text-base text-foreground leading-tight">DD Organizer</span>
+            <span className="text-xs text-muted-foreground tracking-wide leading-tight">
               尽职调查文档整理
             </span>
           </div>
