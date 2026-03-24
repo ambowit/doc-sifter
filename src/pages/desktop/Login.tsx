@@ -234,7 +234,7 @@ export default function Login() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 text-primary-foreground">
-            <BrandLogoSvg className="w-12 h-10" color="#FFFFFF" />
+            <BrandLogoSvg className="h-10 w-auto" />
             <span className="text-xl font-semibold tracking-tight">DD Organizer</span>
           </div>
         </div>
@@ -263,7 +263,7 @@ export default function Login() {
         <div className="w-full max-w-[440px] space-y-6">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 justify-center mb-8">
-            <BrandLogoSvg className="w-12 h-10" />
+            <BrandLogoSvg className="h-10 w-auto" />
             <span className="text-xl font-semibold tracking-tight">DD Organizer</span>
           </div>
 
@@ -401,7 +401,7 @@ export default function Login() {
                   to="/forgot-password"
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  忘记密码？
+                  忘记密���？
                 </Link>
               </div>
               <div className="relative">

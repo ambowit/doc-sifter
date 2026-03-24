@@ -120,7 +120,7 @@ export default function Register() {
       <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
           <div className="flex items-center gap-3 text-primary-foreground">
-            <BrandLogoSvg className="w-12 h-10" color="#FFFFFF" />
+            <BrandLogoSvg className="h-10 w-auto" />
             <span className="text-xl font-semibold tracking-tight">DD Organizer</span>
           </div>
         </div>
@@ -161,7 +161,7 @@ export default function Register() {
         <div className="w-full max-w-[400px] space-y-6">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 justify-center mb-6">
-            <BrandLogoSvg className="w-12 h-10" />
+            <BrandLogoSvg className="h-10 w-auto" />
             <span className="text-xl font-semibold tracking-tight">DD Organizer</span>
           </div>
 

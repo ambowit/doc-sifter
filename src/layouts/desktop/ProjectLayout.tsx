@@ -54,7 +54,7 @@ function BrandLogo({ collapsed = false }: { collapsed?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <div className="flex-shrink-0">
-        <BrandLogoSvg className="w-10 h-8" />
+        <BrandLogoSvg className="h-10 w-auto" />
       </div>
       <AnimatePresence>
         {!collapsed && (

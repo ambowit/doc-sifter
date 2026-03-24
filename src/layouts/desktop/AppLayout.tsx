@@ -68,7 +68,7 @@ export default function AppLayout() {
       <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-background flex-shrink-0">
         {/* Left: Brand */}
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-          <BrandLogoSvg className="w-10 h-8" />
+          <BrandLogoSvg className="h-10 w-auto" />
           <div>
             <span className="font-semibold text-sm text-foreground">DD Organizer</span>
             <span className="block text-[10px] text-muted-foreground tracking-wide">
