@@ -63,9 +63,9 @@ function BrandLogo({ collapsed = false }: { collapsed?: boolean }) {
             animate={{ opacity: 1, width: "auto" }}
             exit={{ opacity: 0, width: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            className="overflow-visible min-w-0"
           >
-            <span className="font-semibold text-base text-foreground whitespace-nowrap">DD Organizer</span>
+            <span className="font-semibold text-base text-foreground whitespace-nowrap block">DD Organizer</span>
             <span className="block text-xs text-muted-foreground tracking-wide whitespace-nowrap">
               尽职调查文档整理
             </span>

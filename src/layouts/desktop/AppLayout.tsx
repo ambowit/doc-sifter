@@ -67,11 +67,13 @@ export default function AppLayout() {
       {/* Top Bar */}
       <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-background flex-shrink-0">
         {/* Left: Brand */}
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
-          <BrandLogoSvg className="h-10 w-auto" />
-          <div>
-            <span className="font-semibold text-base text-foreground">DD Organizer</span>
-            <span className="block text-xs text-muted-foreground tracking-wide">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/")}>
+          <div className="flex-shrink-0">
+            <BrandLogoSvg className="h-10 w-auto" />
+          </div>
+          <div className="min-w-0">
+            <span className="font-semibold text-base text-foreground whitespace-nowrap block">DD Organizer</span>
+            <span className="block text-xs text-muted-foreground tracking-wide whitespace-nowrap">
               尽职调查文档整理
             </span>
           </div>
