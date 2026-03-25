@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLatestGeneratedReport } from "@/hooks/useGeneratedReports";
@@ -78,9 +79,10 @@ export default function ChapterMapping() {
   useEffect(() => {
     if (jobError) toast.error(jobError);
   }, [jobError]);
-  const { job, isPolling } = useActiveReportJob(projectId);
-  const jobIsRunning = job?.status === "running" || job?.status === "pending";
+  const { job, isPolling, refetch: refetchJob } = useActiveReportJob(projectId);
+  const jobIsRunning = job?.status === "running" || job?.status === "queued";
   const jobIsSucceeded = job?.status === "succeeded";
+  const jobIsFailed = job?.status === "failed";
   const [isCancelling, setIsCancelling] = useState(false);
   const [isJobStuck, setIsJobStuck] = useState(false);
   const lastProgressRef = useRef<{ time: number; message: string | null }>({ time: Date.now(), message: null });
@@ -109,12 +111,25 @@ export default function ChapterMapping() {
     // createJob 内部已通过 setError 设置错误状态，无需额外 toast
   };
 
-  const handleCancelJob = () => {
+  const handleCancelJob = async () => {
     if (!job?.id) return;
     setIsCancelling(true);
-    cancelJob();
-    toast.info("任务已取消");
-    setIsCancelling(false);
+    try {
+      // 调用 Edge Function 取消任务
+      const { error } = await supabase.functions.invoke("cancel-report-job", {
+        body: { jobId: job.id },
+      });
+      if (error) throw error;
+      cancelJob();
+      toast.info("任务已取消");
+      // 刷新任务状态
+      setTimeout(() => refetchJob(), 500);
+    } catch (err) {
+      toast.error("取消失败，请重试");
+      console.error("[ChapterMapping] Cancel job error:", err);
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   // ── AI 分类 ──────────────────────────────────────────────
@@ -240,7 +255,7 @@ export default function ChapterMapping() {
             onClick={handleStart}
           >
             {jobIsRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
-            {jobIsRunning ? "生成中..." : "生成报告"}
+            {jobIsRunning ? `生成中 ${Math.round(job?.progress || 0)}%` : "生成报告"}
           </Button>
         </div>
       </div>
@@ -319,29 +334,73 @@ export default function ChapterMapping() {
         {/* 右侧：章节结构 + 任务进度 */}
         <div className="flex flex-col overflow-hidden">
           {/* 任务进度（仅在任务运行时展示） */}
-          {(jobIsRunning || jobIsSucceeded || job?.status === "failed") && (
+          {(jobIsRunning || jobIsSucceeded || jobIsFailed) && (
             <div className="border-b border-border p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-muted-foreground uppercase">任务进度</span>
-                {jobIsRunning && (
-                  <Badge variant="secondary" className="text-[10px] h-5 gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    运行中
-                  </Badge>
-                )}
-                {jobIsSucceeded && (
-                  <Badge className="text-[10px] h-5 bg-emerald-500">
-                    <CheckCircle2 className="w-3 h-3 mr-1" />
-                    完成
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {jobIsRunning && (
+                    <>
+                      <Badge variant="secondary" className="text-[10px] h-5 gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        运行中
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-red-600"
+                        onClick={handleCancelJob}
+                        disabled={isCancelling}
+                      >
+                        <X className="w-3 h-3 mr-0.5" />
+                        取消
+                      </Button>
+                    </>
+                  )}
+                  {jobIsSucceeded && (
+                    <Badge className="text-[10px] h-5 bg-emerald-500">
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      完成
+                    </Badge>
+                  )}
+                  {jobIsFailed && (
+                    <Badge variant="destructive" className="text-[10px] h-5">
+                      <AlertTriangle className="w-3 h-3 mr-1" />
+                      失败
+                    </Badge>
+                  )}
+                </div>
               </div>
+
+              {/* 进度条 - 使用实际 progress 值 */}
               {job && (
-                <Progress
-                  value={progressSteps.findIndex((s) => s.key === (job.currentStep || "queued")) / (progressSteps.length - 1) * 100}
-                  className="h-1.5"
-                />
+                <div className="space-y-1">
+                  <Progress
+                    value={job.progress || (progressSteps.findIndex((s) => s.key === (job.currentStep || "queued")) / (progressSteps.length - 1) * 100)}
+                    className="h-2"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>
+                      {job.processedChapters > 0 && job.totalChapters > 0
+                        ? `${job.processedChapters}/${job.totalChapters} 章节`
+                        : job.progressMessage || "准备中..."}
+                    </span>
+                    <span>{Math.round(job.progress || 0)}%</span>
+                  </div>
+                </div>
               )}
+
+              {/* 当前处理步骤详情 */}
+              {jobIsRunning && job?.progressMessage && (
+                <div className="p-2 rounded bg-blue-50 border border-blue-100 text-[11px] text-blue-800">
+                  <div className="flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                    <span className="truncate">{job.progressMessage}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 步骤列表 */}
               <div className="space-y-1">
                 {progressSteps.map((step) => {
                   const status = getStepStatus(step.key);
@@ -351,40 +410,61 @@ export default function ChapterMapping() {
                       {status === "running" && <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />}
                       {status === "error" && <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />}
                       {status === "pending" && <div className="w-3 h-3 rounded-full border border-muted-foreground/30 flex-shrink-0" />}
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className={cn("text-[11px] font-medium leading-tight truncate", status === "completed" && "text-emerald-700", status === "error" && "text-red-700")}>
                           {step.title}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          {status === "running" && job?.progressMessage ? job.progressMessage : step.description}
                         </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
-              {isPolling && !isJobStuck && (
-                <div className="p-2 rounded border border-blue-200 bg-blue-50 text-blue-700 text-[10px] flex items-center gap-1.5">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  轮询兜底中
+
+              {/* 错误信息 */}
+              {jobIsFailed && job?.errorMessage && (
+                <div className="p-2 rounded border border-red-200 bg-red-50 text-red-700 text-[10px]">
+                  <div className="font-medium mb-1">错误信息</div>
+                  <div className="truncate">{job.errorMessage}</div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] px-2 mt-2"
+                    onClick={handleStart}
+                  >
+                    重新生成
+                  </Button>
                 </div>
               )}
+
+              {/* 卡住警告 */}
               {isJobStuck && jobIsRunning && (
                 <div className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-800 text-[10px] space-y-2">
                   <div className="flex items-center gap-1.5 font-medium">
                     <Timer className="w-3 h-3" />
-                    任务可能已卡住
+                    任务可能已卡住（60 秒无进度更新）
                   </div>
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={handleCancelJob} disabled={isCancelling}>
-                      取消
+                      {isCancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : "取消任务"}
                     </Button>
                     <Button size="sm" className="h-6 text-[10px] px-2" disabled={isCancelling}
-                      onClick={() => handleCancelJob().then(() => setTimeout(handleStart, 500))}>
-                      重试
+                      onClick={async () => { await handleCancelJob(); setTimeout(handleStart, 500); }}>
+                      取消并重试
                     </Button>
                   </div>
                 </div>
+              )}
+
+              {/* 完成后跳转按钮 */}
+              {jobIsSucceeded && (
+                <Button
+                  size="sm"
+                  className="w-full h-7 text-[11px] gap-1.5"
+                  onClick={() => navigate(`/project/${projectId}/report`)}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  查看报告
+                </Button>
               )}
             </div>
           )}

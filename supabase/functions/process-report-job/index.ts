@@ -139,10 +139,20 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "Job not found" }, 404);
     }
 
-    // If job is already completed or failed, don't process
+    // If job is already completed, failed, or cancelled, don't process
     if (["succeeded", "failed", "cancelled"].includes(jobData.status)) {
-      return jsonResponse({ success: true, message: "Job already completed" });
+      return jsonResponse({ success: true, message: "Job already completed or cancelled" });
     }
+
+    // Helper function to check if job was cancelled
+    const checkIfCancelled = async (): Promise<boolean> => {
+      const { data: currentJob } = await admin
+        .from("report_generation_jobs")
+        .select("status")
+        .eq("id", jobId)
+        .maybeSingle();
+      return currentJob?.status === "cancelled";
+    };
 
     const projectId = jobData.project_id;
     const userId = jobData.user_id;
@@ -195,6 +205,11 @@ serve(async (req) => {
 
       // STEP 1: Metadata extraction
       if (currentStage === "metadata") {
+        // Check if cancelled before starting
+        if (await checkIfCancelled()) {
+          return jsonResponse({ success: true, message: "Job was cancelled" });
+        }
+
         await updateJob({
           total_chapters: totalChapters,
           progress: 5,
@@ -226,9 +241,15 @@ serve(async (req) => {
 
       // STEP 2: Batch chapter generation
       if (currentStage === "extract" && currentBatchIndex < totalBatches) {
+        // Check if cancelled before each batch
+        if (await checkIfCancelled()) {
+          return jsonResponse({ success: true, message: "Job was cancelled" });
+        }
+
         const progress = 10 + Math.round(((currentBatchIndex + 1) / totalBatches) * 75);
         
         await updateJob({
+          progress,
           progress_message: `正在生成章节 (${currentBatchIndex + 1}/${totalBatches})...`,
         });
 
@@ -310,6 +331,11 @@ serve(async (req) => {
 
       // STEP 3: Analysis and finalization
       if (currentStage === "analyze" || (currentStage === "extract" && currentBatchIndex >= totalBatches)) {
+        // Check if cancelled before analysis
+        if (await checkIfCancelled()) {
+          return jsonResponse({ success: true, message: "Job was cancelled" });
+        }
+
         await updateJob({
           current_stage: "analyze",
           progress: 90,
