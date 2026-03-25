@@ -80,7 +80,6 @@ export default function ChapterMapping() {
     if (jobError) toast.error(jobError);
   }, [jobError]);
   const { job, isPolling, refetch: refetchJob } = useActiveReportJob(projectId);
-  console.log("[v0] ChapterMapping job state", { job, isPolling, projectId });
   const jobIsRunning = job?.status === "running" || job?.status === "queued";
   const jobIsSucceeded = job?.status === "succeeded";
   const jobIsFailed = job?.status === "failed";

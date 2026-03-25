@@ -24,8 +24,6 @@ export function useActiveReportJob(projectId: string | undefined) {
   const { user } = useAuth();
   const [isPolling, setIsPolling] = useState(false);
 
-  console.log("[v0] useActiveReportJob called", { projectId, userId: user?.id });
-
   const query = useQuery({
     queryKey: ["activeReportJob", projectId, user?.id],
     enabled: !!projectId && !!user,
@@ -66,14 +64,11 @@ export function useActiveReportJob(projectId: string | undefined) {
         .limit(1)
         .maybeSingle();
 
-      console.log("[v0] useActiveReportJob query result", { data, error });
-
       if (error) {
         throw error;
       }
 
       if (!data) {
-        console.log("[v0] No active job found");
         return null;
       }
 
