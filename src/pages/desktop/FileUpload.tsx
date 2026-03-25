@@ -178,6 +178,10 @@ export default function FileUpload() {
     downloadUrl?: string;
     mimeType?: string;
     ocrProcessed?: boolean;
+    // OCR 任务状态（PDF 异步处理）
+    ocrTaskStatus?: string | null;
+    entityTaskStatus?: string | null;
+    entities?: unknown[] | null;
   }[]>([]);
   const [ocrProcessingIds, setOcrProcessingIds] = useState<Set<string>>(new Set());
   const [ocrFailedIds, setOcrFailedIds] = useState<Set<string>>(new Set());
@@ -410,8 +414,8 @@ export default function FileUpload() {
     // Skip if still loading
     if (filesLoading) return;
 
-    // Create a stable fingerprint to detect actual changes
-    const currentFingerprint = existingFiles.map(f => `${f.id}:${f.ocrProcessed}`).join(",");
+    // Create a stable fingerprint to detect actual changes (include OCR task status)
+    const currentFingerprint = existingFiles.map(f => `${f.id}:${f.ocrProcessed}:${f.ocrTaskStatus}`).join(",");
     const fingerprintChanged = currentFingerprint !== prevFilesFingerprintRef.current;
 
     // Skip if nothing actually changed
@@ -432,6 +436,9 @@ export default function FileUpload() {
           storagePath: f.storagePath,
           mimeType: f.mimeType,
           ocrProcessed: f.ocrProcessed,
+          ocrTaskStatus: f.ocrTaskStatus,
+          entityTaskStatus: f.entityTaskStatus,
+          entities: f.entities,
           chapterId: f.chapterId ?? null,
           downloadUrl: localFile?.downloadUrl,
         };
@@ -680,17 +687,25 @@ export default function FileUpload() {
         }
       }
 
-      if (result.successful > 0) {
-        toast.success(`已完成 ${result.successful} 个文件的智能分析`);
+      // 计算同步完成和异步处理的数量
+      const syncCompleted = result.successful - (result.asyncCount || 0);
+      const asyncPending = result.asyncCount || 0;
 
-        // Auto redirect only if ALL succeeded
-        if (options?.autoRedirect && hasTemplate && result.failed === 0) {
-          toast.info("正在跳转到定义管理...", { duration: 2000 });
-          setTimeout(() => {
-            navigate(`/project/${projectId}/definitions`);
-          }, 1500);
-        }
+      if (syncCompleted > 0) {
+        toast.success(`已完成 ${syncCompleted} 个文件的智能分析`);
       }
+      if (asyncPending > 0) {
+        toast.info(`${asyncPending} 个 PDF 文件正在后台处理中，稍后自动更新`, { duration: 5000 });
+      }
+
+      // Auto redirect only if ALL succeeded (no async pending and no failed)
+      if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
+        toast.info("正在跳转到定义管理...", { duration: 2000 });
+        setTimeout(() => {
+          navigate(`/project/${projectId}/definitions`);
+        }, 1500);
+      }
+      
       if (result.failed > 0) {
         const uniqueErrors = [...new Set(result.errors || [])];
         const errorSummary = uniqueErrors.length > 0
@@ -1836,6 +1851,23 @@ export default function FileUpload() {
                               >
                                 {getFileIcon(file.name)}
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
+                                
+                                {/* OCR Task Status Indicator */}
+                                {file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing" ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-blue-600" title="PDF 正在后台处理中">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    <span>处理中</span>
+                                  </span>
+                                ) : file.ocrTaskStatus === "failed" ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-red-500" title="OCR 处理失败">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    <span>失败</span>
+                                  </span>
+                                ) : file.ocrProcessed ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-green-600" title="已完成文字提取">
+                                    <CheckCircle className="w-3 h-3" />
+                                  </span>
+                                ) : null}
 
                                 <span className="w-16 text-center text-[10px] text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                                   {file.type}

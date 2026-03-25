@@ -23,6 +23,11 @@ export interface UploadedFile {
   textSummary: string | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
+  // OCR 任务状态（PDF 异步处理）
+  ocrTaskId: string | null;
+  ocrTaskStatus: string | null; // pending | processing | completed | failed
+  ocrTaskStartedAt: string | null;
+  ocrTaskCompletedAt: string | null;
   // 实体识别字段
   entities: unknown[] | null;
   redactedFileUrl: string | null;
@@ -66,6 +71,11 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   textSummary: row.text_summary as string | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
+  // OCR 任务状态（PDF 异步处理）
+  ocrTaskId: row.ocr_task_id as string | null,
+  ocrTaskStatus: row.ocr_task_status as string | null,
+  ocrTaskStartedAt: row.ocr_task_started_at as string | null,
+  ocrTaskCompletedAt: row.ocr_task_completed_at as string | null,
   entities: row.entities as unknown[] | null,
   redactedFileUrl: row.redacted_file_url as string | null,
   entityTaskId: row.entity_task_id as string | null,
@@ -79,10 +89,11 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
 });
 
 // Hook to fetch all files for a project
+// Automatically polls when there are pending OCR tasks
 export function useFiles(projectId: string | undefined) {
   const { user } = useAuth();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ["files", projectId],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
@@ -98,7 +109,21 @@ export function useFiles(projectId: string | undefined) {
       return (data || []).map(transformFile);
     },
     enabled: !!user && !!projectId,
+    // 当有 pending/processing 状态的文件时，每 5 秒轮询一次
+    refetchInterval: (query) => {
+      const files = query.state.data;
+      if (!files) return false;
+      const hasPendingOcr = files.some(
+        (f) => f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing"
+      );
+      const hasPendingEntity = files.some(
+        (f) => f.entityTaskStatus === "pending" || f.entityTaskStatus === "processing"
+      );
+      return hasPendingOcr || hasPendingEntity ? 5000 : false;
+    },
   });
+
+  return query;
 }
 
 // Hook to create a file record
@@ -381,6 +406,22 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
+// OCR 提取结果类型
+export interface OcrExtractResult {
+  success: boolean;
+  // 同步处理结果（图片）
+  text?: string;
+  summary?: string;
+  method?: string;
+  pageCount?: number;
+  isScannedDocument?: boolean;
+  skipped?: boolean;
+  // 异步处理结果（PDF 走 Worker）
+  async?: boolean;
+  taskId?: string;
+  message?: string;
+}
+
 // Hook to trigger OCR extraction for a file
 export function useOcrExtract() {
   const queryClient = useQueryClient();
@@ -396,7 +437,7 @@ export function useOcrExtract() {
       fileUrl: string; 
       mimeType: string; 
       fileName: string;
-    }) => {
+    }): Promise<OcrExtractResult> => {
       // 手动附加 Bearer token，确保 Edge Function 能验证用户身份
       const headers = await getAuthHeaders();
       const { data, error } = await supabase.functions.invoke("ocr-extract", {
@@ -407,15 +448,7 @@ export function useOcrExtract() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       
-      return data as { 
-        success: boolean; 
-        text: string; 
-        summary: string;
-        method: string;
-        pageCount: number;
-        isScannedDocument: boolean;
-        skipped?: boolean;
-      };
+      return data as OcrExtractResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
@@ -471,8 +504,18 @@ export function useUpdateFileChapter() {
   });
 }
 
+// 批量 OCR 结果类型
+export interface BatchOcrResult {
+  fileId: string;
+  success?: boolean;
+  async?: boolean;
+  taskId?: string;
+  error?: string;
+}
+
 // Hook to batch process OCR for multiple files
 // Processes files sequentially to avoid overwhelming the Edge Function
+// PDF files are processed asynchronously via Worker, images are processed synchronously
 export function useBatchOcrExtract() {
   const queryClient = useQueryClient();
 
@@ -483,7 +526,8 @@ export function useBatchOcrExtract() {
       mimeType: string; 
       fileName: string;
     }>) => {
-      const results: PromiseSettledResult<{ fileId: string; success?: boolean; error?: string }>[] = [];
+      const results: PromiseSettledResult<BatchOcrResult>[] = [];
+      let asyncCount = 0; // 统计异步处理的 PDF 数量
       
       // 一次性获取 token，所有请求复用
       const headers = await getAuthHeaders();
@@ -508,9 +552,13 @@ export function useBatchOcrExtract() {
               reason: new Error(data.error) 
             });
           } else {
+            // 检查是否是异步处理（PDF 走 Worker）
+            if (data?.async) {
+              asyncCount++;
+            }
             results.push({ 
               status: "fulfilled", 
-              value: { fileId: file.fileId, ...data } 
+              value: { fileId: file.fileId, async: data?.async, taskId: data?.taskId, success: data?.success } 
             });
           }
         } catch (err) {
@@ -534,7 +582,7 @@ export function useBatchOcrExtract() {
         .filter((r): r is PromiseRejectedResult => r.status === "rejected")
         .map(r => r.reason?.message || "未知错误");
 
-      return { successful, failed, results, errors };
+      return { successful, failed, asyncCount, results, errors };
     },
     onSettled: () => {
       // Always invalidate after mutation settles (success or error)
