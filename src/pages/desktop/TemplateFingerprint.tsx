@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -608,6 +608,12 @@ export default function TemplateFingerprint() {
   const [activeTab, setActiveTab] = useState("styles");
   const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
   const [isEditingStyle, setIsEditingStyle] = useState(false);
+  
+  // 上传的模板文件预览状态
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedFileType, setUploadedFileType] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
 
   // Editable styles - each template can be edited independently
   // Load from localStorage if available, otherwise use defaults
@@ -711,6 +717,15 @@ export default function TemplateFingerprint() {
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
+  
+  // 清理上传的文件 URL（组件卸载或项目切换时）
+  useEffect(() => {
+    return () => {
+      if (uploadedFileUrl) {
+        URL.revokeObjectURL(uploadedFileUrl);
+      }
+    };
+  }, [uploadedFileUrl]);
 
   // Count chapters
   const countChapters = useCallback((chapters: Chapter[]): { level1: number; level2: number } => {
@@ -770,6 +785,13 @@ export default function TemplateFingerprint() {
 
     // Clear input value for re-upload
     event.target.value = "";
+    
+    // 创建文件预览 URL
+    const fileUrl = URL.createObjectURL(file);
+    setUploadedFileUrl(fileUrl);
+    setUploadedFileName(file.name);
+    setUploadedFileType(file.type);
+    setPreviewMode("file"); // 切换到文件预览模式
 
     const validTypes = [
       "application/pdf",
@@ -1448,7 +1470,7 @@ export default function TemplateFingerprint() {
                               <SelectContent>
                                 <SelectItem value="none">无</SelectItem>
                                 <SelectItem value="fold">折角效果</SelectItem>
-                                <SelectItem value="stamp">印章图标</SelectItem>
+                                <SelectItem value="stamp">印��图标</SelectItem>
                                 <SelectItem value="watermark">水印文字</SelectItem>
                               </SelectContent>
                             </Select>
@@ -1488,11 +1510,64 @@ export default function TemplateFingerprint() {
                         <Eye className="w-4 h-4 text-muted-foreground" />
                         <span className="text-[13px] font-medium">实时预览</span>
                       </div>
-                      <Badge variant="outline" className="text-[10px]">
-                        {currentStyle.name}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        {/* 预览模式切换按钮 */}
+                        {uploadedFileUrl && (
+                          <div className="flex rounded-md border border-border overflow-hidden">
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "file" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("file")}
+                            >
+                              上传文件
+                            </button>
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "style" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              样式效果
+                            </button>
+                          </div>
+                        )}
+                        <Badge variant="outline" className="text-[10px]">
+                          {previewMode === "file" && uploadedFileName ? uploadedFileName : currentStyle.name}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* 文件预览模式 */}
+                  {previewMode === "file" && uploadedFileUrl && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                      {uploadedFileType?.includes("pdf") ? (
+                        <iframe
+                          src={uploadedFileUrl}
+                          className="w-full h-full border-0"
+                          title="PDF 预览"
+                        />
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {uploadedFileName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Word 文件预览需要转换，请查看左侧提取的章节结构
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* 样式预览模式 */}
+                  {(previewMode === "style" || !uploadedFileUrl) && (
                   <ScrollArea className="h-0 grow">
                     <div className="p-8">
                       <div
@@ -1736,6 +1811,7 @@ export default function TemplateFingerprint() {
                       </div>
                     </div>
                   </ScrollArea>
+                  )}
                 </div>
               </div>
             </TabsContent>
