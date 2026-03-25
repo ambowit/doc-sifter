@@ -35,11 +35,12 @@ async function hmacSign(secret: string, canonical: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// 使用 Worker /extract-text 同步接口提取 PDF 文本
+// 使用 Worker /extract-text 同步接口提取 PDF 文本（带重试）
 async function extractPdfWithWorker(
   fileId: string,
   fileUrl: string,
-  fileName: string
+  fileName: string,
+  maxRetries = 2
 ): Promise<{ text: string; summary: string; pageCount: number; isScanned: boolean }> {
   const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
   const hmacSecret = Deno.env.get("WORKER_HMAC_SECRET");
@@ -48,70 +49,108 @@ async function extractPdfWithWorker(
     throw new Error("WORKER_HMAC_SECRET not configured");
   }
 
-  // Worker /extract-text 接口参数
-  const payload = JSON.stringify({
-    file_url: fileUrl,
-    max_chars: 120000, // 最大提取字符数
-  });
+  logStep("Extracting PDF with Worker", { fileId, fileName, workerBase });
 
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID();
-  const canonical = `${timestamp}.${nonce}.${payload}`;
-  const signature = await hmacSign(hmacSecret, canonical);
+  let lastError: Error | null = null;
 
-  logStep("Extracting PDF with Worker", { fileId, fileName, url: `${workerBase}/extract-text` });
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      logStep(`Retry attempt ${attempt}/${maxRetries}`);
+      await new Promise(r => setTimeout(r, 2000 * attempt)); // 指数退避
+    }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
-
-  try {
-    const workerRes = await fetch(`${workerBase}/extract-text`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Timestamp": timestamp,
-        "X-Nonce": nonce,
-        "X-Signature": signature,
-      },
-      body: payload,
-      signal: controller.signal,
+    // 每次重试都重新生成签名（因为 timestamp 变了）
+    const payload = JSON.stringify({
+      file_url: fileUrl,
+      max_chars: 120000,
     });
 
-    const responseText = await workerRes.text();
-    logStep("Worker response", { status: workerRes.status, bodyLength: responseText.length });
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = crypto.randomUUID();
+    const canonical = `${timestamp}.${nonce}.${payload}`;
+    const signature = await hmacSign(hmacSecret, canonical);
 
-    let workerData;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
+
     try {
-      workerData = JSON.parse(responseText);
-    } catch {
-      throw new Error(`Worker 返回非 JSON: ${responseText.substring(0, 100)}`);
+      const workerRes = await fetch(`${workerBase}/extract-text`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timestamp": timestamp,
+          "X-Nonce": nonce,
+          "X-Signature": signature,
+        },
+        body: payload,
+        signal: controller.signal,
+      });
+
+      const responseText = await workerRes.text();
+      logStep("Worker response", { status: workerRes.status, bodyLength: responseText.length });
+
+      // 502/503/504 网关错误，可重试
+      if (workerRes.status >= 502 && workerRes.status <= 504) {
+        lastError = new Error(`Worker 网关错误 (HTTP ${workerRes.status})，请稍后重试`);
+        logStep(`Gateway error, will retry`, { status: workerRes.status });
+        continue;
+      }
+
+      let workerData;
+      try {
+        workerData = JSON.parse(responseText);
+      } catch {
+        // 非 JSON 响应（如 HTML 错误页），可能是网关问题，可重试
+        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
+          lastError = new Error(`Worker 返回 HTML 错误页 (可能是网关问题)`);
+          logStep(`HTML response, will retry`);
+          continue;
+        }
+        throw new Error(`Worker 返回非 JSON: ${responseText.substring(0, 100)}`);
+      }
+
+      // 检查错误状态
+      if (!workerRes.ok || workerData.status === "error") {
+        const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
+        throw new Error(errMsg);
+      }
+
+      // 解析结果
+      const result = workerData.result || workerData;
+      const text = result.text || "";
+      const pageCount = result.page_count || 0;
+      const isScanned = result.is_scanned_document || false;
+
+      const summary = text.substring(0, 200).replace(/\s+/g, " ").trim();
+
+      logStep("PDF extraction complete", { 
+        textLength: text.length, 
+        pageCount, 
+        isScanned 
+      });
+
+      return { text, summary, pageCount, isScanned };
+    } catch (err) {
+      clearTimeout(timeout);
+      
+      if (err instanceof Error && err.name === "AbortError") {
+        lastError = new Error("Worker 处理超时，请稍后重试");
+      } else {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+      
+      // 超时错误不重试
+      if (lastError.message.includes("超时")) {
+        throw lastError;
+      }
+      
+      logStep(`Attempt ${attempt} failed`, { error: lastError.message });
+    } finally {
+      clearTimeout(timeout);
     }
-
-    // 检查错误状态
-    if (!workerRes.ok || workerData.status === "error") {
-      const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
-      throw new Error(errMsg);
-    }
-
-    // 解析结果 - Worker 返回格式可能是 { result: {...} } 或直接 {...}
-    const result = workerData.result || workerData;
-    const text = result.text || "";
-    const pageCount = result.page_count || 0;
-    const isScanned = result.is_scanned_document || false;
-
-    // 生成摘要（取前200字）
-    const summary = text.substring(0, 200).replace(/\s+/g, " ").trim();
-
-    logStep("PDF extraction complete", { 
-      textLength: text.length, 
-      pageCount, 
-      isScanned 
-    });
-
-    return { text, summary, pageCount, isScanned };
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw lastError || new Error("PDF 提取失败");
 }
 
 // Convert ArrayBuffer to base64
