@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -469,6 +470,155 @@ export function useClassifyFiles() {
       queryClient.invalidateQueries({ queryKey: ["files", variables.projectId] });
     },
   });
+}
+
+// AI 分类进度状态
+export interface ClassifyProgressState {
+  isRunning: boolean;
+  isPaused: boolean;
+  total: number;
+  current: number;
+  currentFileName: string;
+  completed: number;
+  failed: number;
+  results: Array<{ fileId: string; fileName: string; success: boolean; chapterId?: string | null; error?: string }>;
+}
+
+// Hook 用于带进度的 AI 分类（逐文件处理，支持暂停/取消）
+export function useClassifyFilesWithProgress() {
+  const queryClient = useQueryClient();
+  const abortControllerRef = { current: null as AbortController | null };
+  const isPausedRef = { current: false };
+
+  const [progress, setProgress] = useState<ClassifyProgressState>({
+    isRunning: false,
+    isPaused: false,
+    total: 0,
+    current: 0,
+    currentFileName: "",
+    completed: 0,
+    failed: 0,
+    results: [],
+  });
+
+  const start = async ({
+    projectId,
+    files,
+    chapters,
+  }: {
+    projectId: string;
+    files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
+    chapters: Array<{ id: string; number: string; title: string; level: number }>;
+  }) => {
+    if (progress.isRunning) return;
+
+    abortControllerRef.current = new AbortController();
+    isPausedRef.current = false;
+
+    setProgress({
+      isRunning: true,
+      isPaused: false,
+      total: files.length,
+      current: 0,
+      currentFileName: "",
+      completed: 0,
+      failed: 0,
+      results: [],
+    });
+
+    const results: ClassifyProgressState["results"] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      // 检查是否已取消
+      if (abortControllerRef.current?.signal.aborted) {
+        break;
+      }
+
+      // 暂停时等待
+      while (isPausedRef.current && !abortControllerRef.current?.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      if (abortControllerRef.current?.signal.aborted) {
+        break;
+      }
+
+      const file = files[i];
+      setProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        currentFileName: file.name,
+      }));
+
+      try {
+        const { data, error } = await supabase.functions.invoke("classify-single", {
+          body: { projectId, file, chapters },
+        });
+
+        if (error || data?.error) {
+          results.push({ fileId: file.id, fileName: file.name, success: false, error: error?.message || data?.error });
+          setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
+        } else {
+          results.push({ fileId: file.id, fileName: file.name, success: true, chapterId: data?.result?.chapterId });
+          setProgress((prev) => ({ ...prev, completed: prev.completed + 1, results: [...results] }));
+        }
+      } catch (err) {
+        results.push({ fileId: file.id, fileName: file.name, success: false, error: String(err) });
+        setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
+      }
+
+      // 小延迟避免请求过快
+      if (i < files.length - 1) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    setProgress((prev) => ({
+      ...prev,
+      isRunning: false,
+      isPaused: false,
+      currentFileName: "",
+    }));
+
+    queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+
+    return { completed: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length };
+  };
+
+  const pause = () => {
+    isPausedRef.current = true;
+    setProgress((prev) => ({ ...prev, isPaused: true }));
+  };
+
+  const resume = () => {
+    isPausedRef.current = false;
+    setProgress((prev) => ({ ...prev, isPaused: false }));
+  };
+
+  const cancel = () => {
+    abortControllerRef.current?.abort();
+    setProgress((prev) => ({
+      ...prev,
+      isRunning: false,
+      isPaused: false,
+      currentFileName: "",
+    }));
+  };
+
+  const reset = () => {
+    setProgress({
+      isRunning: false,
+      isPaused: false,
+      total: 0,
+      current: 0,
+      currentFileName: "",
+      completed: 0,
+      failed: 0,
+      results: [],
+    });
+  };
+
+  return { progress, start, pause, resume, cancel, reset };
 }
 
 // Hook to manually update a single file's chapter assignment

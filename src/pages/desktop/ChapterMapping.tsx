@@ -6,10 +6,11 @@ import { useProject } from "@/hooks/useProjects";
 import { useChapters, flattenChaptersWithNumbers } from "@/hooks/useChapters";
 import {
   useFiles,
-  useClassifyFiles,
+  useClassifyFilesWithProgress,
   useUpdateFileChapter,
   formatFileSize,
 } from "@/hooks/useFiles";
+import { AIClassifyDialog } from "@/components/AIClassifyDialog";
 import { useReportJob } from "@/hooks/useReportJob";
 import { useActiveReportJob } from "@/hooks/useActiveReportJob";
 import { Button } from "@/components/ui/button";
@@ -66,8 +67,9 @@ export default function ChapterMapping() {
   const { data: files = [], isLoading: filesLoading } = useFiles(projectId);
   const { data: latestReport } = useLatestGeneratedReport(projectId);
 
-  const classifyMutation = useClassifyFiles();
+  const { progress: classifyProgress, start: startClassify, pause: pauseClassify, resume: resumeClassify, cancel: cancelClassify, reset: resetClassify } = useClassifyFilesWithProgress();
   const updateChapterMutation = useUpdateFileChapter();
+  const [showClassifyDialog, setShowClassifyDialog] = useState(false);
 
   // 报告生成相关
   const { createJob, cancelJob, error: jobError } = useReportJob({ projectId: projectId || "" });
@@ -116,27 +118,30 @@ export default function ChapterMapping() {
   };
 
   // ── AI 分类 ──────────────────────────────────────────────
-  const handleAIClassify = async () => {
+  const handleOpenClassifyDialog = () => {
     if (!projectId || !files.length || !flatChapters.length) return;
-    try {
-      const result = await classifyMutation.mutateAsync({
-        projectId,
-        files: files.map((f) => ({
-          id: f.id,
-          name: f.name,
-          extractedText: f.extractedText,
-          textSummary: f.textSummary,
-        })),
-        chapters: flatChapters.map((c) => ({
-          id: c.id,
-          number: c.number || "",
-          title: c.title,
-          level: c.level,
-        })),
-      });
-      toast.success(`AI 分类完成，共处理 ${result.classified} 个文件`);
-    } catch (err) {
-      toast.error(`AI 分类失败：${err instanceof Error ? err.message : "未知错误"}`);
+    setShowClassifyDialog(true);
+  };
+
+  const handleStartClassify = async () => {
+    if (!projectId) return;
+    const result = await startClassify({
+      projectId,
+      files: files.map((f) => ({
+        id: f.id,
+        name: f.name,
+        extractedText: f.extractedText,
+        textSummary: f.textSummary,
+      })),
+      chapters: flatChapters.map((c) => ({
+        id: c.id,
+        number: c.number || "",
+        title: c.title,
+        level: c.level,
+      })),
+    });
+    if (result) {
+      toast.success(`AI 分类完成，${result.completed} 个成功，${result.failed} 个失败`);
     }
   };
 
@@ -192,8 +197,6 @@ export default function ChapterMapping() {
     return "pending";
   };
 
-  const classifyIsRunning = classifyMutation.isPending;
-
   return (
     <div className="h-full flex flex-col bg-background">
       {/* 顶部栏 */}
@@ -210,15 +213,15 @@ export default function ChapterMapping() {
             size="sm"
             variant="outline"
             className="h-8 text-xs gap-1.5"
-            disabled={classifyIsRunning || !files.length || !flatChapters.length}
-            onClick={handleAIClassify}
+            disabled={classifyProgress.isRunning || !files.length || !flatChapters.length}
+            onClick={handleOpenClassifyDialog}
           >
-            {classifyIsRunning ? (
+            {classifyProgress.isRunning ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Sparkles className="w-3.5 h-3.5" />
             )}
-            {classifyIsRunning ? "AI 分类中..." : "AI 自动分类"}
+            {classifyProgress.isRunning ? `分类中 ${classifyProgress.current}/${classifyProgress.total}` : "AI 自动分类"}
           </Button>
           {latestReport && (
             <Button
@@ -422,6 +425,19 @@ export default function ChapterMapping() {
           </ScrollArea>
         </div>
       </div>
+
+      {/* AI 分类进度弹窗 */}
+      <AIClassifyDialog
+        open={showClassifyDialog}
+        onOpenChange={setShowClassifyDialog}
+        progress={classifyProgress}
+        onStart={handleStartClassify}
+        onPause={pauseClassify}
+        onResume={resumeClassify}
+        onCancel={cancelClassify}
+        onReset={resetClassify}
+        fileCount={files.length}
+      />
     </div>
   );
 }
