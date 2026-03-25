@@ -80,6 +80,7 @@ export default function ChapterMapping() {
     if (jobError) toast.error(jobError);
   }, [jobError]);
   const { job, isPolling, refetch: refetchJob } = useActiveReportJob(projectId);
+  console.log("[v0] ChapterMapping job state", { job, isPolling, projectId });
   const jobIsRunning = job?.status === "running" || job?.status === "queued";
   const jobIsSucceeded = job?.status === "succeeded";
   const jobIsFailed = job?.status === "failed";
@@ -200,7 +201,7 @@ export default function ChapterMapping() {
 
   const unassignedFiles = files.filter((f) => !f.chapterId);
 
-  // ── 进度步骤状态 ──────────────────────────────────────────
+  // ── 进度步骤状态 ───────────────────��──────────────────────
   const getStepStatus = (stepKey: string): ProgressStepStatus => {
     if (!job) return "pending";
     const stepOrder = progressSteps.map((s) => s.key);
