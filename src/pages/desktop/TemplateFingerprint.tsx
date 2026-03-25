@@ -1745,6 +1745,21 @@ export default function TemplateFingerprint() {
                             >
                               {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
                             </h2>
+                            
+                            {/* Chapter description/content */}
+                            <p
+                              style={{
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                lineHeight: currentStyle.styles.body.lineSpacing,
+                                textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                color: "#444",
+                              }}
+                            >
+                              {chapter.description || `本章将对${chapter.title}相关事项进行详细核查和分析，包括相关文件的合规性审查、法律风险识别及应对建议等内容。`}
+                            </p>
 
                             {/* Sub-chapters H2 - show ALL children */}
                             {chapter.children && chapter.children.map((child) => (
@@ -1761,21 +1776,20 @@ export default function TemplateFingerprint() {
                                 >
                                   {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
                                 </h3>
-                                {child.description && (
-                                  <p
-                                    style={{
-                                      fontFamily: currentStyle.styles.body.font,
-                                      fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                      lineHeight: currentStyle.styles.body.lineSpacing,
-                                      textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                      textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                      marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                      color: "#666",
-                                    }}
-                                  >
-                                    {child.description}
-                                  </p>
-                                )}
+                                {/* Sub-chapter content - always show */}
+                                <p
+                                  style={{
+                                    fontFamily: currentStyle.styles.body.font,
+                                    fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                    lineHeight: currentStyle.styles.body.lineSpacing,
+                                    textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                    textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                    marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                    color: "#555",
+                                  }}
+                                >
+                                  {child.description || `针对${child.title}，我们核查了相关文件资料，审阅了公司提供的证明材料，并对关键事项进行了法律分析。`}
+                                </p>
                                 
                                 {/* Show H3 level children if exist */}
                                 {child.children && child.children.map((subChild) => (
@@ -1792,21 +1806,20 @@ export default function TemplateFingerprint() {
                                     >
                                       {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
                                     </h4>
-                                    {subChild.description && (
-                                      <p
-                                        style={{
-                                          fontFamily: currentStyle.styles.body.font,
-                                          fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                          lineHeight: currentStyle.styles.body.lineSpacing,
-                                          textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                          textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                          marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                          color: "#666",
-                                        }}
-                                      >
-                                        {subChild.description}
-                                      </p>
-                                    )}
+                                    {/* H3 level content - always show */}
+                                    <p
+                                      style={{
+                                        fontFamily: currentStyle.styles.body.font,
+                                        fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                        lineHeight: currentStyle.styles.body.lineSpacing,
+                                        textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                        textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                        marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                        color: "#666",
+                                      }}
+                                    >
+                                      {subChild.description || `经核查，${subChild.title}相关情况如下：（此处将显示具体核查内容和法律意见）`}
+                                    </p>
                                   </div>
                                 ))}
                               </div>
