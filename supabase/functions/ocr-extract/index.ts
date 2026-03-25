@@ -18,8 +18,8 @@ interface OCRRequest {
   fileName: string;
 }
 
-// 图片文件大小限制 (3MB)
-const MAX_IMAGE_SIZE = 3 * 1024 * 1024;
+// 图片文件大小限制 (1.5MB，base64 编码后约 2MB，避免 AI Gateway 413 错误)
+const MAX_IMAGE_SIZE = 1.5 * 1024 * 1024;
 
 // HMAC 签名函数
 async function hmacSign(secret: string, canonical: string): Promise<string> {
@@ -212,19 +212,16 @@ async function extractImageTextWithAI(
   retries = 2
 ): Promise<{ text: string; summary: string; entities: string[] }> {
   
-  // 下载图片并转 base64
-  logStep("Downloading image for OCR");
-  const result = await downloadAsBase64(fileUrl, mimeType, MAX_IMAGE_SIZE);
-  const imageUrl = result.data;
-  logStep("Image loaded", { sizeMB: Math.round(result.size / 1024 / 1024 * 10) / 10 });
+  // 直接使用图片 URL，不转 base64（避免 413 请求体过大）
+  logStep("Processing image via URL", { fileUrl: fileUrl.substring(0, 100) + "..." });
   
-  // Build message content with image
+  // Build message content with image URL
   const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
   
-  // Add the image/document
+  // Add the image/document (直接使用原始 URL)
   messageContent.push({
     type: "image_url",
-    image_url: { url: imageUrl }
+    image_url: { url: fileUrl }
   });
   
   // Add the prompt
