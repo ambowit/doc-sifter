@@ -18,9 +18,11 @@ interface OCRRequest {
   fileName: string;
 }
 
-// Max file size for OCR processing (10MB for PDF, 5MB for images)
-const MAX_PDF_SIZE = 10 * 1024 * 1024;
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+// Max file size for OCR processing
+// Note: base64 encoding increases size by ~33%, plus JSON overhead
+// AI Gateway typically has 10MB request limit, so we cap at 5MB for PDF, 3MB for images
+const MAX_PDF_SIZE = 5 * 1024 * 1024;   // 5MB -> ~7MB base64
+const MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB -> ~4MB base64
 
 // Convert ArrayBuffer to base64
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
