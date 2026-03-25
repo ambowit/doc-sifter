@@ -1703,8 +1703,8 @@ export default function TemplateFingerprint() {
                           </p>
                         </div>
 
-                        {/* Real chapters preview - show first 3 chapters with their children */}
-                        {chapters.slice(0, 3).map((chapter, chapterIdx) => (
+                        {/* Real chapters preview - show ALL chapters with their children */}
+                        {chapters.map((chapter, chapterIdx) => (
                           <div key={chapter.id} className="mb-6 pt-4">
                             {/* Section Divider (not for first chapter) */}
                             {chapterIdx > 0 && (
@@ -1746,8 +1746,8 @@ export default function TemplateFingerprint() {
                               {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
                             </h2>
 
-                            {/* Sub-chapters H2 */}
-                            {chapter.children && chapter.children.slice(0, 2).map((child) => (
+                            {/* Sub-chapters H2 - show ALL children */}
+                            {chapter.children && chapter.children.map((child) => (
                               <div key={child.id}>
                                 <h3
                                   style={{
@@ -1776,36 +1776,54 @@ export default function TemplateFingerprint() {
                                     {child.description}
                                   </p>
                                 )}
+                                
+                                {/* Show H3 level children if exist */}
+                                {child.children && child.children.map((subChild) => (
+                                  <div key={subChild.id} className="ml-4">
+                                    <h4
+                                      style={{
+                                        fontFamily: currentStyle.styles.h3?.font || currentStyle.styles.h2.font,
+                                        fontSize: `${currentStyle.styles.h3?.sizePt || Number(currentStyle.styles.h2.sizePt) - 2}pt`,
+                                        fontWeight: currentStyle.styles.h3?.bold ? "bold" : "normal",
+                                        color: currentStyle.preview.secondaryColor,
+                                        marginTop: `${currentStyle.styles.h3?.spaceBeforePt || 6}pt`,
+                                        marginBottom: `${currentStyle.styles.h3?.spaceAfterPt || 4}pt`,
+                                      }}
+                                    >
+                                      {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
+                                    </h4>
+                                    {subChild.description && (
+                                      <p
+                                        style={{
+                                          fontFamily: currentStyle.styles.body.font,
+                                          fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                          lineHeight: currentStyle.styles.body.lineSpacing,
+                                          textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                          textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                          marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                          color: "#666",
+                                        }}
+                                      >
+                                        {subChild.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             ))}
-
-                            {/* Show remaining children count */}
-                            {chapter.children && chapter.children.length > 2 && (
-                              <p
-                                style={{
-                                  fontFamily: currentStyle.styles.body.font,
-                                  fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
-                                  color: currentStyle.preview.primaryColor + "99",
-                                  fontStyle: "italic",
-                                }}
-                              >
-                                …还有 {chapter.children.length - 2} 个子章节
-                              </p>
-                            )}
                           </div>
                         ))}
 
-                        {/* Show remaining chapters count */}
-                        {chapters.length > 3 && (
+                        {/* Footer showing total count */}
+                        {chapters.length > 0 && (
                           <div
-                            className="mt-4 p-3 rounded text-center text-[12px]"
+                            className="mt-6 pt-4 border-t text-center text-[11px]"
                             style={{
-                              backgroundColor: currentStyle.preview.primaryColor + '08',
-                              color: currentStyle.preview.primaryColor + 'aa',
-                              border: `1px dashed ${currentStyle.preview.primaryColor}30`,
+                              borderColor: currentStyle.preview.primaryColor + '20',
+                              color: currentStyle.preview.primaryColor + '80',
                             }}
                           >
-                            …还有 {chapters.length - 3} 个章节（共 {chapters.length} 章）
+                            共 {chapters.length} 个一级章节
                           </div>
                         )}
                       </div>
