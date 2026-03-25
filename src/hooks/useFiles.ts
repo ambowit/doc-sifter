@@ -28,11 +28,6 @@ export interface UploadedFile {
   ocrTaskStatus: string | null; // pending | processing | completed | failed
   ocrTaskStartedAt: string | null;
   ocrTaskCompletedAt: string | null;
-  // 实体识别字段
-  entities: unknown[] | null;
-  redactedFileUrl: string | null;
-  entityTaskId: string | null;
-  entityTaskStatus: string | null;
   // AI 分类字段
   chapterId: string | null;
   aiSummary: string | null;
@@ -76,10 +71,6 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   ocrTaskStatus: row.ocr_task_status as string | null,
   ocrTaskStartedAt: row.ocr_task_started_at as string | null,
   ocrTaskCompletedAt: row.ocr_task_completed_at as string | null,
-  entities: row.entities as unknown[] | null,
-  redactedFileUrl: row.redacted_file_url as string | null,
-  entityTaskId: row.entity_task_id as string | null,
-  entityTaskStatus: row.entity_task_status as string | null,
   chapterId: row.chapter_id as string | null,
   aiSummary: row.ai_summary as string | null,
   aiClassifiedAt: row.ai_classified_at as string | null,
@@ -109,17 +100,14 @@ export function useFiles(projectId: string | undefined) {
       return (data || []).map(transformFile);
     },
     enabled: !!user && !!projectId,
-    // 当有 pending/processing 状态的文件时，每 5 秒轮询一次
+    // 当有 pending/processing 状态的 OCR 任务时，每 5 秒轮询一次
     refetchInterval: (query) => {
       const files = query.state.data;
       if (!files) return false;
       const hasPendingOcr = files.some(
         (f) => f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing"
       );
-      const hasPendingEntity = files.some(
-        (f) => f.entityTaskStatus === "pending" || f.entityTaskStatus === "processing"
-      );
-      return hasPendingOcr || hasPendingEntity ? 5000 : false;
+      return hasPendingOcr ? 5000 : false;
     },
   });
 
