@@ -76,7 +76,8 @@ async function callAI(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
+    const gatewayUrl = (Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn").replace(/\/$/, "");
+    const response = await fetch(`${gatewayUrl}/api/ai/execute`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -812,13 +813,13 @@ ${allFilesContent}
 =====================================================
 
 1. **投资场景导向**：报告为投资方决策服务，重点揭示投资风险、交易条款设计建议及投后管理要点
-2. **事实来源封闭**：所有事实必须来自数据室文件，严禁推测或编造
+2. **事实来源封闭**：所有事实必��来自数据室文件，严禁推测或编造
 3. **法律语言规范**：使用正式法律用语，如“经核查……”、“根据……我们注意到……”
 4. **缺失数据处理**：明确标注“尚未获取相关资料”或“建议在交割前补充检索”
 5. **引用规范**：每项核查必须标注来源文件名称
 
 =====================================================
-二、深度风险挖掘要求（必须覆盖）
+二、���度风险挖掘要求（必须覆盖）
 =====================================================
 
 **资本与股权类**：

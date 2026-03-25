@@ -149,7 +149,8 @@ ${fileList}
 
     logStep("Calling OOOK AI Gateway for mapping", { capability: "ai.general_user_defined" });
 
-    const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
+    const gatewayUrl = (Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn").replace(/\/$/, "");
+    const response = await fetch(`${gatewayUrl}/api/ai/execute`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
