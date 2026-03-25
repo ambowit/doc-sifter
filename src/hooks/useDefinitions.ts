@@ -285,7 +285,13 @@ export function useRegenerateDefinitions() {
       const { data, error } = await invokeWithTimeout<{
         success: boolean;
         metadata?: {
-          definitions?: Array<{ name: string; shortName: string; description?: string }>;
+          definitions?: Array<{ 
+            fullName?: string;  // API 返回 fullName
+            name?: string;      // 兼容旧格式
+            shortName: string; 
+            description?: string;
+            type?: string;
+          }>;
         };
       }>("generate-report", { projectId, mode: "metadata" }, 60000);
 
@@ -322,10 +328,12 @@ export function useRegenerateDefinitions() {
         return [];
       }
 
-      // Validate and transform definitions
+      // Validate and transform definitions - 支持 fullName 或 name 字段
       const validDefinitions = definitions.filter(
-        (def: { name?: string; shortName?: string }) => 
-          def && typeof def.name === "string" && typeof def.shortName === "string"
+        (def: { fullName?: string; name?: string; shortName?: string }) => 
+          def && 
+          (typeof def.fullName === "string" || typeof def.name === "string") && 
+          typeof def.shortName === "string"
       );
 
       if (validDefinitions.length === 0) {
@@ -411,9 +419,9 @@ export function useRegenerateDefinitions() {
       };
 
       const definitionsToInsert = validDefinitions.map((def: {
-        name: string;        // AI returns: full name (e.g., "本法律尽职调查报告")
-        shortName: string;   // AI returns: short name (e.g., "本报告")
-        fullName?: string;   // Alternative field name for full name
+        name?: string;       // 旧格式: full name
+        fullName?: string;   // 新格式: full name (API 实际返回)
+        shortName: string;   // short name
         description?: string;
         type?: string;
       }) => {
