@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import type { JobStatus } from "@/hooks/useReportJob";
@@ -22,7 +21,6 @@ const ACTIVE_JOB_QUERY_STALE_TIME = 1000 * 2; // 2 秒刷新一次
 
 export function useActiveReportJob(projectId: string | undefined) {
   const { user } = useAuth();
-  const [isPolling, setIsPolling] = useState(false);
 
   const query = useQuery({
     queryKey: ["activeReportJob", projectId, user?.id],
@@ -98,14 +96,11 @@ export function useActiveReportJob(projectId: string | undefined) {
     },
   });
 
-  // 更新 polling 状态
-  useEffect(() => {
-    const job = query.data;
-    setIsPolling(!!job && (job.status === "queued" || job.status === "running"));
-  }, [query.data]);
+  const job = query.data;
+  const isPolling = !!job && (job.status === "queued" || job.status === "running");
 
   return {
-    job: query.data,
+    job,
     isPolling,
     isLoading: query.isLoading,
     refetch: query.refetch,
