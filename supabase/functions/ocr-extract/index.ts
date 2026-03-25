@@ -35,15 +35,12 @@ async function hmacSign(secret: string, canonical: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// 提交 PDF 到 Worker 异步处理
-async function submitPdfToWorker(
+// 使用 Worker /extract-text 同步接口提取 PDF 文本
+async function extractPdfWithWorker(
   fileId: string,
   fileUrl: string,
-  fileName: string,
-  mimeType: string
-): Promise<{ taskId: string }> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  fileName: string
+): Promise<{ text: string; summary: string; pageCount: number; isScanned: boolean }> {
   const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
   const hmacSecret = Deno.env.get("WORKER_HMAC_SECRET");
 
@@ -51,16 +48,10 @@ async function submitPdfToWorker(
     throw new Error("WORKER_HMAC_SECRET not configured");
   }
 
-  const callbackUrl = `${supabaseUrl}/functions/v1/ocr-callback`;
-
-  // task_type=ocr 表示只需要文本提取，不需要脱敏
+  // Worker /extract-text 接口参数
   const payload = JSON.stringify({
     file_url: fileUrl,
-    file_id: fileId,
-    file_name: fileName || "document.pdf",
-    mime_type: mimeType || "application/pdf",
-    task_type: "ocr",
-    callback_url: callbackUrl,
+    max_chars: 120000, // 最大提取字符数
   });
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -68,48 +59,59 @@ async function submitPdfToWorker(
   const canonical = `${timestamp}.${nonce}.${payload}`;
   const signature = await hmacSign(hmacSecret, canonical);
 
-  logStep("Submitting PDF to Worker", { fileId, fileName, callbackUrl });
+  logStep("Extracting PDF with Worker", { fileId, fileName, url: `${workerBase}/extract-text` });
 
-  const workerRes = await fetch(`${workerBase}/tasks`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Timestamp": timestamp,
-      "X-Nonce": nonce,
-      "X-Signature": signature,
-    },
-    body: payload,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
 
-  const responseText = await workerRes.text();
-  logStep("Worker response", { status: workerRes.status, bodyPrefix: responseText.substring(0, 200) });
-
-  let workerData;
   try {
-    workerData = JSON.parse(responseText);
-  } catch {
-    throw new Error(`Worker returned non-JSON: ${responseText.substring(0, 100)}`);
+    const workerRes = await fetch(`${workerBase}/extract-text`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Timestamp": timestamp,
+        "X-Nonce": nonce,
+        "X-Signature": signature,
+      },
+      body: payload,
+      signal: controller.signal,
+    });
+
+    const responseText = await workerRes.text();
+    logStep("Worker response", { status: workerRes.status, bodyLength: responseText.length });
+
+    let workerData;
+    try {
+      workerData = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Worker 返回非 JSON: ${responseText.substring(0, 100)}`);
+    }
+
+    // 检查错误状态
+    if (!workerRes.ok || workerData.status === "error") {
+      const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
+      throw new Error(errMsg);
+    }
+
+    // 解析结果 - Worker 返回格式可能是 { result: {...} } 或直接 {...}
+    const result = workerData.result || workerData;
+    const text = result.text || "";
+    const pageCount = result.page_count || 0;
+    const isScanned = result.is_scanned_document || false;
+
+    // 生成摘要（取前200字）
+    const summary = text.substring(0, 200).replace(/\s+/g, " ").trim();
+
+    logStep("PDF extraction complete", { 
+      textLength: text.length, 
+      pageCount, 
+      isScanned 
+    });
+
+    return { text, summary, pageCount, isScanned };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  if (!workerRes.ok || workerData.status === "error") {
-    const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
-    throw new Error(`Worker error: ${errMsg}`);
-  }
-
-  const taskId = workerData.task_id || workerData.id;
-
-  // 更新数据库状态
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  await supabase
-    .from("files")
-    .update({
-      ocr_task_id: taskId,
-      ocr_task_status: "pending",
-      ocr_task_started_at: new Date().toISOString(),
-    })
-    .eq("id", fileId);
-
-  return { taskId };
 }
 
 // Convert ArrayBuffer to base64
@@ -362,51 +364,59 @@ serve(async (req) => {
       );
     }
 
-    // PDF 文件走 Worker 异步处理（无大小限制）
+    // 初始化 Supabase 客户端
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    let extractedText = "";
+    let textSummary = "";
+    let extractedEntities: string[] = [];
+
+    // PDF 文件使用 Worker /extract-text 同步处理
     if (isPdf) {
-      logStep("PDF detected, submitting to Worker for async processing");
+      logStep("PDF detected, extracting with Worker");
       try {
-        const { taskId } = await submitPdfToWorker(fileId, fileUrl, fileName, mimeType);
-        return new Response(
-          JSON.stringify({ 
-            success: true, 
-            async: true,
-            taskId,
-            message: "PDF 已提交异步处理，结果将通过回调更新"
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 202 }
-        );
+        const pdfResult = await extractPdfWithWorker(fileId, fileUrl, fileName);
+        extractedText = pdfResult.text;
+        textSummary = pdfResult.summary;
+        // Worker 不返回实体，留空
+        extractedEntities = [];
+        
+        logStep("PDF OCR complete", { 
+          textLength: extractedText.length, 
+          pageCount: pdfResult.pageCount,
+          isScanned: pdfResult.isScanned
+        });
       } catch (workerError) {
         const errMsg = workerError instanceof Error ? workerError.message : String(workerError);
-        logStep("Worker submission failed", { error: errMsg });
+        logStep("Worker extraction failed", { error: errMsg });
         return new Response(
           JSON.stringify({ error: `PDF 处理失败: ${errMsg}` }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
         );
       }
+    } else {
+      // 图片文件使用 AI Gateway 同步处理
+      logStep("Image detected, processing with AI Gateway");
+      const imageResult = await extractImageTextWithAI(apiKey, fileUrl, mimeType, fileName);
+      extractedText = imageResult.text;
+      textSummary = imageResult.summary;
+      extractedEntities = imageResult.entities;
+      
+      logStep("Image OCR complete", { 
+        textLength: extractedText.length, 
+        entitiesCount: extractedEntities.length 
+      });
     }
-
-    // 图片文件使用 AI Gateway 同步处理
-    logStep("Image detected, processing with AI Gateway");
-    const result = await extractImageTextWithAI(apiKey, fileUrl, mimeType, fileName);
-    
-    logStep("OCR complete", { 
-      textLength: result.text.length, 
-      entitiesCount: result.entities.length 
-    });
-
-    // Initialize Supabase client to update file record
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Update file record with extracted text
     const { error: updateError } = await supabase
       .from("files")
       .update({
-        extracted_text: result.text.substring(0, 50000), // Limit to 50K chars
-        text_summary: result.summary,
-        extracted_entities: result.entities,
+        extracted_text: extractedText.substring(0, 50000), // Limit to 50K chars
+        text_summary: textSummary,
+        extracted_entities: extractedEntities,
         ocr_processed: true,
         ocr_processed_at: new Date().toISOString()
       })
@@ -417,9 +427,9 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           error: `保存结果失败: ${updateError.message}`,
-          text: result.text,
-          summary: result.summary,
-          entities: result.entities
+          text: extractedText,
+          summary: textSummary,
+          entities: extractedEntities
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
       );
@@ -430,9 +440,9 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        text: result.text,
-        summary: result.summary,
-        entities: result.entities
+        text: extractedText,
+        summary: textSummary,
+        entities: extractedEntities
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
