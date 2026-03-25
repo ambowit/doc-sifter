@@ -18,11 +18,99 @@ interface OCRRequest {
   fileName: string;
 }
 
-// Max file size for OCR processing
-// Note: base64 encoding increases size by ~33%, plus JSON overhead
-// AI Gateway typically has 10MB request limit, so we cap at 5MB for PDF, 3MB for images
-const MAX_PDF_SIZE = 5 * 1024 * 1024;   // 5MB -> ~7MB base64
-const MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB -> ~4MB base64
+// 图片文件大小限制 (3MB)
+const MAX_IMAGE_SIZE = 3 * 1024 * 1024;
+
+// HMAC 签名函数
+async function hmacSign(secret: string, canonical: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(canonical));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// 提交 PDF 到 Worker 异步处理
+async function submitPdfToWorker(
+  fileId: string,
+  fileUrl: string,
+  fileName: string,
+  mimeType: string
+): Promise<{ taskId: string }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
+  const hmacSecret = Deno.env.get("WORKER_HMAC_SECRET");
+
+  if (!hmacSecret) {
+    throw new Error("WORKER_HMAC_SECRET not configured");
+  }
+
+  const callbackUrl = `${supabaseUrl}/functions/v1/ocr-callback`;
+
+  // task_type=ocr 表示只需要文本提取，不需要脱敏
+  const payload = JSON.stringify({
+    file_url: fileUrl,
+    file_id: fileId,
+    file_name: fileName || "document.pdf",
+    mime_type: mimeType || "application/pdf",
+    task_type: "ocr",
+    callback_url: callbackUrl,
+  });
+
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID();
+  const canonical = `${timestamp}.${nonce}.${payload}`;
+  const signature = await hmacSign(hmacSecret, canonical);
+
+  logStep("Submitting PDF to Worker", { fileId, fileName, callbackUrl });
+
+  const workerRes = await fetch(`${workerBase}/tasks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Timestamp": timestamp,
+      "X-Nonce": nonce,
+      "X-Signature": signature,
+    },
+    body: payload,
+  });
+
+  const responseText = await workerRes.text();
+  logStep("Worker response", { status: workerRes.status, bodyPrefix: responseText.substring(0, 200) });
+
+  let workerData;
+  try {
+    workerData = JSON.parse(responseText);
+  } catch {
+    throw new Error(`Worker returned non-JSON: ${responseText.substring(0, 100)}`);
+  }
+
+  if (!workerRes.ok || workerData.status === "error") {
+    const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
+    throw new Error(`Worker error: ${errMsg}`);
+  }
+
+  const taskId = workerData.task_id || workerData.id;
+
+  // 更新数据库状态
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  await supabase
+    .from("files")
+    .update({
+      ocr_task_id: taskId,
+      ocr_task_status: "pending",
+      ocr_task_started_at: new Date().toISOString(),
+    })
+    .eq("id", fileId);
+
+  return { taskId };
+}
 
 // Convert ArrayBuffer to base64
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -74,8 +162,8 @@ async function downloadAsBase64(
   }
 }
 
-// Call SuperunAI with image/document for OCR with retry
-async function extractTextWithAI(
+// 使用 AI Gateway 处理图片 OCR（仅图片，PDF 走 Worker）
+async function extractImageTextWithAI(
   apiKey: string,
   fileUrl: string,
   mimeType: string,
@@ -83,28 +171,11 @@ async function extractTextWithAI(
   retries = 2
 ): Promise<{ text: string; summary: string; entities: string[] }> {
   
-  const isImage = mimeType.startsWith("image/");
-  const isPdf = mimeType === "application/pdf";
-  const maxSize = isPdf ? MAX_PDF_SIZE : MAX_IMAGE_SIZE;
-  
-  // For PDF files, we need to download and convert to base64
-  let imageUrl = fileUrl;
-  let fileSize = 0;
-  
-  if (isPdf) {
-    logStep("Downloading PDF for base64 conversion");
-    const result = await downloadAsBase64(fileUrl, mimeType, maxSize);
-    imageUrl = result.data;
-    fileSize = result.size;
-    logStep("PDF converted to base64", { sizeMB: Math.round(fileSize / 1024 / 1024 * 10) / 10 });
-  } else if (isImage) {
-    // For images, check size first
-    logStep("Downloading image for size check");
-    const result = await downloadAsBase64(fileUrl, mimeType, maxSize);
-    imageUrl = result.data;
-    fileSize = result.size;
-    logStep("Image loaded", { sizeMB: Math.round(fileSize / 1024 / 1024 * 10) / 10 });
-  }
+  // 下载图片并转 base64
+  logStep("Downloading image for OCR");
+  const result = await downloadAsBase64(fileUrl, mimeType, MAX_IMAGE_SIZE);
+  const imageUrl = result.data;
+  logStep("Image loaded", { sizeMB: Math.round(result.size / 1024 / 1024 * 10) / 10 });
   
   // Build message content with image
   const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
@@ -258,19 +329,14 @@ serve(async (req) => {
       );
     }
 
-    // Check if mime type is supported
+    // 判断文件类型
     const supportedImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
-    const supportedDocTypes = ["application/pdf"];
-    const allSupportedTypes = [...supportedImageTypes, ...supportedDocTypes];
+    const isPdf = mimeType === "application/pdf" || mimeType.includes("pdf");
+    const isImage = supportedImageTypes.some(t => mimeType.includes(t.split("/")[1]) || mimeType === t);
     
-    const isSupported = allSupportedTypes.some(t => 
-      mimeType.includes(t.split("/")[1]) || mimeType === t
-    );
-    
-    if (!isSupported) {
+    if (!isPdf && !isImage) {
       logStep("Unsupported file type", { mimeType });
       
-      // Update database to mark as processed (but skipped)
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -296,9 +362,33 @@ serve(async (req) => {
       );
     }
 
-    // Extract text using AI vision
-    logStep("Starting OCR extraction");
-    const result = await extractTextWithAI(apiKey, fileUrl, mimeType, fileName);
+    // PDF 文件走 Worker 异步处理（无大小限制）
+    if (isPdf) {
+      logStep("PDF detected, submitting to Worker for async processing");
+      try {
+        const { taskId } = await submitPdfToWorker(fileId, fileUrl, fileName, mimeType);
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            async: true,
+            taskId,
+            message: "PDF 已提交异步处理，结果将通过回调更新"
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 202 }
+        );
+      } catch (workerError) {
+        const errMsg = workerError instanceof Error ? workerError.message : String(workerError);
+        logStep("Worker submission failed", { error: errMsg });
+        return new Response(
+          JSON.stringify({ error: `PDF 处理失败: ${errMsg}` }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+        );
+      }
+    }
+
+    // 图片文件使用 AI Gateway 同步处理
+    logStep("Image detected, processing with AI Gateway");
+    const result = await extractImageTextWithAI(apiKey, fileUrl, mimeType, fileName);
     
     logStep("OCR complete", { 
       textLength: result.text.length, 
