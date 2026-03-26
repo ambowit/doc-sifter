@@ -80,6 +80,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import mammoth from "mammoth";
 
 interface UploadingFile {
   file: File;
@@ -167,6 +168,8 @@ export default function FileUpload() {
     type: FileType;
     downloadUrl?: string;
   } | null>(null);
+  const [wordPreviewHtml, setWordPreviewHtml] = useState<string | null>(null);
+  const [isConvertingWord, setIsConvertingWord] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<{
     id?: string;
@@ -502,15 +505,18 @@ export default function FileUpload() {
     return [
       "jpg", "jpeg", "png", "gif", "bmp", "webp",
       "pdf", "txt", "html", "htm",
+      "doc", "docx", "xls", "xlsx",
     ].includes(ext);
   };
 
   // Get preview content type
-  const getPreviewType = (fileName: string): "image" | "pdf" | "text" | "unsupported" => {
+  const getPreviewType = (fileName: string): "image" | "pdf" | "text" | "word" | "excel" | "unsupported" => {
     const ext = fileName.split(".").pop()?.toLowerCase() || "";
     if (["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(ext)) return "image";
     if (ext === "pdf") return "pdf";
     if (["txt", "html", "htm", "xml", "json", "csv"].includes(ext)) return "text";
+    if (["doc", "docx"].includes(ext)) return "word";
+    if (["xls", "xlsx"].includes(ext)) return "excel";
     return "unsupported";
   };
 
@@ -538,10 +544,34 @@ export default function FileUpload() {
       return;
     }
 
+    // Reset Word preview state
+    setWordPreviewHtml(null);
+    
+    // Set preview file
     setPreviewFile({
       ...file,
       downloadUrl,
     });
+    
+    // If it's a Word file, convert to HTML
+    const previewType = getPreviewType(file.name);
+    if (previewType === "word") {
+      setIsConvertingWord(true);
+      try {
+        const response = await fetch(downloadUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setWordPreviewHtml(result.value);
+        if (result.messages.length > 0) {
+          console.log("[FileUpload] Word conversion messages:", result.messages);
+        }
+      } catch (err) {
+        console.error("[FileUpload] Word conversion error:", err);
+        toast.error("Word 文件转换失败");
+      } finally {
+        setIsConvertingWord(false);
+      }
+    }
   };
 
   // Handle deleting an uploaded file
@@ -1985,6 +2015,68 @@ export default function FileUpload() {
                     className="w-full h-[60vh] rounded-lg border bg-white"
                     title={previewFile.name}
                   />
+                );
+              }
+              
+              // Word 文档预览
+              if (previewType === "word") {
+                if (isConvertingWord) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                      <Loader2 className="w-12 h-12 mb-4 animate-spin text-primary" />
+                      <p>正在转换 Word 文档...</p>
+                    </div>
+                  );
+                }
+                
+                if (wordPreviewHtml) {
+                  return (
+                    <div className="bg-white border rounded-lg p-6 max-h-[60vh] overflow-auto">
+                      <div 
+                        className="prose prose-sm max-w-none word-preview"
+                        dangerouslySetInnerHTML={{ __html: wordPreviewHtml }}
+                        style={{
+                          fontSize: '12pt',
+                          lineHeight: 1.6,
+                        }}
+                      />
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <AlertTriangle className="w-12 h-12 mb-4 text-amber-500" />
+                    <p className="mb-4">Word 文件转换失败</p>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-primary hover:underline"
+                    >
+                      <Download className="w-4 h-4" />
+                      下载文件
+                    </a>
+                  </div>
+                );
+              }
+              
+              // Excel 预览提示
+              if (previewType === "excel") {
+                return (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <FileSpreadsheet className="w-16 h-16 mb-4 text-green-600" />
+                    <p className="mb-4">Excel 文件暂不支持在线预览</p>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-primary hover:underline"
+                    >
+                      <Download className="w-4 h-4" />
+                      下载文件
+                    </a>
+                  </div>
                 );
               }
 
