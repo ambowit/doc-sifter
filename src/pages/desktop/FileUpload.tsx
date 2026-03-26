@@ -6,8 +6,6 @@ import {
   useFiles,
   useCreateFile,
   useDeleteFile,
-  useClassifyFiles,
-  useClassifyFilesWithProgress,
   useUpdateFileChapter,
   uploadFile,
   detectFileType,
@@ -24,13 +22,6 @@ import {
   detectArchiveType,
 } from "@/lib/archiveExtractor";
 import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
-import {
-  useFileSections,
-  useParseDocumentStructure,
-  useMatchSectionsToChapters,
-  useBatchParseDocumentStructure,
-  type FileSectionWithChapter,
-} from "@/hooks/useFileSections";
 
 
 import { Button } from "@/components/ui/button";
@@ -80,11 +71,7 @@ import {
   Unlink,
 
   ShieldCheck,
-  Brain,
   Sparkles,
-  List,
-  Link2,
-  FileSearch,
 } from "lucide-react";
 import {
   Dialog,
@@ -94,7 +81,6 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import mammoth from "mammoth";
-import { AIClassifyDialog } from "@/components/AIClassifyDialog";
 
 interface UploadingFile {
   file: File;
@@ -158,35 +144,11 @@ export default function FileUpload() {
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
   const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
-  const { data: fileSections = [], isLoading: sectionsLoading } = useFileSections(currentProjectId || undefined);
 
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
-  const classifyMutation = useClassifyFiles();
   const updateFileChapterMutation = useUpdateFileChapter();
-  
-  // 自动分类 hook
-  const { 
-    progress: classifyProgress, 
-    start: startClassify, 
-    pause: pauseClassify, 
-    resume: resumeClassify, 
-    cancel: cancelClassify, 
-    reset: resetClassify 
-  } = useClassifyFilesWithProgress();
-  
-  // 文档结构解析 hooks
-  const parseDocumentMutation = useParseDocumentStructure();
-  const matchSectionsMutation = useMatchSectionsToChapters();
-  const {
-    progress: parseProgress,
-    start: startBatchParse,
-    pause: pauseParse,
-    resume: resumeParse,
-    cancel: cancelParse,
-    reset: resetParse,
-  } = useBatchParseDocumentStructure();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -209,14 +171,6 @@ export default function FileUpload() {
   const [isConvertingWord, setIsConvertingWord] = useState(false);
   const [isClearingAllFiles, setIsClearingAllFiles] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showAutoClassifyDialog, setShowAutoClassifyDialog] = useState(false);
-  const [pendingClassifyFiles, setPendingClassifyFiles] = useState<string[]>([]); // 待分类的文件 ID
-  
-  // 结构化视图状态
-  const [viewMode, setViewMode] = useState<"files" | "structure">("files"); // 文件列表 or 结构化视图
-  const [selectedFileForStructure, setSelectedFileForStructure] = useState<string | null>(null);
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
-  const [showParseDialog, setShowParseDialog] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<{
     id?: string;
@@ -750,53 +704,6 @@ export default function FileUpload() {
       toast.warning(`清除完成: ${successCount}/${totalCount} 个文件成功，${errorCount} 个失败`);
     }
   };
-
-  // 启动自动分类
-  const handleStartAutoClassify = useCallback(async () => {
-    if (!currentProjectId || chapters.length === 0) return;
-    
-    // 获取需要分类的文件（未分类且有 extractedText 或 textSummary）
-    const filesToClassify = uploadedFiles
-      .filter(f => {
-        // 如果有待分类文件列表，只分类这些文件
-        if (pendingClassifyFiles.length > 0) {
-          return f.id && pendingClassifyFiles.includes(f.id) && !f.chapterId;
-        }
-        // 否则分类所有未分类的文件
-        return f.id && !f.chapterId;
-      })
-      .map(f => ({
-        id: f.id!,
-        name: f.name,
-        extractedText: (f as any).extractedText || null,
-        textSummary: (f as any).textSummary || null,
-      }));
-    
-    if (filesToClassify.length === 0) {
-      toast.info("没有需要分类的文件");
-      setShowAutoClassifyDialog(false);
-      setPendingClassifyFiles([]);
-      return;
-    }
-    
-    // 准备章节数据
-    const chaptersData = chapters.map(ch => ({
-      id: ch.id,
-      number: ch.number || "",
-      title: ch.title,
-      level: ch.level,
-    }));
-    
-    // 启动分类
-    await startClassify({
-      projectId: currentProjectId,
-      files: filesToClassify,
-      chapters: chaptersData,
-    });
-    
-    // 分类完成后清理
-    setPendingClassifyFiles([]);
-  }, [currentProjectId, chapters, uploadedFiles, pendingClassifyFiles, startClassify]);
 
   // Handle batch OCR extraction
   const handleBatchOcr = async (
@@ -1400,40 +1307,9 @@ export default function FileUpload() {
       {/* Data Room Panel */}
       <div className="flex-1 flex flex-col border border-border rounded overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="w-4 h-4 text-muted-foreground" />
-                      <span className="font-semibold text-[13px]">尽调资料数据室</span>
-                    </div>
-                    {/* 视图切换 */}
-                    {uploadedFiles.length > 0 && (
-                      <div className="flex items-center border border-border rounded overflow-hidden">
-                        <button
-                          onClick={() => setViewMode("files")}
-                          className={cn(
-                            "px-2 py-1 text-[10px] flex items-center gap-1 transition-colors",
-                            viewMode === "files"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-background text-muted-foreground hover:bg-muted"
-                          )}
-                        >
-                          <List className="w-3 h-3" />
-                          文件
-                        </button>
-                        <button
-                          onClick={() => setViewMode("structure")}
-                          className={cn(
-                            "px-2 py-1 text-[10px] flex items-center gap-1 transition-colors",
-                            viewMode === "structure"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-background text-muted-foreground hover:bg-muted"
-                          )}
-                        >
-                          <BookOpen className="w-3 h-3" />
-                          结构
-                        </button>
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-semibold text-[13px]">尽调资料数据室</span>
                   </div>
                   <div className="flex items-center gap-2">
                   {uploadedFiles.length > 0 && (
@@ -1446,41 +1322,6 @@ export default function FileUpload() {
                         <CheckCircle2 className="w-3 h-3" />
                         {uploadedFiles.length} 个文件
                       </motion.span>
-                      {/* 解析结构按钮 */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px] text-blue-600 hover:text-blue-600 hover:bg-blue-50"
-                        onClick={() => setShowParseDialog(true)}
-                        disabled={parseProgress.isRunning}
-                      >
-                        {parseProgress.isRunning ? (
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        ) : (
-                          <FileSearch className="w-3 h-3 mr-1" />
-                        )}
-                        解析结构
-                      </Button>
-                      {/* 智能分类按钮 - 只在有章节模板且有未分类文件时显示 */}
-                      {chapters.length > 0 && uploadedFiles.some(f => f.id && !f.chapterId) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
-                          onClick={() => {
-                            setPendingClassifyFiles([]);
-                            setShowAutoClassifyDialog(true);
-                          }}
-                          disabled={classifyProgress.isRunning}
-                        >
-                          {classifyProgress.isRunning ? (
-                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          ) : (
-                            <Brain className="w-3 h-3 mr-1" />
-                          )}
-                          智能分类
-                        </Button>
-                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1653,175 +1494,8 @@ export default function FileUpload() {
                 </div>
               )}
 
-              {/* 结构化视图 */}
-              {viewMode === "structure" && uploadedFiles.length > 0 && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    文档结构视图
-                  </div>
-                  
-                  {sectionsLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : fileSections.length === 0 ? (
-                    <div className="text-center py-8">
-                      <FileSearch className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                      <p className="text-sm text-muted-foreground mb-2">暂无文档结构数据</p>
-                      <p className="text-xs text-muted-foreground mb-4">请先点击"解析结构"按钮分析文档</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowParseDialog(true)}
-                      >
-                        <FileSearch className="w-4 h-4 mr-2" />
-                        解析结构
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-4 h-[500px]">
-                      {/* 左侧：文件列表和章节树 */}
-                      <div className="w-1/3 border border-border rounded-lg overflow-hidden flex flex-col">
-                        <div className="px-3 py-2 bg-muted/30 border-b border-border text-[11px] font-medium">
-                          文档章节目录
-                        </div>
-                        <div className="flex-1 overflow-auto">
-                          {/* 按文件分组显示章节 */}
-                          {uploadedFiles
-                            .filter(f => f.id && fileSections.some(s => s.file_id === f.id))
-                            .map(file => {
-                              const fileSecList = fileSections.filter(s => s.file_id === file.id);
-                              const isExpanded = selectedFileForStructure === file.id;
-                              
-                              return (
-                                <div key={file.id} className="border-b border-border last:border-b-0">
-                                  {/* 文件标题 */}
-                                  <button
-                                    onClick={() => setSelectedFileForStructure(isExpanded ? null : file.id!)}
-                                    className={cn(
-                                      "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors",
-                                      isExpanded && "bg-muted/50"
-                                    )}
-                                  >
-                                    {isExpanded ? (
-                                      <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                    ) : (
-                                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                    )}
-                                    {getFileIcon(file.name)}
-                                    <span className="flex-1 text-[12px] truncate">{file.name}</span>
-                                    <Badge variant="secondary" className="text-[9px] flex-shrink-0">
-                                      {fileSecList.length} 章节
-                                    </Badge>
-                                  </button>
-                                  
-                                  {/* 章节列表 */}
-                                  {isExpanded && (
-                                    <div className="bg-muted/20">
-                                      {fileSecList.map(section => (
-                                        <button
-                                          key={section.id}
-                                          onClick={() => setSelectedSectionId(section.id)}
-                                          className={cn(
-                                            "w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors",
-                                            selectedSectionId === section.id && "bg-primary/10 border-l-2 border-primary"
-                                          )}
-                                          style={{ paddingLeft: `${12 + section.level * 12}px` }}
-                                        >
-                                          <span className="text-[11px] text-muted-foreground w-4">{section.level}.</span>
-                                          <span className="flex-1 text-[11px] truncate">{section.title}</span>
-                                          {section.matched_chapter_id && (
-                                            <Link2 className="w-3 h-3 text-green-600 flex-shrink-0" />
-                                          )}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          
-                          {/* 未解析的文件 */}
-                          {uploadedFiles
-                            .filter(f => f.id && !fileSections.some(s => s.file_id === f.id))
-                            .length > 0 && (
-                            <div className="border-t border-border">
-                              <div className="px-3 py-2 text-[10px] text-muted-foreground bg-amber-50">
-                                以下文件尚未解析结构：
-                              </div>
-                              {uploadedFiles
-                                .filter(f => f.id && !fileSections.some(s => s.file_id === f.id))
-                                .map(file => (
-                                  <div key={file.id} className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
-                                    {getFileIcon(file.name)}
-                                    <span className="flex-1 text-[11px] truncate">{file.name}</span>
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* 右侧：章节内容预览 */}
-                      <div className="flex-1 border border-border rounded-lg overflow-hidden flex flex-col">
-                        <div className="px-3 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
-                          <span className="text-[11px] font-medium">章节内容预览</span>
-                          {selectedSectionId && (() => {
-                            const section = fileSections.find(s => s.id === selectedSectionId);
-                            return section?.matched_chapter_id ? (
-                              <Badge variant="secondary" className="text-[9px] bg-green-100 text-green-700">
-                                <Link2 className="w-3 h-3 mr-1" />
-                                已匹配
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[9px]">
-                                未匹配
-                              </Badge>
-                            );
-                          })()}
-                        </div>
-                        <div className="flex-1 overflow-auto p-4">
-                          {selectedSectionId ? (() => {
-                            const section = fileSections.find(s => s.id === selectedSectionId);
-                            if (!section) return null;
-                            
-                            return (
-                              <div>
-                                <h3 className="text-base font-semibold mb-2">{section.title}</h3>
-                                {section.chapter && (
-                                  <div className="mb-3 p-2 bg-green-50 border border-green-100 rounded text-[11px]">
-                                    <span className="text-muted-foreground">匹配到模板章节：</span>
-                                    <span className="ml-1 font-medium text-green-700">
-                                      {section.chapter.number} {section.chapter.title}
-                                    </span>
-                                    {section.match_confidence && (
-                                      <span className="ml-2 text-green-600">
-                                        (置信度 {section.match_confidence}%)
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                <div className="text-[12px] text-foreground/80 whitespace-pre-wrap leading-relaxed">
-                                  {section.content || "无内容"}
-                                </div>
-                              </div>
-                            );
-                          })() : (
-                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                              <BookOpen className="w-12 h-12 mb-2 opacity-30" />
-                              <p className="text-[13px]">请从左侧选择章节</p>
-                              <p className="text-[11px] mt-1">查看章节详细内容</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
               {/* File Stats */}
-              {viewMode === "files" && uploadedFiles.length > 0 && (
+              {uploadedFiles.length > 0 && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     文件分类统计
@@ -2559,149 +2233,6 @@ export default function FileUpload() {
         </DialogContent>
       </Dialog>
 
-      {/* 解析文档结构对话框 */}
-      <Dialog open={showParseDialog} onOpenChange={setShowParseDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSearch className="w-5 h-5 text-blue-600" />
-              解析文档结构
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground mb-4">
-              AI 将分析已上传文件的内容，自动识别文档章节结构，并将内容按章节切分。
-            </p>
-            
-            {/* 可解析文件统计 */}
-            {(() => {
-              const parsableFiles = uploadedFiles.filter(f => 
-                f.id && (f as any).extractedText && (f as any).extractedText.length > 0
-              );
-              const unparsableFiles = uploadedFiles.filter(f => 
-                !f.id || !(f as any).extractedText || (f as any).extractedText.length === 0
-              );
-              
-              return (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm">可解析文件</span>
-                    </div>
-                    <span className="text-sm font-semibold text-blue-700">{parsableFiles.length} 个</span>
-                  </div>
-                  {unparsableFiles.length > 0 && (
-                    <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-100 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600" />
-                        <span className="text-sm">需先提取文字</span>
-                      </div>
-                      <span className="text-sm font-semibold text-amber-700">{unparsableFiles.length} 个</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-            
-            {/* 解析进度 */}
-            {parseProgress.isRunning && (
-              <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">解析进度</span>
-                  <span className="text-sm text-muted-foreground">
-                    {parseProgress.completed + parseProgress.failed} / {parseProgress.total}
-                  </span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-blue-600 transition-all"
-                    style={{ width: `${((parseProgress.completed + parseProgress.failed) / parseProgress.total) * 100}%` }}
-                  />
-                </div>
-                {parseProgress.current && (
-                  <p className="text-xs text-muted-foreground mt-2 truncate">
-                    正在处理: {parseProgress.current}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-3">
-            <Button
-              variant="outline"
-              onClick={() => setShowParseDialog(false)}
-              disabled={parseProgress.isRunning}
-            >
-              关闭
-            </Button>
-            {parseProgress.isRunning ? (
-              <Button
-                variant="destructive"
-                onClick={cancelParse}
-              >
-                取消
-              </Button>
-            ) : (
-              <Button
-                onClick={async () => {
-                  const parsableFiles = uploadedFiles.filter(f => 
-                    f.id && (f as any).extractedText && (f as any).extractedText.length > 0
-                  );
-                  if (parsableFiles.length === 0) {
-                    toast.error("没有可解析的文件", { description: "请先提取文件文字内容" });
-                    return;
-                  }
-                  await startBatchParse(
-                    parsableFiles.map(f => ({
-                      fileId: f.id!,
-                      projectId: currentProjectId!,
-                      extractedText: (f as any).extractedText,
-                      fileName: f.name,
-                    }))
-                  );
-                  // 解析完成后自动匹配章节
-                  if (chapters.length > 0) {
-                    toast.info("开始智能匹配章节...");
-                    try {
-                      await matchSectionsMutation.mutateAsync({ projectId: currentProjectId! });
-                      toast.success("章节匹配完成");
-                    } catch (err) {
-                      console.error("Match sections error:", err);
-                    }
-                  }
-                  setViewMode("structure");
-                }}
-                disabled={parseProgress.isRunning}
-              >
-                <FileSearch className="w-4 h-4 mr-2" />
-                开始解析
-              </Button>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* AI 自动分类对话框 */}
-      <AIClassifyDialog
-        open={showAutoClassifyDialog}
-        onOpenChange={(open) => {
-          setShowAutoClassifyDialog(open);
-          if (!open) {
-            setPendingClassifyFiles([]);
-          }
-        }}
-        progress={classifyProgress}
-        onStart={handleStartAutoClassify}
-        onPause={pauseClassify}
-        onResume={resumeClassify}
-        onCancel={cancelClassify}
-        onReset={resetClassify}
-        fileCount={pendingClassifyFiles.length > 0 
-          ? uploadedFiles.filter(f => f.id && pendingClassifyFiles.includes(f.id) && !f.chapterId).length
-          : uploadedFiles.filter(f => f.id && !f.chapterId).length
-        }
-      />
     </div>
   );
 }
