@@ -750,13 +750,8 @@ export default function FileUpload() {
         toast.info(`${asyncPending} 个 PDF 文件正在后台处理中，稍后自动更新`, { duration: 5000 });
       }
 
-      // OCR 完成后触发自动分类（如果有待分类文件且有章节模板）
-      if (pendingClassifyFiles.length > 0 && chapters.length > 0 && result.failed === 0 && asyncPending === 0) {
-        toast.info("文件分析完成，正在智能匹配章节...", { duration: 2000 });
-        setTimeout(() => {
-          setShowAutoClassifyDialog(true);
-        }, 1000);
-      } else if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
+      // OCR 完成后自动跳转
+      if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
         // Auto redirect only if ALL succeeded (no async pending and no failed)
         toast.info("正在跳转到定义管理...", { duration: 2000 });
         setTimeout(() => {
@@ -1206,15 +1201,9 @@ export default function FileUpload() {
 
       if (ocrCandidates.length > 0) {
         console.log(`[FileUpload] Auto-triggering OCR for ${ocrCandidates.length} files`);
-        // 保存待分类文件 ID，OCR 完成后触发分类
-        setPendingClassifyFiles(uploadedFileIds);
         setTimeout(() => {
           handleBatchOcr(ocrCandidates, { autoRedirect: true });
         }, 500);
-      } else if (uploadedFileIds.length > 0 && chapters.length > 0) {
-        // 没有 OCR 候选，直接触发自动分类
-        setPendingClassifyFiles(uploadedFileIds);
-        setShowAutoClassifyDialog(true);
       }
     }
     if (failCount > 0) {
@@ -1645,7 +1634,7 @@ export default function FileUpload() {
                           <FileSearch className="w-3.5 h-3.5 mr-1" />
                         )}
                         {parseProgress.isRunning 
-                          ? `解析中 ${parseProgress.completed}/${parseProgress.total}` 
+                          ? `解析�� ${parseProgress.completed}/${parseProgress.total}` 
                           : "解析结构"}
                       </Button>
                     )}
@@ -1994,7 +1983,7 @@ export default function FileUpload() {
                           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                             <FileText className="w-12 h-12 mb-2 opacity-30" />
                             <p className="text-[13px]">该章节暂无文件</p>
-                            <p className="text-[11px] mt-1">可以通过自动匹配或手动添加文件</p>
+                            <p className="text-[11px] mt-1">可以���过自动匹配或手动添加文件</p>
                           </div>
                         ) : (
                           <div className="divide-y">

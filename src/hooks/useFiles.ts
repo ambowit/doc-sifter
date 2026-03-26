@@ -677,11 +677,13 @@ export function useBatchOcrExtract() {
       // Process files sequentially with small delay between requests
       // This avoids overwhelming the Edge Function and reduces timeouts
       for (const file of files) {
+        console.log("[v0] Processing OCR for file:", file.fileName, "mimeType:", file.mimeType);
         try {
           const { data, error } = await supabase.functions.invoke("ocr-extract", {
             body: file,
             headers,
           });
+          console.log("[v0] OCR response:", { data, error });
           
           if (error) {
             results.push({ 
