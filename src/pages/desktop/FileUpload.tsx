@@ -327,59 +327,6 @@ export default function FileUpload() {
     });
   }, []);
 
-  // State for auto-matching
-  const [isAutoMatching, setIsAutoMatching] = useState(false);
-
-  // 使用 AI classify-files 自动匹配文件到章节
-  const autoMatchFilesToChapters = useCallback(async () => {
-    if (!currentProjectId) return;
-    if (existingFiles.length === 0 || chapters.length === 0) {
-      toast.error("没有文件或章节可匹配");
-      return;
-    }
-
-    // 只匹配尚未分配章节的文件
-    const unassignedFiles = existingFiles.filter(f => !f.chapterId);
-    if (unassignedFiles.length === 0) {
-      toast.info("所有文件已有章节所属");
-      return;
-    }
-
-    setIsAutoMatching(true);
-    try {
-      const result = await classifyMutation.mutateAsync({
-        projectId: currentProjectId,
-        files: unassignedFiles.map(f => ({
-          id: f.id,
-          name: f.name,
-          extractedText: f.extractedText ?? null,
-          textSummary: f.textSummary ?? null,
-        })),
-        chapters: chapters.map(c => ({
-          id: c.id,
-          number: c.number || "",
-          title: c.title,
-          level: c.level,
-        })),
-      });
-
-      const matched = result.results
-        ? (result.results as Array<{ chapterId: string | null }>).filter(r => r.chapterId).length
-        : result.classified;
-
-      if (matched > 0) {
-        toast.success(`AI 已自动匹配 ${matched} 个文件`);
-      } else {
-        toast.info("未能自动匹配任何文件，请手动分配");
-      }
-    } catch (err) {
-      console.error("[FileUpload] Auto-match error:", err);
-      toast.error(`自动匹配失败：${err instanceof Error ? err.message : "未知错误"}`);
-    } finally {
-      setIsAutoMatching(false);
-    }
-  }, [currentProjectId, existingFiles, chapters, classifyMutation]);
-
   // Auto-select first chapter on initial load
   useEffect(() => {
     if (!hasInitializedChapter && chapters.length > 0) {
@@ -1595,29 +1542,6 @@ export default function FileUpload() {
                       <Badge variant="secondary" className="text-[10px]">
                         {uploadedFiles.length} 个文件
                       </Badge>
-
-                      {/* Auto-match Button */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-[10px] ml-2"
-                        onClick={autoMatchFilesToChapters}
-                        disabled={isAutoMatching || uploadedFiles.length === 0 || chapters.length === 0}
-                        title={
-                          chapters.length === 0
-                            ? "请先设置报告模板章节结构"
-                            : uploadedFiles.length === 0
-                              ? "请先上传文件"
-                              : "根据文件名自动匹配章节"
-                        }
-                      >
-                        {isAutoMatching ? (
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-3 h-3 mr-1" />
-                        )}
-                        自动匹配
-                      </Button>
                     </div>
                     <Button
                       variant="ghost"
