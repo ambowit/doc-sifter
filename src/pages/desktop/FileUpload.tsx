@@ -170,6 +170,8 @@ export default function FileUpload() {
   } | null>(null);
   const [wordPreviewHtml, setWordPreviewHtml] = useState<string | null>(null);
   const [isConvertingWord, setIsConvertingWord] = useState(false);
+  const [isClearingAllFiles, setIsClearingAllFiles] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<{
     id?: string;
@@ -662,6 +664,45 @@ export default function FileUpload() {
       toast.success(`已删除 ${successCount} 个文件`);
     } else {
       toast.warning(`删除完成: ${successCount}/${totalCount} 个文件`);
+    }
+  };
+
+  // Handle clear all files
+  const handleClearAllFiles = async () => {
+    if (!currentProjectId || uploadedFiles.length === 0) return;
+    
+    setIsClearingAllFiles(true);
+    setShowClearConfirm(false);
+    
+    const totalCount = uploadedFiles.length;
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const file of uploadedFiles) {
+      try {
+        if (file.id) {
+          await deleteFileMutation.mutateAsync({
+            fileId: file.id,
+            projectId: currentProjectId,
+            storagePath: file.storagePath,
+          });
+        }
+        successCount++;
+      } catch (error) {
+        console.error("[FileUpload] Failed to delete file:", file.name, error);
+        errorCount++;
+      }
+    }
+    
+    // 清空本地状态
+    setUploadedFiles([]);
+    setSelectedFiles(new Set());
+    setIsClearingAllFiles(false);
+    
+    if (errorCount === 0) {
+      toast.success(`已清除全部 ${successCount} 个文件`);
+    } else {
+      toast.warning(`清除完成: ${successCount}/${totalCount} 个文件成功，${errorCount} 个失败`);
     }
   };
 
@@ -1196,7 +1237,7 @@ export default function FileUpload() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">数据室文件</h1>
           <p className="text-[13px] text-muted-foreground mt-1">
-            上传尽调资料，AI 自动提取内容后将跳转到定义管理页面
+            上传尽调资料，AI 自动提取内容后将跳转到定义���理页面
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1249,22 +1290,40 @@ export default function FileUpload() {
 
       {/* Data Room Panel */}
       <div className="flex-1 flex flex-col border border-border rounded overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle">
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-muted-foreground" />
-            <span className="font-semibold text-[13px]">尽调资料数据室</span>
-          </div>
-          {uploadedFiles.length > 0 && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              {uploadedFiles.length} 个文件
-            </motion.span>
-          )}
-        </div>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle">
+                  <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-semibold text-[13px]">尽调资料数据室</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                  {uploadedFiles.length > 0 && (
+                    <>
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        {uploadedFiles.length} 个文件
+                      </motion.span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setShowClearConfirm(true)}
+                        disabled={isClearingAllFiles}
+                      >
+                        {isClearingAllFiles ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3 mr-1" />
+                        )}
+                        清除全部
+                      </Button>
+                    </>
+                  )}
+                  </div>
+                  </div>
 
         <div className="flex-1 overflow-auto">
           {uploadedFiles.length === 0 && uploadingFiles.length === 0 ? (
@@ -1950,6 +2009,48 @@ export default function FileUpload() {
           )}
         </div>
       </div>
+
+      {/* Clear All Files Confirm Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              确认清除全部文件
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              此操作将删除数据室中的所有 {uploadedFiles.length} 个文件，删除后无法恢复。
+            </p>
+            <p className="text-sm text-muted-foreground">
+              确定要继续吗？
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearAllFiles}
+              disabled={isClearingAllFiles}
+            >
+              {isClearingAllFiles ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  清除中...
+                </>
+              ) : (
+                "确认清除"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* File Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
