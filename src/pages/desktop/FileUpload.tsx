@@ -2009,10 +2009,27 @@ export default function FileUpload() {
                                     <span>处理中</span>
                                   </span>
                                 ) : file.ocrTaskStatus === "failed" ? (
-                                  <span className="flex items-center gap-1 text-[10px] text-red-500" title="OCR 处理失败">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>失败</span>
-                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const fileToRetry = {
+                                        fileId: file.id!,
+                                        fileName: file.name,
+                                        storagePath: file.storagePath,
+                                        mimeType: file.mimeType || "application/octet-stream",
+                                      };
+                                      handleBatchOcr([fileToRetry]);
+                                    }}
+                                    className="flex items-center gap-1 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-0.5 rounded transition-colors"
+                                    title="点击重新提取"
+                                    disabled={ocrProcessingIds.has(file.id!)}
+                                  >
+                                    {ocrProcessingIds.has(file.id!) ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-3 h-3" />
+                                    )}
+                                    <span>重试</span>
+                                  </button>
                                 ) : file.ocrProcessed ? (
                                   <span className="flex items-center gap-1 text-[10px] text-green-600" title="已完成文字提取">
                                     <CheckCircle className="w-3 h-3" />
