@@ -150,4 +150,69 @@
     .bg-surface-subtle {
         background-color: hsl(var(--surface-subtle));
     }
+    
+    /* Word document preview styles */
+    .word-preview {
+        color: #333;
+    }
+    
+    .word-preview h1 {
+        font-size: 18pt;
+        font-weight: bold;
+        margin: 1.5em 0 0.5em;
+        color: #1a1a1a;
+    }
+    
+    .word-preview h2 {
+        font-size: 14pt;
+        font-weight: bold;
+        margin: 1.2em 0 0.4em;
+        color: #2a2a2a;
+    }
+    
+    .word-preview h3 {
+        font-size: 12pt;
+        font-weight: bold;
+        margin: 1em 0 0.3em;
+        color: #3a3a3a;
+    }
+    
+    .word-preview p {
+        margin: 0.5em 0;
+        text-indent: 2em;
+        text-align: justify;
+    }
+    
+    .word-preview table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1em 0;
+    }
+    
+    .word-preview table td,
+    .word-preview table th {
+        border: 1px solid #ddd;
+        padding: 0.5em;
+    }
+    
+    .word-preview table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }
+    
+    .word-preview ul,
+    .word-preview ol {
+        margin: 0.5em 0;
+        padding-left: 2em;
+    }
+    
+    .word-preview li {
+        margin: 0.25em 0;
+    }
+    
+    .word-preview img {
+        max-width: 100%;
+        height: auto;
+        margin: 1em 0;
+    }
 }

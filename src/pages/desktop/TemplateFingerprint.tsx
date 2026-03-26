@@ -59,6 +59,7 @@ import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/use
 import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
+import mammoth from "mammoth";
 import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
 import {
@@ -613,6 +614,8 @@ export default function TemplateFingerprint() {
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [uploadedFileType, setUploadedFileType] = useState<string | null>(null);
+  const [uploadedFileHtml, setUploadedFileHtml] = useState<string | null>(null);
+  const [isConvertingFile, setIsConvertingFile] = useState(false);
   const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
 
   // Editable styles - each template can be edited independently
@@ -791,7 +794,31 @@ export default function TemplateFingerprint() {
     setUploadedFileUrl(fileUrl);
     setUploadedFileName(file.name);
     setUploadedFileType(file.type);
+    setUploadedFileHtml(null); // 重置 HTML
     setPreviewMode("file"); // 切换到文件预览模式
+    
+    // 如果是 Word 文件，转换为 HTML 预览
+    const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+      || file.type === "application/msword"
+      || file.name.endsWith(".docx")
+      || file.name.endsWith(".doc");
+    
+    if (isWordFile) {
+      setIsConvertingFile(true);
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setUploadedFileHtml(result.value);
+        if (result.messages.length > 0) {
+          console.log("[TemplateFingerprint] Word conversion messages:", result.messages);
+        }
+      } catch (err) {
+        console.error("[TemplateFingerprint] Word conversion error:", err);
+        toast.error("Word 文件预览转换失败", { description: "将继续解析章节结构" });
+      } finally {
+        setIsConvertingFile(false);
+      }
+    }
 
     const validTypes = [
       "application/pdf",
@@ -1543,23 +1570,64 @@ export default function TemplateFingerprint() {
                   
                   {/* 文件预览模式 */}
                   {previewMode === "file" && uploadedFileUrl && (
-                    <div className="flex-1 flex flex-col min-h-0">
-                      {uploadedFileType?.includes("pdf") ? (
+                    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                      {/* PDF 预览 */}
+                      {uploadedFileType?.includes("pdf") && (
                         <iframe
                           src={uploadedFileUrl}
                           className="w-full h-full border-0"
                           title="PDF 预览"
                         />
-                      ) : (
+                      )}
+                      
+                      {/* Word 文件预览 - 转换中 */}
+                      {!uploadedFileType?.includes("pdf") && isConvertingFile && (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+                            <p className="text-sm text-muted-foreground">
+                              正在转换 Word 文档...
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Word 文件预览 - 已转换 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && uploadedFileHtml && (
+                        <ScrollArea className="h-full">
+                          <div className="p-6">
+                            <div className="max-w-3xl mx-auto bg-white border border-border shadow-sm p-8">
+                              <div 
+                                className="prose prose-sm max-w-none word-preview"
+                                dangerouslySetInnerHTML={{ __html: uploadedFileHtml }}
+                                style={{
+                                  fontSize: '12pt',
+                                  lineHeight: 1.6,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </ScrollArea>
+                      )}
+                      
+                      {/* Word 文件预览 - 转换失败 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && !uploadedFileHtml && (
                         <div className="flex-1 flex items-center justify-center p-8">
                           <div className="text-center">
                             <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                            <p className="text-sm text-muted-foreground mb-2">
+                            <p className="text-sm font-medium mb-2">
                               {uploadedFileName}
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              Word 文件预览需要转换，请查看左侧提取的章节结构
+                            <p className="text-xs text-muted-foreground mb-4">
+                              无法预览此文件格式，请切换到"样式效果"查看章节预览
                             </p>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              查看样式效果
+                            </Button>
                           </div>
                         </div>
                       )}
