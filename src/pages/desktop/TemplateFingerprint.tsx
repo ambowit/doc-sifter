@@ -795,7 +795,7 @@ export default function TemplateFingerprint() {
     setUploadedFileName(file.name);
     setUploadedFileType(file.type);
     setUploadedFileHtml(null); // 重置 HTML
-    setPreviewMode("file"); // 切换到文件预览模式
+    // 保持样式效果预览模式，用户可以手动切换到原文件预览
     
     // 如果是 Word 文件，转换为 HTML 预览
     const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
@@ -1330,7 +1330,7 @@ export default function TemplateFingerprint() {
                               />
                             </div>
                             <div>
-                              <Label className="text-[11px]">首行缩进 (cm)</Label>
+                              <Label className="text-[11px]">首���缩进 (cm)</Label>
                               <Input
                                 type="number"
                                 step="0.1"

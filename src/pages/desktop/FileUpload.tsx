@@ -7,6 +7,7 @@ import {
   useCreateFile,
   useDeleteFile,
   useClassifyFiles,
+  useClassifyFilesWithProgress,
   useUpdateFileChapter,
   uploadFile,
   detectFileType,
@@ -72,6 +73,8 @@ import {
   Unlink,
 
   ShieldCheck,
+  Brain,
+  Sparkles,
 } from "lucide-react";
 import {
   Dialog,
@@ -81,6 +84,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import mammoth from "mammoth";
+import { AIClassifyDialog } from "@/components/AIClassifyDialog";
 
 interface UploadingFile {
   file: File;
@@ -150,6 +154,16 @@ export default function FileUpload() {
   const batchOcrMutation = useBatchOcrExtract();
   const classifyMutation = useClassifyFiles();
   const updateFileChapterMutation = useUpdateFileChapter();
+  
+  // 自动分类 hook
+  const { 
+    progress: classifyProgress, 
+    start: startClassify, 
+    pause: pauseClassify, 
+    resume: resumeClassify, 
+    cancel: cancelClassify, 
+    reset: resetClassify 
+  } = useClassifyFilesWithProgress();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -170,6 +184,10 @@ export default function FileUpload() {
   } | null>(null);
   const [wordPreviewHtml, setWordPreviewHtml] = useState<string | null>(null);
   const [isConvertingWord, setIsConvertingWord] = useState(false);
+  const [isClearingAllFiles, setIsClearingAllFiles] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showAutoClassifyDialog, setShowAutoClassifyDialog] = useState(false);
+  const [pendingClassifyFiles, setPendingClassifyFiles] = useState<string[]>([]); // 待分类的文件 ID
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<{
     id?: string;
@@ -665,6 +683,92 @@ export default function FileUpload() {
     }
   };
 
+  // Handle clear all files
+  const handleClearAllFiles = async () => {
+    if (!currentProjectId || uploadedFiles.length === 0) return;
+    
+    setIsClearingAllFiles(true);
+    setShowClearConfirm(false);
+    
+    const totalCount = uploadedFiles.length;
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const file of uploadedFiles) {
+      try {
+        if (file.id) {
+          await deleteFileMutation.mutateAsync({
+            fileId: file.id,
+            projectId: currentProjectId,
+            storagePath: file.storagePath,
+          });
+        }
+        successCount++;
+      } catch (error) {
+        console.error("[FileUpload] Failed to delete file:", file.name, error);
+        errorCount++;
+      }
+    }
+    
+    // 清空本地状态
+    setUploadedFiles([]);
+    setSelectedFiles(new Set());
+    setIsClearingAllFiles(false);
+    
+    if (errorCount === 0) {
+      toast.success(`已清除全部 ${successCount} 个文件`);
+    } else {
+      toast.warning(`清除完成: ${successCount}/${totalCount} 个文件成功，${errorCount} 个失败`);
+    }
+  };
+
+  // 启动自动分类
+  const handleStartAutoClassify = useCallback(async () => {
+    if (!currentProjectId || chapters.length === 0) return;
+    
+    // 获取需要分类的文件（未分类且有 extractedText 或 textSummary）
+    const filesToClassify = uploadedFiles
+      .filter(f => {
+        // 如果有待分类文件列表，只分类这些文件
+        if (pendingClassifyFiles.length > 0) {
+          return f.id && pendingClassifyFiles.includes(f.id) && !f.chapterId;
+        }
+        // 否则分类所有未分类的文件
+        return f.id && !f.chapterId;
+      })
+      .map(f => ({
+        id: f.id!,
+        name: f.name,
+        extractedText: (f as any).extractedText || null,
+        textSummary: (f as any).textSummary || null,
+      }));
+    
+    if (filesToClassify.length === 0) {
+      toast.info("没有需要分类的文件");
+      setShowAutoClassifyDialog(false);
+      setPendingClassifyFiles([]);
+      return;
+    }
+    
+    // 准备章节数据
+    const chaptersData = chapters.map(ch => ({
+      id: ch.id,
+      number: ch.number || "",
+      title: ch.title,
+      level: ch.level,
+    }));
+    
+    // 启动分类
+    await startClassify({
+      projectId: currentProjectId,
+      files: filesToClassify,
+      chapters: chaptersData,
+    });
+    
+    // 分类完成后清理
+    setPendingClassifyFiles([]);
+  }, [currentProjectId, chapters, uploadedFiles, pendingClassifyFiles, startClassify]);
+
   // Handle batch OCR extraction
   const handleBatchOcr = async (
     files: Array<{
@@ -723,8 +827,14 @@ export default function FileUpload() {
         toast.info(`${asyncPending} 个 PDF 文件正在后台处理中，稍后自动更新`, { duration: 5000 });
       }
 
-      // Auto redirect only if ALL succeeded (no async pending and no failed)
-      if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
+      // OCR 完成后触发自动分类（如果有待分类文件且有章节模板）
+      if (pendingClassifyFiles.length > 0 && chapters.length > 0 && result.failed === 0 && asyncPending === 0) {
+        toast.info("文件分析完成，正在智能匹配章节...", { duration: 2000 });
+        setTimeout(() => {
+          setShowAutoClassifyDialog(true);
+        }, 1000);
+      } else if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
+        // Auto redirect only if ALL succeeded (no async pending and no failed)
         toast.info("正在跳转到定义管理...", { duration: 2000 });
         setTimeout(() => {
           navigate(`/project/${projectId}/definitions`);
@@ -1116,6 +1226,11 @@ export default function FileUpload() {
 
     if (successCount > 0) {
       toast.success(`成功上传 ${successCount} 个文件`);
+      
+      // 收集上传成功的文件 ID 用于后续自动分类
+      const uploadedFileIds = results
+        .filter(r => r.success && r.fileId)
+        .map(r => r.fileId!);
 
       const ocrCandidates = results
         .filter(r => r.success && r.downloadUrl && r.mimeType && canExtractFileText(r.mimeType, r.fileName))
@@ -1128,9 +1243,15 @@ export default function FileUpload() {
 
       if (ocrCandidates.length > 0) {
         console.log(`[FileUpload] Auto-triggering OCR for ${ocrCandidates.length} files`);
+        // 保存待分类文件 ID，OCR 完成后触发分类
+        setPendingClassifyFiles(uploadedFileIds);
         setTimeout(() => {
           handleBatchOcr(ocrCandidates, { autoRedirect: true });
         }, 500);
+      } else if (uploadedFileIds.length > 0 && chapters.length > 0) {
+        // 没有 OCR 候选，直接触发自动分类
+        setPendingClassifyFiles(uploadedFileIds);
+        setShowAutoClassifyDialog(true);
       }
     }
     if (failCount > 0) {
@@ -1196,7 +1317,7 @@ export default function FileUpload() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">数据室文件</h1>
           <p className="text-[13px] text-muted-foreground mt-1">
-            上传尽调资料，AI 自动提取内容后将跳转到定义管理页面
+            上传尽调资料，AI 自动提取内容后将跳转到定义���理页面
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1249,22 +1370,60 @@ export default function FileUpload() {
 
       {/* Data Room Panel */}
       <div className="flex-1 flex flex-col border border-border rounded overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle">
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-muted-foreground" />
-            <span className="font-semibold text-[13px]">尽调资料数据室</span>
-          </div>
-          {uploadedFiles.length > 0 && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              {uploadedFiles.length} 个文件
-            </motion.span>
-          )}
-        </div>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle">
+                  <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-semibold text-[13px]">尽调资料数据室</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                  {uploadedFiles.length > 0 && (
+                    <>
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        {uploadedFiles.length} 个文件
+                      </motion.span>
+                      {/* 智能分类按钮 - 只在有章节模板且有未分类文件时显示 */}
+                      {chapters.length > 0 && uploadedFiles.some(f => f.id && !f.chapterId) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
+                          onClick={() => {
+                            setPendingClassifyFiles([]);
+                            setShowAutoClassifyDialog(true);
+                          }}
+                          disabled={classifyProgress.isRunning}
+                        >
+                          {classifyProgress.isRunning ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          ) : (
+                            <Brain className="w-3 h-3 mr-1" />
+                          )}
+                          智能分类
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setShowClearConfirm(true)}
+                        disabled={isClearingAllFiles}
+                      >
+                        {isClearingAllFiles ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3 mr-1" />
+                        )}
+                        清除全部
+                      </Button>
+                    </>
+                  )}
+                  </div>
+                  </div>
 
         <div className="flex-1 overflow-auto">
           {uploadedFiles.length === 0 && uploadingFiles.length === 0 ? (
@@ -1951,6 +2110,48 @@ export default function FileUpload() {
         </div>
       </div>
 
+      {/* Clear All Files Confirm Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              确认清除全部文件
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              此操作将删除数据室中的所有 {uploadedFiles.length} 个文件，删除后无法恢复。
+            </p>
+            <p className="text-sm text-muted-foreground">
+              确定要继续吗？
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearAllFiles}
+              disabled={isClearingAllFiles}
+            >
+              {isClearingAllFiles ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  清除中...
+                </>
+              ) : (
+                "确认清除"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* File Preview Dialog */}
       <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -2115,6 +2316,27 @@ export default function FileUpload() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* AI 自动分类对话框 */}
+      <AIClassifyDialog
+        open={showAutoClassifyDialog}
+        onOpenChange={(open) => {
+          setShowAutoClassifyDialog(open);
+          if (!open) {
+            setPendingClassifyFiles([]);
+          }
+        }}
+        progress={classifyProgress}
+        onStart={handleStartAutoClassify}
+        onPause={pauseClassify}
+        onResume={resumeClassify}
+        onCancel={cancelClassify}
+        onReset={resetClassify}
+        fileCount={pendingClassifyFiles.length > 0 
+          ? uploadedFiles.filter(f => f.id && pendingClassifyFiles.includes(f.id) && !f.chapterId).length
+          : uploadedFiles.filter(f => f.id && !f.chapterId).length
+        }
+      />
     </div>
   );
 }
