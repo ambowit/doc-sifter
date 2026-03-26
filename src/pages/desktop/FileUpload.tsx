@@ -22,6 +22,13 @@ import {
   detectArchiveType,
 } from "@/lib/archiveExtractor";
 import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
+import {
+  useFileSections,
+  useChapterSections,
+  useBatchParseDocumentStructure,
+  useMatchSectionsToChapters,
+  type FileSectionWithChapter,
+} from "@/hooks/useFileSections";
 
 
 import { Button } from "@/components/ui/button";
@@ -72,6 +79,8 @@ import {
 
   ShieldCheck,
   Sparkles,
+  FileSearch,
+  Link2,
 } from "lucide-react";
 import {
   Dialog,
@@ -144,11 +153,21 @@ export default function FileUpload() {
   const currentProjectId = projectId || null;
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
   const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
+  const { data: fileSections = [] } = useFileSections(currentProjectId || undefined);
 
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
   const updateFileChapterMutation = useUpdateFileChapter();
+  
+  // 文档结构解析
+  const {
+    progress: parseProgress,
+    start: startBatchParse,
+    cancel: cancelParse,
+    reset: resetParse,
+  } = useBatchParseDocumentStructure();
+  const matchSectionsMutation = useMatchSectionsToChapters();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -156,6 +175,9 @@ export default function FileUpload() {
   // Selected chapter for left-right panel view
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [hasInitializedChapter, setHasInitializedChapter] = useState(false);
+  
+  // 右侧面板 Tab: files=原始文件, sections=解析内容
+  const [rightPanelTab, setRightPanelTab] = useState<"files" | "sections">("files");
 
   // Expanded parent chapters in sidebar
   const [expandedParentChapters, setExpandedParentChapters] = useState<Set<string>>(new Set());
@@ -313,6 +335,24 @@ export default function FileUpload() {
 
     return { parentChapters, childrenMap };
   }, [chapters]);
+
+  // 每个章节的解析内容数量
+  const sectionCountByChapter = useMemo(() => {
+    const countMap = new Map<string, number>();
+    fileSections.forEach(section => {
+      if (section.matched_chapter_id) {
+        const count = countMap.get(section.matched_chapter_id) || 0;
+        countMap.set(section.matched_chapter_id, count + 1);
+      }
+    });
+    return countMap;
+  }, [fileSections]);
+
+  // 当前选中章节的解析内容
+  const selectedChapterSections = useMemo(() => {
+    if (!selectedChapterId || selectedChapterId === 'unassigned') return [];
+    return fileSections.filter(s => s.matched_chapter_id === selectedChapterId);
+  }, [selectedChapterId, fileSections]);
 
   // Toggle parent chapter expansion
   const toggleParentChapter = useCallback((parentId: string) => {
@@ -919,6 +959,46 @@ export default function FileUpload() {
     await handleBatchOcr(filesToProcess);
   };
 
+  // 解析文档结构
+  const handleParseStructure = useCallback(async () => {
+    if (!currentProjectId) return;
+    
+    // 找出有 extractedText 的文件
+    const parsableFiles = existingFiles.filter(f => 
+      f.extractedText && f.extractedText.length > 100
+    );
+    
+    if (parsableFiles.length === 0) {
+      toast.error("没有可解析的文件", { 
+        description: "请先提取文件文字内容" 
+      });
+      return;
+    }
+    
+    toast.info(`开始解析 ${parsableFiles.length} 个文件的结构...`);
+    
+    await startBatchParse(
+      parsableFiles.map(f => ({
+        fileId: f.id,
+        projectId: currentProjectId,
+        extractedText: f.extractedText!,
+        fileName: f.name,
+      }))
+    );
+    
+    // 解析完成后自动匹配章节
+    if (chapters.length > 0) {
+      toast.info("正在匹配章节...");
+      try {
+        await matchSectionsMutation.mutateAsync({ projectId: currentProjectId });
+        toast.success("文档结构解析完成");
+      } catch (err) {
+        console.error("[FileUpload] Match sections error:", err);
+        toast.warning("解析完成，但章节匹配失败");
+      }
+    }
+  }, [currentProjectId, existingFiles, chapters, startBatchParse, matchSectionsMutation]);
+
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
 
@@ -964,7 +1044,7 @@ export default function FileUpload() {
 
         const canExtract = archiveType === "zip" || (!archiveType && isZipFile(file));
         const reason = !canExtract
-          ? `${archiveType === "rar" ? "RAR" : archiveType === "7z" ? "7Z" : "该"}格式暂不支持在线解压。建议：使用 WinRAR/7-Zip 转换为 ZIP 格式，或在本地解压后上传`
+          ? `${archiveType === "rar" ? "RAR" : archiveType === "7z" ? "7Z" : "该"}格式暂不支持在线解压。建议：使用 WinRAR/7-Zip 转换为 ZIP 格���，或在本地解压后上传`
           : undefined;
 
         if (canExtract) {
@@ -1535,14 +1615,40 @@ export default function FileUpload() {
                   {/* Entity Recognition Banner */}
                   {/* Header with actions */}
                   <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        文件与章节对照
-                      </div>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {uploadedFiles.length} 个文件
-                      </Badge>
+                  <div className="flex items-center gap-2">
+                    <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      文件与章节对照
                     </div>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {uploadedFiles.length} 个文件
+                    </Badge>
+                    {fileSections.length > 0 && (
+                      <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200">
+                        <Link2 className="w-3 h-3 mr-1" />
+                        {fileSections.length} 段解析内容
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* 解析结构按钮 */}
+                    {existingFiles.some(f => f.extractedText && f.extractedText.length > 100) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
+                        onClick={handleParseStructure}
+                        disabled={parseProgress.isRunning}
+                      >
+                        {parseProgress.isRunning ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <FileSearch className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        {parseProgress.isRunning 
+                          ? `解析中 ${parseProgress.completed}/${parseProgress.total}` 
+                          : "解析结构"}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1553,6 +1659,7 @@ export default function FileUpload() {
                       添加文件
                     </Button>
                   </div>
+                </div>
                   {/* Split Panel Layout: Left=章节目录, Right=文件列表 */}
                   <div
                     className="flex gap-4 h-[450px] border rounded-lg overflow-hidden"
@@ -1609,6 +1716,13 @@ export default function FileUpload() {
                             sum + existingFiles.filter(f => f.chapterId === child.id).length, 0
                           );
                           const totalFileCount = parentFileCount + childFileCount;
+                          
+                          // Calculate section count for parent (including children)
+                          const parentSectionCount = sectionCountByChapter.get(parentChapter.id) || 0;
+                          const childSectionCount = children.reduce((sum, child) =>
+                            sum + (sectionCountByChapter.get(child.id) || 0), 0
+                          );
+                          const totalSectionCount = parentSectionCount + childSectionCount;
 
                           return (
                             <div key={parentChapter.id} className="mb-0.5">
@@ -1647,15 +1761,27 @@ export default function FileUpload() {
                                   <span className="flex-1 text-[12px] font-medium truncate">
                                     {parentChapter.title}
                                   </span>
-                                  <Badge
-                                    variant={totalFileCount > 0 ? "secondary" : "outline"}
-                                    className={cn(
-                                      "text-[9px] h-4 min-w-[18px] justify-center",
-                                      totalFileCount === 0 && "text-muted-foreground"
+                                  <div className="flex items-center gap-1">
+                                    <Badge
+                                      variant={totalFileCount > 0 ? "secondary" : "outline"}
+                                      className={cn(
+                                        "text-[9px] h-4 min-w-[18px] justify-center",
+                                        totalFileCount === 0 && "text-muted-foreground"
+                                      )}
+                                      title="原始文件数"
+                                    >
+                                      {totalFileCount}
+                                    </Badge>
+                                    {totalSectionCount > 0 && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[9px] h-4 min-w-[18px] justify-center text-blue-600 border-blue-200"
+                                        title="解析内容数"
+                                      >
+                                        {totalSectionCount}
+                                      </Badge>
                                     )}
-                                  >
-                                    {totalFileCount}
-                                  </Badge>
+                                  </div>
                                 </button>
                               </div>
 
@@ -1664,6 +1790,7 @@ export default function FileUpload() {
                                 <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
                                   {children.map((child) => {
                                     const childFileCount = existingFiles.filter(f => f.chapterId === child.id).length;
+                                    const childSectionCnt = sectionCountByChapter.get(child.id) || 0;
                                     const isChildSelected = selectedChapterId === child.id;
                                     return (
                                       <button
@@ -1682,15 +1809,27 @@ export default function FileUpload() {
                                         <span className="flex-1 text-[11px] truncate">
                                           {child.title}
                                         </span>
-                                        <Badge
-                                          variant={childFileCount > 0 ? "secondary" : "outline"}
-                                          className={cn(
-                                            "text-[9px] h-4 min-w-[18px] justify-center",
-                                            childFileCount === 0 && "text-muted-foreground"
+                                        <div className="flex items-center gap-1">
+                                          <Badge
+                                            variant={childFileCount > 0 ? "secondary" : "outline"}
+                                            className={cn(
+                                              "text-[9px] h-4 min-w-[18px] justify-center",
+                                              childFileCount === 0 && "text-muted-foreground"
+                                            )}
+                                            title="原始文件数"
+                                          >
+                                            {childFileCount}
+                                          </Badge>
+                                          {childSectionCnt > 0 && (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[9px] h-4 min-w-[18px] justify-center text-blue-600 border-blue-200"
+                                              title="解析内容数"
+                                            >
+                                              {childSectionCnt}
+                                            </Badge>
                                           )}
-                                        >
-                                          {childFileCount}
-                                        </Badge>
+                                        </div>
                                       </button>
                                     );
                                   })}
@@ -1767,7 +1906,34 @@ export default function FileUpload() {
                               </PopoverContent>
                             </Popover>
                           )}
-                          {selectedChapterId && (
+                          {/* Tab 切换 */}
+                          {selectedChapterId && selectedChapterId !== 'unassigned' && (
+                            <div className="flex items-center gap-1 border rounded-md p-0.5 bg-muted/50">
+                              <button
+                                onClick={() => setRightPanelTab("files")}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[10px] transition-colors",
+                                  rightPanelTab === "files"
+                                    ? "bg-background shadow-sm font-medium"
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                文件 ({selectedChapterFiles.length})
+                              </button>
+                              <button
+                                onClick={() => setRightPanelTab("sections")}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[10px] transition-colors",
+                                  rightPanelTab === "sections"
+                                    ? "bg-background shadow-sm font-medium text-blue-600"
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                解析内容 ({selectedChapterSections.length})
+                              </button>
+                            </div>
+                          )}
+                          {selectedChapterId === 'unassigned' && (
                             <Badge variant="outline" className="text-[10px]">
                               {selectedChapterFiles.length} 个文件
                             </Badge>
@@ -1775,7 +1941,7 @@ export default function FileUpload() {
                         </div>
                       </div>
 
-                      {/* File List */}
+                      {/* Content Area */}
                       <div className="flex-1 overflow-y-auto">
                         {!selectedChapterId ? (
                           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -1783,6 +1949,47 @@ export default function FileUpload() {
                             <p className="text-[13px]">请从左侧选择章节</p>
                             <p className="text-[11px] mt-1">查看该章节下的文件列表</p>
                           </div>
+                        ) : rightPanelTab === "sections" && selectedChapterId !== 'unassigned' ? (
+                          /* 解析内容 Tab */
+                          selectedChapterSections.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                              <FileSearch className="w-12 h-12 mb-2 opacity-30" />
+                              <p className="text-[13px]">该章节暂无解析内容</p>
+                              <p className="text-[11px] mt-1">请先上传文件并点击"解析结构"</p>
+                            </div>
+                          ) : (
+                            <div className="divide-y">
+                              {selectedChapterSections.map((section) => (
+                                <div
+                                  key={section.id}
+                                  className="p-3 hover:bg-muted/30"
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200">
+                                      {section.file?.name || "未知文件"}
+                                    </Badge>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      第 {section.order_index + 1} 段
+                                    </span>
+                                    {section.match_confidence && (
+                                      <Badge variant="secondary" className="text-[9px]">
+                                        匹配度 {section.match_confidence}%
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <h4 className="text-[13px] font-medium mb-1">
+                                    {section.title}
+                                  </h4>
+                                  {section.content && (
+                                    <p className="text-[12px] text-muted-foreground line-clamp-3">
+                                      {section.content.substring(0, 300)}
+                                      {section.content.length > 300 && "..."}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )
                         ) : selectedChapterFiles.length === 0 ? (
                           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                             <FileText className="w-12 h-12 mb-2 opacity-30" />

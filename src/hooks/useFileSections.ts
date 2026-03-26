@@ -29,6 +29,10 @@ export interface FileSectionWithChapter extends FileSection {
     title: string;
     level: number;
   } | null;
+  file?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 // 查询文件章节
@@ -47,6 +51,10 @@ export function useFileSections(projectId: string | undefined) {
             number,
             title,
             level
+          ),
+          file:file_id (
+            id,
+            name
           )
         `)
         .eq("project_id", projectId)
@@ -61,6 +69,37 @@ export function useFileSections(projectId: string | undefined) {
       return (data || []) as FileSectionWithChapter[];
     },
     enabled: !!projectId,
+  });
+}
+
+// 查询匹配到指定章节的所有内容
+export function useChapterSections(chapterId: string | undefined, projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["chapter-sections", chapterId, projectId],
+    queryFn: async () => {
+      if (!chapterId || !projectId) return [];
+      
+      const { data, error } = await (supabase
+        .from("file_sections") as any)
+        .select(`
+          *,
+          file:file_id (
+            id,
+            name
+          )
+        `)
+        .eq("matched_chapter_id", chapterId)
+        .eq("project_id", projectId)
+        .order("order_index", { ascending: true });
+
+      if (error) {
+        console.error("[useChapterSections] Query error:", error);
+        throw error;
+      }
+
+      return (data || []) as FileSectionWithChapter[];
+    },
+    enabled: !!chapterId && !!projectId,
   });
 }
 
@@ -283,7 +322,7 @@ export function useDeleteFileSections() {
   });
 }
 
-// 批量解析文档结构（带进度）
+// 批量解��文档结构（带进度）
 export interface ParseProgress {
   isRunning: boolean;
   isPaused: boolean;
