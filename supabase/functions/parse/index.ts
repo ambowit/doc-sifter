@@ -30,6 +30,254 @@ interface ChapterStructure {
   children?: ChapterStructure[];
 }
 
+interface TocItem {
+  number?: string;
+  title?: string;
+}
+
+function isLikelyIncompleteStructuredContent(content: string): boolean {
+  const trimmed = content.trim();
+  if (!trimmed) return true;
+
+  const withoutFence = trimmed
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (const char of withoutFence) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "{") braceDepth += 1;
+    if (char === "}") braceDepth -= 1;
+    if (char === "[") bracketDepth += 1;
+    if (char === "]") bracketDepth -= 1;
+  }
+
+  return inString || braceDepth !== 0 || bracketDepth !== 0;
+}
+
+function decodeJsonString(value: string): string {
+  return value
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\");
+}
+
+function extractStringField(source: string, key: string): string {
+  const match = source.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, "i"));
+  return match ? decodeJsonString(match[1]) : "";
+}
+
+function extractNumberField(source: string, key: string): number | null {
+  const match = source.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)`, "i"));
+  return match ? Number(match[1]) : null;
+}
+
+function findArraySegment(source: string, keys: string[]): string | null {
+  for (const key of keys) {
+    const match = new RegExp(`"${key}"\\s*:\\s*\\[`, "i").exec(source);
+    if (!match) continue;
+
+    const bracketStart = source.indexOf("[", match.index);
+    if (bracketStart === -1) continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = bracketStart; index < source.length; index += 1) {
+      const char = source[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === "[") depth += 1;
+      if (char === "]") {
+        depth -= 1;
+        if (depth === 0) {
+          return source.slice(bracketStart, index + 1);
+        }
+      }
+    }
+
+    return source.slice(bracketStart);
+  }
+
+  return null;
+}
+
+function extractTopLevelObjectSnippets(arraySegment: string): string[] {
+  const snippets: string[] = [];
+  let braceDepth = 0;
+  let inString = false;
+  let escaped = false;
+  let objectStart = -1;
+
+  for (let index = 0; index < arraySegment.length; index += 1) {
+    const char = arraySegment[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "{") {
+      if (braceDepth === 0) objectStart = index;
+      braceDepth += 1;
+    } else if (char === "}") {
+      braceDepth -= 1;
+      if (braceDepth === 0 && objectStart !== -1) {
+        snippets.push(arraySegment.slice(objectStart, index + 1));
+        objectStart = -1;
+      }
+    }
+  }
+
+  return snippets;
+}
+
+function normalizeChapterNode(input: unknown, fallbackLevel = 1): ChapterStructure | null {
+  if (!input || typeof input !== "object") return null;
+
+  const node = input as Record<string, unknown>;
+  const title = typeof node.title === "string" ? node.title : "";
+  const number = typeof node.number === "string" ? node.number : "";
+
+  if (!title && !number) return null;
+
+  const level = typeof node.level === "number" ? node.level : fallbackLevel;
+  const description = typeof node.description === "string" ? node.description : "";
+  const children = normalizeChapters(node.children, level + 1);
+
+  return {
+    number,
+    title,
+    level,
+    description,
+    children,
+  };
+}
+
+function normalizeChapters(input: unknown, fallbackLevel = 1): ChapterStructure[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => normalizeChapterNode(item, fallbackLevel))
+    .filter((item): item is ChapterStructure => Boolean(item));
+}
+
+function parseChapterSnippet(snippet: string, fallbackLevel = 1): ChapterStructure | null {
+  const title = extractStringField(snippet, "title");
+  const number = extractStringField(snippet, "number");
+
+  if (!title && !number) return null;
+
+  const level = extractNumberField(snippet, "level") ?? fallbackLevel;
+  const description = extractStringField(snippet, "description");
+  const childrenSegment = findArraySegment(snippet, ["children"]);
+  const children = childrenSegment
+    ? extractTopLevelObjectSnippets(childrenSegment)
+        .map((childSnippet) => parseChapterSnippet(childSnippet, level + 1))
+        .filter((item): item is ChapterStructure => Boolean(item))
+    : [];
+
+  return {
+    number,
+    title,
+    level,
+    description,
+    children,
+  };
+}
+
+function extractChaptersFromRawText(source: string): ChapterStructure[] {
+  const arraySegment = findArraySegment(source, [
+    "chapters",
+    "table_of_contents",
+    "tableOfContents",
+    "outline",
+    "sections",
+  ]);
+
+  if (!arraySegment) return [];
+
+  return extractTopLevelObjectSnippets(arraySegment)
+    .map((snippet) => parseChapterSnippet(snippet))
+    .filter((item): item is ChapterStructure => Boolean(item));
+}
+
+function coerceChapters(parsedResult: Record<string, unknown>, rawSource?: string): ChapterStructure[] | null {
+  const direct = normalizeChapters(parsedResult.chapters);
+  if (direct.length > 0) return direct;
+
+  const candidates = [
+    parsedResult.table_of_contents,
+    parsedResult.tableOfContents,
+    parsedResult.outline,
+    parsedResult.sections,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeChapters(candidate);
+    if (normalized.length > 0) return normalized;
+  }
+
+  if (rawSource) {
+    const extracted = extractChaptersFromRawText(rawSource);
+    if (extracted.length > 0) return extracted;
+  }
+
+  return null;
+}
+
 // Extract text from DOCX file (which is a ZIP containing XML)
 async function extractTextFromDocx(base64Data: string): Promise<string> {
   try {
@@ -417,10 +665,8 @@ ${actualContent || `[仅有文件名: ${filename}]`}
     }
 
     const aiResponse = await response.json();
-    logStep("OOOK AI Gateway response received", { 
-      success: aiResponse.success,
-      hasData: !!aiResponse.data,
-      contentPreview: aiResponse.data?.content?.substring(0, 100)
+    logStep("OOOK AI Gateway full response", {
+      response: aiResponse,
     });
 
     // Handle OOOK Gateway response format: { success: true, data: { content: "..." } }
@@ -431,6 +677,14 @@ ${actualContent || `[仅有文件名: ${filename}]`}
     if (!messageContent) {
       logStep("No content found in response", { responseKeys: Object.keys(aiResponse) });
       throw new Error("No content in AI response");
+    }
+
+    if ((type === "template" || type === "generate-structure") && isLikelyIncompleteStructuredContent(messageContent)) {
+      logStep("AI content appears incomplete", {
+        contentLength: messageContent.length,
+        contentTail: messageContent.slice(-500),
+      });
+      throw new Error("AI 返回的模板结构内容不完整，可能已被截断。请重试；如多次出现，请联系 AI Gateway 排查截断问题。");
     }
 
     // Extract JSON from the response (handle markdown code blocks)
@@ -470,36 +724,37 @@ ${actualContent || `[仅有文件名: ${filename}]`}
       
       // Remove trailing commas before ] or }
       repairedJson = repairedJson.replace(/,\s*([\]\}])/g, '$1');
+      // Add missing commas between adjacent objects
+      repairedJson = repairedJson.replace(/\}\s*\{/g, "},{");
       
       // Check if JSON is truncated (missing closing brackets)
       const openBraces = (repairedJson.match(/\{/g) || []).length;
       const closeBraces = (repairedJson.match(/\}/g) || []).length;
       const openBrackets = (repairedJson.match(/\[/g) || []).length;
       const closeBrackets = (repairedJson.match(/\]/g) || []).length;
-      
-      // Add missing closing brackets
+
       if (openBrackets > closeBrackets || openBraces > closeBraces) {
         logStep("JSON appears truncated, attempting to close", {
           openBraces, closeBraces, openBrackets, closeBrackets
         });
-        
-        // Try to find a valid cutoff point (last complete object)
-        // Look for the last complete chapter object
-        const lastCompleteChapter = repairedJson.lastIndexOf('}');
-        if (lastCompleteChapter > 0) {
-          repairedJson = repairedJson.substring(0, lastCompleteChapter + 1);
-          // Add closing brackets as needed
-          const newOpenBrackets = (repairedJson.match(/\[/g) || []).length;
-          const newCloseBrackets = (repairedJson.match(/\]/g) || []).length;
-          const newOpenBraces = (repairedJson.match(/\{/g) || []).length;
-          const newCloseBraces = (repairedJson.match(/\}/g) || []).length;
-          
-          for (let i = 0; i < newOpenBrackets - newCloseBrackets; i++) {
-            repairedJson += ']';
-          }
-          for (let i = 0; i < newOpenBraces - newCloseBraces; i++) {
-            repairedJson += '}';
-          }
+
+        const lastArrayEnd = repairedJson.lastIndexOf("]");
+        const lastObjectEnd = repairedJson.lastIndexOf("}");
+        const cutIndex = Math.max(lastArrayEnd, lastObjectEnd);
+        if (cutIndex > 0) {
+          repairedJson = repairedJson.substring(0, cutIndex + 1);
+        }
+
+        const newOpenBrackets = (repairedJson.match(/\[/g) || []).length;
+        const newCloseBrackets = (repairedJson.match(/\]/g) || []).length;
+        const newOpenBraces = (repairedJson.match(/\{/g) || []).length;
+        const newCloseBraces = (repairedJson.match(/\}/g) || []).length;
+
+        for (let i = 0; i < newOpenBrackets - newCloseBrackets; i++) {
+          repairedJson += "]";
+        }
+        for (let i = 0; i < newOpenBraces - newCloseBraces; i++) {
+          repairedJson += "}";
         }
       }
       
@@ -508,10 +763,27 @@ ${actualContent || `[仅有文件名: ${filename}]`}
         logStep("JSON repaired successfully");
       } catch (repairError) {
         logStep("JSON repair failed", { error: String(repairError) });
-        throw parseError; // Throw original error
+
+        if (type === "template" || type === "generate-structure") {
+          const extractedChapters = extractChaptersFromRawText(repairedJson);
+          if (extractedChapters.length > 0) {
+            parsedResult = { chapters: extractedChapters };
+            logStep("Recovered chapters from raw text", { count: extractedChapters.length });
+          } else {
+            throw parseError;
+          }
+        } else {
+          throw parseError; // Throw original error
+        }
       }
     }
     
+    const coercedChapters = coerceChapters(parsedResult as Record<string, unknown>, jsonStr);
+    if (coercedChapters && coercedChapters.length > 0) {
+      parsedResult.chapters = coercedChapters;
+      logStep("Normalized chapters", { count: coercedChapters.length });
+    }
+
     logStep("Parsing complete", { type, chaptersCount: parsedResult.chapters?.length });
 
     return new Response(JSON.stringify(parsedResult), {

@@ -1,6 +1,7 @@
 ﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 
 export interface GeneratedReportRecord {
   id: string;
@@ -62,7 +63,7 @@ export function useLatestGeneratedReport(projectId: string | undefined) {
         .maybeSingle();
 
       if (error) {
-        throw error;
+        throw new Error(normalizeSupabaseError(error, "获取报告失败"));
       }
 
       return data ? transformGeneratedReport(data as Record<string, unknown>) : null;
@@ -78,7 +79,12 @@ export function usePersistGeneratedReport() {
       const sections = Array.isArray(reportJson.sections) ? reportJson.sections as Array<Record<string, unknown>> : [];
       const issuesFound = sections.reduce((count, section) => {
         const issues = Array.isArray(section.issues) ? section.issues : [];
-        return count + issues.length;
+        const validIssues = issues.filter((issue) => {
+          if (!issue || typeof issue !== "object") return false;
+          const issueObj = issue as Record<string, unknown>;
+          return Boolean(issueObj.fact || issueObj.risk || issueObj.suggestion);
+        });
+        return count + validIssues.length;
       }, 0);
       const evidenceFileCount = sections.reduce((count, section) => {
         const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
@@ -106,7 +112,7 @@ export function usePersistGeneratedReport() {
         .single();
 
       if (error) {
-        throw error;
+        throw new Error(normalizeSupabaseError(error, "保存报告失败"));
       }
 
       return {

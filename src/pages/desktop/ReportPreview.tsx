@@ -52,6 +52,7 @@ import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { MarkdownRenderer } from "@/components/desktop/MarkdownRenderer";
 import { supabase } from "@/integrations/supabase/client";
 import { templateStyles, type TemplateStyle } from "@/lib/reportMockData";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 import { exportToPDF, exportToWord } from "@/lib/exportUtils";
 import {
   Select,
@@ -488,6 +489,11 @@ function SectionRenderer({
             </div>
           </div>
         )}
+        {!hasIssues && !hasNoData && (
+          <div className="mt-6 p-3 bg-emerald-50 border border-emerald-100 rounded text-[12px] text-emerald-800">
+            未发现明显问题，如需复核可结合证据文件进一步核查。
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -513,6 +519,16 @@ export default function ReportPreview() {
   const [isGenerating] = useState(false);
 
   // Helper to normalize issue fields (handle both English and Chinese field names, and strings)
+  const normalizeSeverity = (value: unknown): "high" | "medium" | "low" => {
+    if (typeof value === "string") {
+      const normalized = value.toLowerCase();
+      if (normalized === "high" || normalized === "高") return "high";
+      if (normalized === "medium" || normalized === "中" || normalized === "中等") return "medium";
+      if (normalized === "low" || normalized === "低") return "low";
+    }
+    return "low";
+  };
+
   const normalizeIssue = (issue: unknown) => {
     if (typeof issue === "string") {
       const str = issue.trim();
@@ -560,7 +576,7 @@ export default function ReportPreview() {
       const fact = String(obj.fact || obj.事实 || obj.description || "");
       const risk = String(obj.risk || obj.风险 || obj.问题 || obj.problem || "");
       const suggestion = String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || "");
-      const severity = (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low";
+      const severity = normalizeSeverity(obj.severity || obj.级别 || obj.level);
       return {
         fact: fact || (risk ? "经核查，发现以下情况" : ""),
         risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
@@ -890,7 +906,7 @@ export default function ReportPreview() {
             const fact = String(obj.fact || obj.事实 || obj.description || "");
             const risk = String(obj.risk || obj.风险 || obj.问题 || obj.problem || "");
             const suggestion = String(obj.suggestion || obj.建议 || obj.advice || obj.recommendation || "");
-            const severity = (obj.severity || obj.级别 || obj.level || "low") as "high" | "medium" | "low";
+            const severity = normalizeSeverity(obj.severity || obj.级别 || obj.level);
             return {
               fact: fact || (risk ? "经核查，发现以下情况" : ""),
               risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
@@ -952,7 +968,7 @@ export default function ReportPreview() {
     } catch (err) {
       clearTimeout(timeoutId);
       console.error("[ReportPreview] Retry section failed:", err);
-      toast.error(`重试失败: ${err instanceof Error ? err.message : "请稍后再试"}`);
+      toast.error(`重试失败: ${normalizeSupabaseError(err, "请稍后再试")}`);
     } finally {
       clearTimeout(timeoutId);
       console.log("[ReportPreview] Clearing retryingSectionId");

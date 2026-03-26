@@ -11,7 +11,7 @@ import {
   uploadFile,
   detectFileType,
   formatFileSize,
-  canOcrFile,
+  canExtractFileText,
   useBatchOcrExtract,
   getFileDownloadUrl,
   type FileType
@@ -770,7 +770,7 @@ export default function FileUpload() {
 
     for (const storagePath of selectedFiles) {
       const file = uploadedFiles.find(f => f.storagePath === storagePath);
-      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) continue;
+      if (!file?.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) continue;
       if (file.ocrProcessed) continue;
 
       try {
@@ -809,7 +809,7 @@ export default function FileUpload() {
     name: string;
     downloadUrl?: string;
   }) => {
-    if (!file.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) return;
+    if (!file.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) return;
 
     let downloadUrl = file.downloadUrl;
     if (!downloadUrl) {
@@ -847,7 +847,7 @@ export default function FileUpload() {
 
     for (const fileId of ocrFailedIds) {
       const file = uploadedFiles.find(f => f.id === fileId);
-      if (!file?.id || !file.mimeType || !canOcrFile(file.mimeType, file.name)) continue;
+      if (!file?.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) continue;
 
       try {
         let downloadUrl = file.downloadUrl;
@@ -877,7 +877,7 @@ export default function FileUpload() {
 
   // Count files needing extraction (failed + never tried, excluding currently processing)
   const unextractedOcrFiles = uploadedFiles.filter(
-    f => f.id && f.mimeType && canOcrFile(f.mimeType, f.name) && !f.ocrProcessed && !ocrProcessingIds.has(f.id)
+    f => f.id && f.mimeType && canExtractFileText(f.mimeType, f.name) && !f.ocrProcessed && !ocrProcessingIds.has(f.id)
   );
   const failedOcrFiles = unextractedOcrFiles.filter(f => f.id && ocrFailedIds.has(f.id));
 
@@ -1118,7 +1118,7 @@ export default function FileUpload() {
       toast.success(`成功上传 ${successCount} 个文件`);
 
       const ocrCandidates = results
-        .filter(r => r.success && r.downloadUrl && r.mimeType && canOcrFile(r.mimeType, r.fileName))
+        .filter(r => r.success && r.downloadUrl && r.mimeType && canExtractFileText(r.mimeType, r.fileName))
         .map(r => ({
           fileId: r.fileId!,
           fileUrl: r.downloadUrl!,

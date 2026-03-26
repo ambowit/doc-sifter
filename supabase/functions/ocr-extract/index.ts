@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { ZipReader, BlobReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -163,6 +164,70 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode.apply(null, Array.from(chunk));
   }
   return btoa(binary);
+}
+
+async function extractTextFromDocxBuffer(buffer: ArrayBuffer): Promise<string> {
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  const zipReader = new ZipReader(new BlobReader(blob));
+
+  try {
+    const entries = await zipReader.getEntries();
+    const documentEntry = entries.find((entry) => entry.filename === "word/document.xml");
+    if (!documentEntry?.getData) {
+      return "";
+    }
+
+    const xmlContent = await documentEntry.getData(new TextWriter());
+    return xmlContent
+      .replace(/<w:p[^>]*>/g, "\n\n")
+      .replace(/<w:tab\/>/g, "\t")
+      .replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, "$1")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^\s+|\s+$/gm, "")
+      .trim();
+  } finally {
+    await zipReader.close();
+  }
+}
+
+async function extractDocumentText(
+  fileUrl: string,
+  mimeType: string,
+  fileName: string,
+): Promise<{ text: string; summary: string; entities: string[] }> {
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`下载失败: HTTP ${response.status}`);
+  }
+
+  const lowerMimeType = mimeType.toLowerCase();
+  const ext = fileName.split(".").pop()?.toLowerCase() || "";
+
+  let text = "";
+  if (lowerMimeType.includes("word") || ext === "docx") {
+    const buffer = await response.arrayBuffer();
+    text = await extractTextFromDocxBuffer(buffer);
+  } else if (lowerMimeType.includes("text/plain") || ext === "txt") {
+    text = await response.text();
+  } else {
+    throw new Error(`暂不支持自动提取文本的文件类型: ${mimeType}`);
+  }
+
+  const normalizedText = text.replace(/\s+\n/g, "\n").trim();
+  return {
+    text: normalizedText,
+    summary: normalizedText.substring(0, 200).replace(/\s+/g, " ").trim(),
+    entities: [],
+  };
 }
 
 // Download file with timeout and size check
@@ -371,8 +436,10 @@ serve(async (req) => {
     const supportedImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
     const isPdf = mimeType === "application/pdf" || mimeType.includes("pdf");
     const isImage = supportedImageTypes.some(t => mimeType.includes(t.split("/")[1]) || mimeType === t);
-    
-    if (!isPdf && !isImage) {
+    const isDocx = mimeType.includes("word") || fileName.toLowerCase().endsWith(".docx");
+    const isTxt = mimeType.includes("text/plain") || fileName.toLowerCase().endsWith(".txt");
+
+    if (!isPdf && !isImage && !isDocx && !isTxt) {
       logStep("Unsupported file type", { mimeType });
       
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -382,7 +449,7 @@ serve(async (req) => {
       await supabase
         .from("files")
         .update({
-          text_summary: `不支持的文件类型: ${mimeType}`,
+          text_summary: `暂不支持自动提取文本的文件类型: ${mimeType}`,
           ocr_processed: true,
           ocr_processed_at: new Date().toISOString()
         })
@@ -392,7 +459,7 @@ serve(async (req) => {
         JSON.stringify({ 
           success: true, 
           text: "", 
-          summary: `不支持的文件类型: ${mimeType}`,
+          summary: `暂不支持自动提取文本的文件类型: ${mimeType}`,
           entities: [],
           skipped: true
         }),
@@ -432,7 +499,7 @@ serve(async (req) => {
           { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
         );
       }
-    } else {
+    } else if (isImage) {
       // 图片文件使用 AI Gateway 同步处理
       logStep("Image detected, processing with AI Gateway");
       const imageResult = await extractImageTextWithAI(apiKey, fileUrl, mimeType, fileName);
@@ -443,6 +510,16 @@ serve(async (req) => {
       logStep("Image OCR complete", { 
         textLength: extractedText.length, 
         entitiesCount: extractedEntities.length 
+      });
+    } else {
+      logStep("Document detected, extracting text directly", { mimeType, fileName });
+      const documentResult = await extractDocumentText(fileUrl, mimeType, fileName);
+      extractedText = documentResult.text;
+      textSummary = documentResult.summary;
+      extractedEntities = documentResult.entities;
+
+      logStep("Document text extraction complete", {
+        textLength: extractedText.length,
       });
     }
 

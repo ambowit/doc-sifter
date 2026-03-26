@@ -373,19 +373,23 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Check if file type supports OCR / text extraction
-export function canOcrFile(mimeType: string, fileName?: string): boolean {
+export type FileExtractionMethod = "ocr" | "document" | "text";
+
+export function getFileExtractionMethod(mimeType: string, fileName?: string): FileExtractionMethod | null {
   const m = mimeType.toLowerCase();
   const ext = (fileName || "").split(".").pop()?.toLowerCase() || "";
-  // 图片和 PDF → OCR API
-  if (["jpeg", "jpg", "png", "gif", "webp", "tiff"].some(t => m.includes(t))) return true;
-  if (m.includes("pdf")) return true;
-  // Office 文件 → 服务端文本提取
-  if (m.includes("word") || ext === "docx" || ext === "doc") return true;
-  if (m.includes("presentationml") || ext === "pptx" || ext === "ppt") return true;
-  if (m.includes("spreadsheetml") || ext === "xlsx" || ext === "xls") return true;
-  if (m.includes("text/plain") || ext === "txt") return true;
-  return false;
+
+  if (["jpeg", "jpg", "png", "gif", "webp", "tiff"].some(t => m.includes(t))) return "ocr";
+  if (m.includes("pdf")) return "ocr";
+  if (m.includes("word") || ext === "docx") return "document";
+  if (m.includes("text/plain") || ext === "txt") return "text";
+
+  return null;
+}
+
+// Check if file type supports automatic text extraction
+export function canExtractFileText(mimeType: string, fileName?: string): boolean {
+  return getFileExtractionMethod(mimeType, fileName) !== null;
 }
 
 // 获取当前用户 access_token，用于手动附加 Authorization header

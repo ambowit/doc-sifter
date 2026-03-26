@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User, Session } from "@supabase/supabase-js";
 
-export type UserRole = "admin" | "senior_lawyer" | "junior_lawyer" | "assistant";
+export type UserRole = "admin" | "lawyer" | "senior_lawyer" | "junior_lawyer" | "assistant";
 
 export interface UserProfile {
   id: string;

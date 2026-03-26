@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useBulkCreateChapters, type CreateChapterData } from "@/hooks/useChapters";
 import { useUpdateFileStatus, type FileStatus } from "@/hooks/useFiles";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 import JSZip from "jszip";
 
 // Extract text from DOCX file (ArrayBuffer) using JSZip
@@ -82,6 +83,48 @@ function uuidv4(): string {
     const r = (Math.random() * 16) | 0;
     return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
   });
+}
+
+function normalizeTemplateChapter(input: unknown, fallbackLevel = 1): ChapterStructure | null {
+  if (!input || typeof input !== "object") return null;
+
+  const chapter = input as Record<string, unknown>;
+  const title = typeof chapter.title === "string" ? chapter.title : "";
+  const number = typeof chapter.number === "string" ? chapter.number : "";
+
+  if (!title && !number) return null;
+
+  const level = typeof chapter.level === "number" ? chapter.level : fallbackLevel;
+  const description = typeof chapter.description === "string" ? chapter.description : "";
+  const childrenInput = Array.isArray(chapter.children) ? chapter.children : [];
+  const children = childrenInput
+    .map((child) => normalizeTemplateChapter(child, level + 1))
+    .filter((child): child is ChapterStructure => Boolean(child));
+
+  return {
+    number,
+    title,
+    level,
+    description,
+    children,
+  };
+}
+
+function normalizeTemplateResult(data: unknown): TemplateParseResult {
+  const payload = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  const chapterSource = Array.isArray(payload.chapters)
+    ? payload.chapters
+    : Array.isArray(payload.table_of_contents)
+      ? payload.table_of_contents
+      : Array.isArray(payload.tableOfContents)
+        ? payload.tableOfContents
+        : [];
+
+  const chapters = chapterSource
+    .map((chapter) => normalizeTemplateChapter(chapter))
+    .filter((chapter): chapter is ChapterStructure => Boolean(chapter));
+
+  return { chapters };
 }
 
 // Flatten chapter structure to array with correct parent IDs and globally unique orderIndex.
@@ -205,7 +248,7 @@ export function useParseTemplate() {
         const data = await response.json();
         if (data?.error) throw new Error(`AI解析失败: ${data.error}`);
 
-        const result = data as TemplateParseResult;
+        const result = normalizeTemplateResult(data);
         console.log("[ParseTemplate] AI result:", {
           chaptersCount: result.chapters?.length
         });
@@ -229,9 +272,8 @@ export function useParseTemplate() {
           if (fetchError.name === "AbortError") {
             throw new Error("AI解析超时（90秒），请重试");
           }
-          throw fetchError;
         }
-        throw new Error("AI解析失败: 未知错误");
+        throw new Error(normalizeSupabaseError(fetchError, "AI解析失败"));
       }
     },
     onSuccess: (_, variables) => {

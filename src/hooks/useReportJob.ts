@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -179,6 +180,11 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         signal: abortControllerRef.current?.signal,
       });
 
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`获取任务状态失败(${response.status}): ${errText.substring(0, 200)}`);
+      }
+
       const data = await response.json();
 
       if (!data.success) {
@@ -208,7 +214,11 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         return true;
       }
 
+      const errMsg = normalizeSupabaseError(err, "获取任务状态失败");
       console.error("[useReportJob] Poll error:", err);
+      setError(errMsg);
+      setErrorCode("POLL_FAILED");
+      onErrorRef.current?.(errMsg, "POLL_FAILED");
       return false;
     }
   }, [applyTerminalState, getAuthHeaders, stopMonitoring]);
@@ -323,6 +333,11 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         }),
       });
 
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`创建任务失败(${response.status}): ${errText.substring(0, 200)}`);
+      }
+
       const data = await response.json();
 
       if (!data.success) {
@@ -355,7 +370,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       startMonitoring(jobId);
       return jobId;
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "创建任务失败";
+      const errMsg = normalizeSupabaseError(err, "创建任务失败");
       setError(errMsg);
       setErrorCode("NETWORK_ERROR");
       onErrorRef.current?.(errMsg, "NETWORK_ERROR");
