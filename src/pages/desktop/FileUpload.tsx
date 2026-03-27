@@ -12,6 +12,7 @@ import {
   formatFileSize,
   canExtractFileText,
   useBatchOcrExtract,
+  useClassifyFilesWithProgress,
   getFileDownloadUrl,
   type FileType
 } from "@/hooks/useFiles";
@@ -81,6 +82,7 @@ import {
   Sparkles,
   FileSearch,
   Link2,
+  Brain,
 } from "lucide-react";
 import {
   Dialog,
@@ -168,6 +170,13 @@ export default function FileUpload() {
     reset: resetParse,
   } = useBatchParseDocumentStructure();
   const matchSectionsMutation = useMatchSectionsToChapters();
+  
+  // AI 自动匹配
+  const {
+    progress: classifyProgress,
+    start: startClassify,
+    cancel: cancelClassify,
+  } = useClassifyFilesWithProgress();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -994,6 +1003,53 @@ export default function FileUpload() {
     }
   }, [currentProjectId, existingFiles, chapters, startBatchParse, matchSectionsMutation]);
 
+  // AI 自动匹配文件到章节
+  const handleAutoMatch = useCallback(async () => {
+    if (!currentProjectId || chapters.length === 0) {
+      toast.error("请先设置章节模板");
+      return;
+    }
+    
+    // 找出未分配章节且有文字内容的文件
+    const unassignedFiles = existingFiles.filter(f => 
+      !f.chapterId && (f.extractedText || f.textSummary)
+    );
+    
+    if (unassignedFiles.length === 0) {
+      toast.info("没有需要匹配的文件", {
+        description: "所有文件已分配章节，或没有可分析的文字内容"
+      });
+      return;
+    }
+    
+    toast.info(`开始智能匹配 ${unassignedFiles.length} 个文件...`);
+    
+    const result = await startClassify({
+      projectId: currentProjectId,
+      files: unassignedFiles.map(f => ({
+        id: f.id,
+        name: f.name,
+        extractedText: f.extractedText || null,
+        textSummary: f.textSummary || null,
+      })),
+      chapters: chapters.map(c => ({
+        id: c.id,
+        number: c.number || "",
+        title: c.title,
+        level: c.level,
+      })),
+    });
+    
+    if (result) {
+      if (result.completed > 0) {
+        toast.success(`成功匹配 ${result.completed} 个文件`);
+      }
+      if (result.failed > 0) {
+        toast.warning(`${result.failed} 个文件匹配失败`);
+      }
+    }
+  }, [currentProjectId, existingFiles, chapters, startClassify]);
+
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
 
@@ -1619,6 +1675,25 @@ export default function FileUpload() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* 自动匹配按钮 - 有未分配文件且有章节时显示 */}
+                    {chapters.length > 0 && existingFiles.some(f => !f.chapterId && (f.extractedText || f.textSummary)) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] text-primary border-primary/30 hover:bg-primary/10"
+                        onClick={handleAutoMatch}
+                        disabled={classifyProgress.isRunning}
+                      >
+                        {classifyProgress.isRunning ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <Brain className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        {classifyProgress.isRunning 
+                          ? `匹配中 ${classifyProgress.completed}/${classifyProgress.total}` 
+                          : "自动匹配"}
+                      </Button>
+                    )}
                     {/* 解析结构按钮 */}
                     {existingFiles.some(f => f.extractedText && f.extractedText.length > 100) && (
                       <Button
@@ -1634,7 +1709,7 @@ export default function FileUpload() {
                           <FileSearch className="w-3.5 h-3.5 mr-1" />
                         )}
                         {parseProgress.isRunning 
-                          ? `解析�� ${parseProgress.completed}/${parseProgress.total}` 
+                          ? `解析中 ${parseProgress.completed}/${parseProgress.total}` 
                           : "解析结构"}
                       </Button>
                     )}
