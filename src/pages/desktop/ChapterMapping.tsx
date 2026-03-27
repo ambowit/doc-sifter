@@ -163,6 +163,7 @@ export default function ChapterMapping() {
   // ── 拖拽逻辑 ──────────────────────────────────────────────
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragOverChapterId, setDragOverChapterId] = useState<string | null | "unassigned">(null);
+  const [expandedChapterIds, setExpandedChapterIds] = useState<Set<string>>(new Set());
 
   const handleDragStart = (fileId: string, sourceChapterId: string | null) => {
     setDragState({ fileId, sourceChapterId });
@@ -476,25 +477,77 @@ export default function ChapterMapping() {
           </div>
           <ScrollArea className="flex-1">
             <div className="p-2 space-y-0.5">
-              {flatChapters.map((chapter) => (
-                <div
-                  key={chapter.id}
-                  className={cn(
-                    "flex items-center gap-1.5 py-1 px-2 rounded text-[11px] hover:bg-muted/40",
-                    chapter.level === 1 && "font-medium",
-                    chapter.level === 2 && "ml-3 text-muted-foreground",
-                    chapter.level === 3 && "ml-6 text-muted-foreground text-[10px]"
-                  )}
-                >
-                  <ChevronRight className="w-3 h-3 flex-shrink-0 text-muted-foreground/50" />
-                  <span className="truncate">{chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}</span>
-                  {chapter.level === 1 && (
-                    <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
-                      {files.filter((f) => f.chapterId === chapter.id).length}
-                    </span>
-                  )}
-                </div>
-              ))}
+              {flatChapters.map((chapter) => {
+                // 只显示一级章节，或者在父章节展开时显示二级章节
+                const isLevel1 = chapter.level === 1;
+                const isLevel2 = chapter.level === 2;
+                
+                // 找到二级章节的父章节ID
+                const parentChapter = isLevel2 
+                  ? flatChapters.find(c => c.level === 1 && flatChapters.indexOf(c) < flatChapters.indexOf(chapter) && 
+                      !flatChapters.slice(flatChapters.indexOf(c) + 1, flatChapters.indexOf(chapter)).some(x => x.level === 1))
+                  : null;
+                
+                // 如果是二级章节，检查父章节是否展开
+                if (isLevel2 && parentChapter && !expandedChapterIds.has(parentChapter.id)) {
+                  return null;
+                }
+                
+                // 三级及以下章节暂不显示
+                if (chapter.level > 2) return null;
+                
+                const isExpanded = expandedChapterIds.has(chapter.id);
+                const hasChildren = isLevel1 && flatChapters.some(c => c.level === 2 && 
+                  flatChapters.indexOf(c) > flatChapters.indexOf(chapter) &&
+                  !flatChapters.slice(flatChapters.indexOf(chapter) + 1, flatChapters.indexOf(c)).some(x => x.level === 1)
+                );
+                
+                return (
+                  <div
+                    key={chapter.id}
+                    className={cn(
+                      "flex items-center gap-1.5 py-1 px-2 rounded text-[11px] hover:bg-muted/40",
+                      isLevel1 && "font-medium",
+                      isLevel2 && "ml-5 text-muted-foreground"
+                    )}
+                  >
+                    {isLevel1 && hasChildren ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setExpandedChapterIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(chapter.id)) {
+                              next.delete(chapter.id);
+                            } else {
+                              next.add(chapter.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="p-0.5 hover:bg-muted rounded"
+                      >
+                        <ChevronRight 
+                          className={cn(
+                            "w-3 h-3 flex-shrink-0 text-muted-foreground/50 transition-transform",
+                            isExpanded && "rotate-90"
+                          )} 
+                        />
+                      </button>
+                    ) : (
+                      <span className="w-4 h-4 flex-shrink-0" />
+                    )}
+                    <span className="truncate">{chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}</span>
+                    {isLevel1 && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
+                        {files.filter((f) => f.chapterId === chapter.id).length}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
               {flatChapters.length === 0 && (
                 <div className="text-center py-8">
                   <FileQuestion className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
