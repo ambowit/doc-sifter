@@ -446,18 +446,6 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 async function invokeAuthedFunction<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
   const headers = await getAuthHeaders();
-  // 检查 token 的前几个字符和过期时间
-  const token = headers.Authorization?.replace("Bearer ", "");
-  let tokenInfo = "none";
-  if (token) {
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      const exp = payload.exp ? new Date(payload.exp * 1000).toISOString() : "unknown";
-      const now = new Date().toISOString();
-      tokenInfo = `exp=${exp}, now=${now}, sub=${payload.sub?.slice(0,8)}`;
-    } catch { tokenInfo = "parse-error"; }
-  }
-  console.log("[v0] invokeAuthedFunction:", functionName, "tokenInfo:", tokenInfo);
   
   const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
     method: "POST",
@@ -467,8 +455,6 @@ async function invokeAuthedFunction<T>(functionName: string, body: Record<string
 
   const raw = await response.text();
   const data = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-  
-  console.log("[v0] Response status:", response.status, "data:", data);
 
   if (!response.ok) {
     throw new Error(
