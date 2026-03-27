@@ -435,7 +435,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     session = data.session;
   }
 
-  if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
+  if (!session?.access_token) throw new Error("用户未登��，请刷新页面后重试");
 
   return {
     "Content-Type": "application/json",
@@ -446,6 +446,8 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 async function invokeAuthedFunction<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
   const headers = await getAuthHeaders();
+  console.log("[v0] invokeAuthedFunction:", functionName, "hasAuth:", !!headers.Authorization);
+  
   const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
     method: "POST",
     headers,
@@ -454,6 +456,8 @@ async function invokeAuthedFunction<T>(functionName: string, body: Record<string
 
   const raw = await response.text();
   const data = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+  
+  console.log("[v0] Response status:", response.status, "data:", data);
 
   if (!response.ok) {
     throw new Error(
