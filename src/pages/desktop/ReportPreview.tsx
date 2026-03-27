@@ -713,6 +713,7 @@ export default function ReportPreview() {
 
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
+  const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(new Set());
 
   // Locked sections state - persisted to localStorage per project
   const lockedSectionsKey = `locked-sections-${projectId}`;
@@ -1320,40 +1321,75 @@ export default function ReportPreview() {
                     const hasIssues = section.issues && section.issues.length > 0;
                     const isSectionLocked = lockedSectionIds.has(section.id);
 
+                    const isExpanded = expandedSectionIds.has(section.id);
+                    const hasFiles = section.sourceFiles.length > 0;
+
                     return (
-                      <div
-                        key={section.id}
-                        className={cn(
-                          "flex items-center gap-2 py-2 px-2 rounded cursor-pointer text-[12px] transition-colors",
-                          isActive
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "hover:bg-muted/50",
-                          isSectionLocked && "border-l-2 border-amber-500"
-                        )}
-                        onClick={() => setActiveSectionId(section.id)}
-                      >
-                        {section.sourceFiles.length > 0 ? (
-                          <ChevronRight
-                            className={cn(
-                              "w-3 h-3 flex-shrink-0",
-                              isActive ? "text-primary" : "text-muted-foreground"
-                            )}
-                          />
-                        ) : (
-                          <span className="w-3 h-3 flex-shrink-0" />
-                        )}
-                        <span className="flex-1 truncate">
-                          {section.number && section.number !== section.title && `${section.number} `}
-                          {section.title}
-                        </span>
-                        {isSectionLocked && (
-                          <Lock className="w-3 h-3 text-amber-500 flex-shrink-0" title="已锁定" />
-                        )}
-                        {hasNoData && !isSectionLocked && (
-                          <FileWarning className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                        )}
-                        {hasIssues && !hasNoData && !isSectionLocked && (
-                          <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                      <div key={section.id}>
+                        <div
+                          className={cn(
+                            "flex items-center gap-2 py-2 px-2 rounded cursor-pointer text-[12px] transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "hover:bg-muted/50",
+                            isSectionLocked && "border-l-2 border-amber-500"
+                          )}
+                          onClick={() => setActiveSectionId(section.id)}
+                        >
+                          {hasFiles ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedSectionIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(section.id)) {
+                                    next.delete(section.id);
+                                  } else {
+                                    next.add(section.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="p-0.5 hover:bg-muted rounded"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  "w-3 h-3 flex-shrink-0 transition-transform",
+                                  isExpanded && "rotate-90",
+                                  isActive ? "text-primary" : "text-muted-foreground"
+                                )}
+                              />
+                            </button>
+                          ) : (
+                            <span className="w-4 h-4 flex-shrink-0" />
+                          )}
+                          <span className="flex-1 truncate">
+                            {section.number && section.number !== section.title && `${section.number} `}
+                            {section.title}
+                          </span>
+                          {isSectionLocked && (
+                            <Lock className="w-3 h-3 text-amber-500 flex-shrink-0" title="已锁定" />
+                          )}
+                          {hasNoData && !isSectionLocked && (
+                            <FileWarning className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                          )}
+                          {hasIssues && !hasNoData && !isSectionLocked && (
+                            <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                          )}
+                        </div>
+                        {/* 展开后显示子文件列表 */}
+                        {isExpanded && hasFiles && (
+                          <div className="ml-6 border-l border-border/50 pl-2 py-1 space-y-1">
+                            {section.sourceFiles.map((fileName, idx) => (
+                              <div
+                                key={idx}
+                                className="text-[11px] text-muted-foreground truncate py-0.5 px-1"
+                                title={fileName}
+                              >
+                                {fileName}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     );
