@@ -1332,12 +1332,16 @@ export default function ReportPreview() {
                         )}
                         onClick={() => setActiveSectionId(section.id)}
                       >
-                        <ChevronRight
-                          className={cn(
-                            "w-3 h-3 flex-shrink-0",
-                            isActive ? "text-primary" : "text-muted-foreground"
-                          )}
-                        />
+                        {section.sourceFiles.length > 0 ? (
+                          <ChevronRight
+                            className={cn(
+                              "w-3 h-3 flex-shrink-0",
+                              isActive ? "text-primary" : "text-muted-foreground"
+                            )}
+                          />
+                        ) : (
+                          <span className="w-3 h-3 flex-shrink-0" />
+                        )}
                         <span className="flex-1 truncate">
                           {section.number && section.number !== section.title && `${section.number} `}
                           {section.title}
@@ -2005,7 +2009,7 @@ function generateReportHTML(
     const hasNoData = section.sourceFiles.length === 0;
     const isIntroSection = section.title.includes("引言") || section.title === "引言";
     const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义");
-    const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
+    const isEquitySection = section.title.includes("股���结构") || section.title.includes("股权架构");
 
     html += `
   <div class="section">
