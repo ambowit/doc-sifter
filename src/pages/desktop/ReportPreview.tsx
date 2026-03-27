@@ -1338,7 +1338,9 @@ export default function ReportPreview() {
                         >
                           {hasFiles ? (
                             <button
+                              type="button"
                               onClick={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 setExpandedSectionIds(prev => {
                                   const next = new Set(prev);
