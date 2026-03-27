@@ -56,3 +56,9 @@ verify_jwt = false
 
 [functions.delete-file]
 verify_jwt = false
+
+[functions.worker-file-ticket]
+verify_jwt = false
+
+[functions.ocr-callback]
+verify_jwt = false
