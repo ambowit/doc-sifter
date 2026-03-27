@@ -98,6 +98,19 @@ interface UploadingFile {
   error?: string;
 }
 
+interface UploadedRoomFile {
+  id?: string;
+  name: string;
+  sizeBytes: number;
+  type: FileType;
+  storagePath: string;
+  downloadUrl?: string;
+  mimeType?: string;
+  ocrProcessed?: boolean;
+  ocrTaskStatus?: string | null;
+  chapterId?: string | null;
+}
+
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_TYPES = [
   // Documents
@@ -194,20 +207,8 @@ export default function FileUpload() {
   const [isClearingAllFiles, setIsClearingAllFiles] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
-  const [uploadedFiles, setUploadedFiles] = useState<{
-    id?: string;
-    name: string;
-    size: number;
-    type: FileType;
-    storagePath: string;
-    downloadUrl?: string;
-    mimeType?: string;
-    ocrProcessed?: boolean;
-    // OCR 任务状态（PDF 异步处理）
-    ocrTaskStatus?: string | null;
-  }[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedRoomFile[]>([]);
   const [ocrProcessingIds, setOcrProcessingIds] = useState<Set<string>>(new Set());
-  const [ocrFailedIds, setOcrFailedIds] = useState<Set<string>>(new Set());
   const [isPreparingOcr, setIsPreparingOcr] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState<{
     isExtracting: boolean;
@@ -402,8 +403,10 @@ export default function FileUpload() {
     // Skip if still loading
     if (filesLoading) return;
 
-    // Create a stable fingerprint to detect actual changes (include OCR task status)
-    const currentFingerprint = existingFiles.map(f => `${f.id}:${f.ocrProcessed}:${f.ocrTaskStatus}`).join(",");
+    // Create a stable fingerprint to detect actual changes from OCR/classification callbacks
+    const currentFingerprint = existingFiles
+      .map(f => `${f.id}:${f.updatedAt}:${f.ocrProcessed}:${f.ocrTaskStatus}:${f.chapterId ?? ""}`)
+      .join(",");
     const fingerprintChanged = currentFingerprint !== prevFilesFingerprintRef.current;
 
     // Skip if nothing actually changed
@@ -419,7 +422,7 @@ export default function FileUpload() {
         return {
           id: f.id,
           name: f.originalName,
-          size: f.sizeBytes,
+          sizeBytes: f.sizeBytes,
           type: f.fileType,
           storagePath: f.storagePath,
           mimeType: f.mimeType,
@@ -519,7 +522,7 @@ export default function FileUpload() {
 
     if (!downloadUrl) {
       try {
-        downloadUrl = await getFileDownloadUrl(file.storagePath);
+        downloadUrl = await getFileDownloadUrl(projectId, file.storagePath);
       } catch (error) {
         console.error("[FileUpload] Failed to get download URL:", error);
         toast.error("获取下载链接失败");
@@ -696,7 +699,6 @@ export default function FileUpload() {
   const handleBatchOcr = async (
     files: Array<{
       fileId: string;
-      fileUrl: string;
       mimeType: string;
       fileName: string;
     }>,
@@ -710,72 +712,43 @@ export default function FileUpload() {
       fileIds.forEach(id => newSet.add(id));
       return newSet;
     });
-    // Clear previously failed status for files being retried
-    setOcrFailedIds(prev => {
-      const newSet = new Set(prev);
-      fileIds.forEach(id => newSet.delete(id));
-      return newSet;
-    });
 
-    toast.info(`正在智能分析 ${files.length} 个文件...`, { duration: 3000 });
+    toast.info(`正在提交 ${files.length} 个文件到后台处理...`, { duration: 3000 });
 
     try {
       const result = await batchOcrMutation.mutateAsync(files);
 
-      // Track which files failed
-      if (result.results) {
-        const failedFileIds: string[] = [];
-        result.results.forEach((r, index) => {
-          if (r.status === "rejected") {
-            failedFileIds.push(files[index].fileId);
-          }
-        });
-        if (failedFileIds.length > 0) {
-          setOcrFailedIds(prev => {
-            const newSet = new Set(prev);
-            failedFileIds.forEach(id => newSet.add(id));
-            return newSet;
-          });
-        }
+      if (result.submitted > 0) {
+        const batchHint = result.batchCount > 1
+          ? `，服务端已分 ${result.batchCount} 批提交`
+          : "";
+        toast.success(`已提交 ${result.submitted} 个文件到后台处理${batchHint}`);
+      }
+      if (result.alreadyProcessing > 0) {
+        toast.info(`${result.alreadyProcessing} 个文件已在后台处理中`, { duration: 4000 });
+      }
+      if (result.skipped > 0) {
+        toast.info(`${result.skipped} 个文件无需重复提取`, { duration: 4000 });
       }
 
-      // 计算同步完成和异步处理的数量
-      const syncCompleted = result.successful - (result.asyncCount || 0);
-      const asyncPending = result.asyncCount || 0;
-
-      if (syncCompleted > 0) {
-        toast.success(`已完成 ${syncCompleted} 个文件的智能分析`);
-      }
-      if (asyncPending > 0) {
-        toast.info(`${asyncPending} 个 PDF 文件正在后台处理中，稍后自动更新`, { duration: 5000 });
-      }
-
-      // OCR 完成后自动跳转
-      if (options?.autoRedirect && hasTemplate && result.failed === 0 && asyncPending === 0) {
-        // Auto redirect only if ALL succeeded (no async pending and no failed)
+      if (options?.autoRedirect && hasTemplate && result.failed === 0) {
         toast.info("正在跳转到定义管理...", { duration: 2000 });
         setTimeout(() => {
           navigate(`/project/${projectId}/definitions`);
         }, 1500);
       }
-      
+
       if (result.failed > 0) {
         const uniqueErrors = [...new Set(result.errors || [])];
         const errorSummary = uniqueErrors.length > 0
           ? `（${uniqueErrors.slice(0, 2).join("；")}${uniqueErrors.length > 2 ? "等" : ""}）`
           : "";
-        toast.warning(`${result.failed} 个文件分析失败${errorSummary}`, { duration: 5000 });
+        toast.warning(`${result.failed} 个文件提交失败${errorSummary}`, { duration: 5000 });
       }
     } catch (error) {
       console.error("[FileUpload] OCR batch processing error:", error);
       const errorMessage = error instanceof Error ? error.message : "未知错误";
-      toast.error(`智能分析失败: ${errorMessage}`);
-      // Mark all files in this batch as failed
-      setOcrFailedIds(prev => {
-        const newSet = new Set(prev);
-        fileIds.forEach(id => newSet.add(id));
-        return newSet;
-      });
+      toast.error(`提交后台处理失败: ${errorMessage}`);
     } finally {
       setOcrProcessingIds(prev => {
         const newSet = new Set(prev);
@@ -791,7 +764,6 @@ export default function FileUpload() {
 
     const filesToProcess: Array<{
       fileId: string;
-      fileUrl: string;
       mimeType: string;
       fileName: string;
     }> = [];
@@ -799,25 +771,13 @@ export default function FileUpload() {
     for (const storagePath of selectedFiles) {
       const file = uploadedFiles.find(f => f.storagePath === storagePath);
       if (!file?.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) continue;
-      if (file.ocrProcessed) continue;
+      if (file.ocrProcessed || file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing") continue;
 
-      try {
-        let downloadUrl = file.downloadUrl;
-        if (!downloadUrl) {
-          downloadUrl = await getFileDownloadUrl(storagePath);
-        }
-
-        if (downloadUrl) {
-          filesToProcess.push({
-            fileId: file.id,
-            fileUrl: downloadUrl,
-            mimeType: file.mimeType,
-            fileName: file.name,
-          });
-        }
-      } catch (error) {
-        console.error("[FileUpload] Failed to get download URL for OCR:", error);
-      }
+      filesToProcess.push({
+        fileId: file.id,
+        mimeType: file.mimeType,
+        fileName: file.name,
+      });
     }
 
     if (filesToProcess.length === 0) {
@@ -839,24 +799,8 @@ export default function FileUpload() {
   }) => {
     if (!file.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) return;
 
-    let downloadUrl = file.downloadUrl;
-    if (!downloadUrl) {
-      try {
-        downloadUrl = await getFileDownloadUrl(file.storagePath);
-      } catch (error) {
-        console.error("[FileUpload] Failed to get download URL for retry:", error);
-        toast.error(`获取文件链接失败: ${file.name}`);
-        return;
-      }
-    }
-    if (!downloadUrl) {
-      toast.error("无法获取文件下载链接");
-      return;
-    }
-
     await handleBatchOcr([{
       fileId: file.id,
-      fileUrl: downloadUrl,
       mimeType: file.mimeType,
       fileName: file.name,
     }]);
@@ -864,35 +808,22 @@ export default function FileUpload() {
 
   // Handle retry all failed files
   const handleRetryAllFailed = async () => {
-    if (ocrFailedIds.size === 0) return;
+    if (failedOcrFiles.length === 0) return;
 
     const filesToRetry: Array<{
       fileId: string;
-      fileUrl: string;
       mimeType: string;
       fileName: string;
     }> = [];
 
-    for (const fileId of ocrFailedIds) {
-      const file = uploadedFiles.find(f => f.id === fileId);
+    for (const file of failedOcrFiles) {
       if (!file?.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) continue;
 
-      try {
-        let downloadUrl = file.downloadUrl;
-        if (!downloadUrl) {
-          downloadUrl = await getFileDownloadUrl(file.storagePath);
-        }
-        if (downloadUrl) {
-          filesToRetry.push({
-            fileId: file.id,
-            fileUrl: downloadUrl,
-            mimeType: file.mimeType,
-            fileName: file.name,
-          });
-        }
-      } catch (error) {
-        console.error("[FileUpload] Failed to get download URL for retry:", error);
-      }
+      filesToRetry.push({
+        fileId: file.id,
+        mimeType: file.mimeType,
+        fileName: file.name,
+      });
     }
 
     if (filesToRetry.length === 0) {
@@ -905,9 +836,16 @@ export default function FileUpload() {
 
   // Count files needing extraction (failed + never tried, excluding currently processing)
   const unextractedOcrFiles = uploadedFiles.filter(
-    f => f.id && f.mimeType && canExtractFileText(f.mimeType, f.name) && !f.ocrProcessed && !ocrProcessingIds.has(f.id)
+    f =>
+      f.id &&
+      f.mimeType &&
+      canExtractFileText(f.mimeType, f.name) &&
+      !f.ocrProcessed &&
+      f.ocrTaskStatus !== "pending" &&
+      f.ocrTaskStatus !== "processing" &&
+      !ocrProcessingIds.has(f.id)
   );
-  const failedOcrFiles = unextractedOcrFiles.filter(f => f.id && ocrFailedIds.has(f.id));
+  const failedOcrFiles = unextractedOcrFiles.filter(f => f.ocrTaskStatus === "failed");
 
   // Handle extracting all unextracted files
   const handleExtractAllUnextracted = async () => {
@@ -917,37 +855,24 @@ export default function FileUpload() {
 
     const filesToProcess: Array<{
       fileId: string;
-      fileUrl: string;
       mimeType: string;
       fileName: string;
     }> = [];
 
     for (const file of unextractedOcrFiles) {
       if (!file.id || !file.mimeType) continue;
-      try {
-        let downloadUrl = file.downloadUrl;
-        if (!downloadUrl) {
-          downloadUrl = await getFileDownloadUrl(file.storagePath);
-        }
-        if (downloadUrl) {
-          filesToProcess.push({
-            fileId: file.id,
-            fileUrl: downloadUrl,
-            mimeType: file.mimeType,
-            fileName: file.name,
-          });
-        } else {
-          console.warn("[FileUpload] No downloadUrl for:", file.name);
-        }
-      } catch (error) {
-        console.error("[FileUpload] Failed to get URL for:", file.name, error);
-      }
+
+      filesToProcess.push({
+        fileId: file.id,
+        mimeType: file.mimeType,
+        fileName: file.name,
+      });
     }
 
     setIsPreparingOcr(false);
 
     if (filesToProcess.length === 0) {
-      toast.error("无法获取文件下载链接，请稍后重试");
+      toast.error("没有可提交的文件，请稍后重试");
       return;
     }
 
@@ -1079,7 +1004,7 @@ export default function FileUpload() {
           }
         } else {
           toast.error(`${file.name}: 不支持的压缩格式`, {
-            description: reason || "建议将压缩包转换为 ZIP 格式后重新上传，或者��本地解压后直接上传文件",
+            description: reason || "建议将压缩包转换为 ZIP 格式后重新上传，或者在本地解压后直接上传文件",
             duration: 8000,
           });
         }
@@ -1144,7 +1069,7 @@ export default function FileUpload() {
         setUploadedFiles(prev => [...prev, {
           id: createdFile.id,
           name: file.name,
-          size: file.size,
+          sizeBytes: file.size,
           type: fileType,
           storagePath,
           downloadUrl,
@@ -1184,17 +1109,11 @@ export default function FileUpload() {
 
     if (successCount > 0) {
       toast.success(`成功上传 ${successCount} 个文件`);
-      
-      // 收集上传成功的文件 ID 用于后续自动分类
-      const uploadedFileIds = results
-        .filter(r => r.success && r.fileId)
-        .map(r => r.fileId!);
 
       const ocrCandidates = results
-        .filter(r => r.success && r.downloadUrl && r.mimeType && canExtractFileText(r.mimeType, r.fileName))
+        .filter(r => r.success && r.fileId && r.mimeType && canExtractFileText(r.mimeType, r.file.name))
         .map(r => ({
           fileId: r.fileId!,
-          fileUrl: r.downloadUrl!,
           mimeType: r.mimeType!,
           fileName: r.file.name,
         }));
@@ -1204,12 +1123,17 @@ export default function FileUpload() {
         setTimeout(() => {
           handleBatchOcr(ocrCandidates, { autoRedirect: true });
         }, 500);
+      } else if (hasTemplate) {
+        toast.info("正在跳转到定义管理...", { duration: 2000 });
+        setTimeout(() => {
+          navigate(`/project/${projectId}/definitions`);
+        }, 1500);
       }
     }
     if (failCount > 0) {
       toast.error(`${failCount} 个文件上传失败，请检查网络后重试`);
     }
-  }, [currentProjectId, createFileMutation, navigate]);
+  }, [currentProjectId, createFileMutation, handleBatchOcr, hasTemplate, navigate, projectId]);
 
   const handleDataRoomDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1269,7 +1193,7 @@ export default function FileUpload() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">数据室文件</h1>
           <p className="text-[13px] text-muted-foreground mt-1">
-            上传尽调资料，AI 自动提取内容后将跳转到定义���理页面
+            上传尽调资料，AI 自动提取内容后将跳转到定义管理页面
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -2040,7 +1964,7 @@ export default function FileUpload() {
                                   {file.type}
                                 </span>
                                 <span className="w-20 text-right text-[10px] text-muted-foreground font-mono">
-                                  {formatFileSize(file.size)}
+                                  {formatFileSize(file.sizeBytes)}
                                 </span>
 
                                 {/* File Actions */}
@@ -2060,7 +1984,7 @@ export default function FileUpload() {
                                       let url = file.downloadUrl;
                                       if (!url) {
                                         try {
-                                          url = await getFileDownloadUrl(file.storagePath);
+                                          url = await getFileDownloadUrl(projectId, file.storagePath);
                                         } catch (error) {
                                           toast.error("获取下载链接失败");
                                           return;

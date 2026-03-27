@@ -1330,7 +1330,7 @@ export default function TemplateFingerprint() {
                               />
                             </div>
                             <div>
-                              <Label className="text-[11px]">首���缩进 (cm)</Label>
+                              <Label className="text-[11px]">首行缩进 (cm)</Label>
                               <Input
                                 type="number"
                                 step="0.1"
@@ -1497,7 +1497,7 @@ export default function TemplateFingerprint() {
                               <SelectContent>
                                 <SelectItem value="none">无</SelectItem>
                                 <SelectItem value="fold">折角效果</SelectItem>
-                                <SelectItem value="stamp">印��图标</SelectItem>
+                                <SelectItem value="stamp">印章图标</SelectItem>
                                 <SelectItem value="watermark">水印文字</SelectItem>
                               </SelectContent>
                             </Select>

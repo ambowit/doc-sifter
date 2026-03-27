@@ -42,3 +42,17 @@ verify_jwt = false
 [functions.process-report-job]
 verify_jwt = false
 
+[functions.extract-definitions]
+verify_jwt = false
+
+[functions.approve-definition-candidates]
+verify_jwt = false
+
+[functions.reject-definition-candidates]
+verify_jwt = false
+
+[functions.file-download-url]
+verify_jwt = false
+
+[functions.delete-file]
+verify_jwt = false

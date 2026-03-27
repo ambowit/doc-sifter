@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,10 @@ export interface UploadedFile {
   textSummary: string | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
+  extractionStatus: string | null;
+  extractionMethod: string | null;
+  extractionError: string | null;
+  extractionCompletedAt: string | null;
   // OCR 任务状态（PDF 异步处理）
   ocrTaskId: string | null;
   ocrTaskStatus: string | null; // pending | processing | completed | failed
@@ -48,6 +52,20 @@ export interface CreateFileData {
   storagePath: string;
 }
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : fallback;
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // Transform database row to UploadedFile interface
 const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   id: row.id as string,
@@ -56,7 +74,7 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   originalName: row.original_name as string,
   fileType: row.file_type as FileType,
   mimeType: row.mime_type as string,
-  sizeBytes: row.size_bytes as number,
+  sizeBytes: toFiniteNumber(row.size_bytes),
   storagePath: row.storage_path as string,
   status: row.status as FileStatus,
   excerpt: row.excerpt as string | null,
@@ -67,6 +85,10 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   textSummary: row.text_summary as string | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
+  extractionStatus: row.extraction_status as string | null,
+  extractionMethod: row.extraction_method as string | null,
+  extractionError: row.extraction_error as string | null,
+  extractionCompletedAt: row.extraction_completed_at as string | null,
   // OCR 任务状态（PDF 异步处理）
   ocrTaskId: row.ocr_task_id as string | null,
   ocrTaskStatus: row.ocr_task_status as string | null,
@@ -84,6 +106,7 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
 // Automatically polls when there are pending OCR tasks
 export function useFiles(projectId: string | undefined) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ["files", projectId],
@@ -101,16 +124,31 @@ export function useFiles(projectId: string | undefined) {
       return (data || []).map(transformFile);
     },
     enabled: !!user && !!projectId,
-    // 当有 pending/processing 状态的 OCR 任务时，每 5 秒轮询一次
-    refetchInterval: (query) => {
-      const files = query.state.data;
-      if (!files) return false;
-      const hasPendingOcr = files.some(
-        (f) => f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing"
-      );
-      return hasPendingOcr ? 5000 : false;
-    },
   });
+
+  useEffect(() => {
+    if (!user || !projectId) return;
+
+    const channel = supabase
+      .channel(`files-${projectId}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "files",
+          filter: `project_id=eq.${projectId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [projectId, queryClient, user]);
 
   return query;
 }
@@ -195,18 +233,7 @@ export function useDeleteFile() {
 
   return useMutation({
     mutationFn: async ({ fileId, projectId, storagePath }: { fileId: string; projectId: string; storagePath?: string }) => {
-      // Delete from storage if path provided
-      if (storagePath) {
-        await supabase.storage.from("dd-files").remove([storagePath]);
-      }
-
-      // Delete from database
-      const { error } = await supabase
-        .from("files")
-        .delete()
-        .eq("id", fileId);
-
-      if (error) throw error;
+      await invokeAuthedFunction("delete-file", { fileId, projectId, storagePath });
       return { fileId, projectId };
     },
     onSuccess: (_, variables) => {
@@ -246,7 +273,7 @@ export function detectFileType(filename: string): FileType {
   return "其他";
 }
 
-// Upload file to SuperunStorage via Edge Function
+// Upload file via Edge Function-issued signed upload URL
 export async function uploadFile(
   file: File,
   projectId: string,
@@ -274,7 +301,7 @@ export async function uploadFile(
       throw new Error(`Failed to get upload URL: ${presignError.message}`);
     }
 
-    const { uploadUrl, contentType, downloadUrl } = presignData;
+    const { uploadUrl, contentType } = presignData;
     if (!uploadUrl) {
       throw new Error("No upload URL returned");
     }
@@ -339,6 +366,8 @@ export async function uploadFile(
       fileContent = await file.arrayBuffer();
     }
 
+    const downloadUrl = await getFileDownloadUrl(projectId, storagePath);
+
     onProgress?.(100);
 
     return {
@@ -353,24 +382,27 @@ export async function uploadFile(
 }
 
 // Get download URL for a file (signed URL for private bucket)
-export async function getFileDownloadUrl(storagePath: string): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from("dd-files")
-    .createSignedUrl(storagePath, 3600); // 1 hour expiry
-  
-  if (error || !data?.signedUrl) {
-    console.error("[getFileDownloadUrl] Failed to get signed URL:", error);
-    throw new Error("无法获取文件下载链接");
+export async function getFileDownloadUrl(projectId: string, storagePath: string): Promise<string> {
+  const data = await invokeAuthedFunction<{ signedUrl?: string; error?: string }>("file-download-url", {
+    projectId,
+    storagePath,
+  });
+
+  if (!data?.signedUrl) {
+    console.error("[getFileDownloadUrl] Failed to get signed URL:", data);
+    throw new Error(data?.error || "无法获取文件下载链接");
   }
-  
+
   return data.signedUrl;
 }
 
 // Format file size for display
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+export function formatFileSize(bytes: number | null | undefined): string {
+  const normalized = toFiniteNumber(bytes, Number.NaN);
+  if (!Number.isFinite(normalized) || normalized < 0) return "--";
+  if (normalized < 1024) return `${normalized} B`;
+  if (normalized < 1024 * 1024) return `${(normalized / 1024).toFixed(1)} KB`;
+  return `${(normalized / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export type FileExtractionMethod = "ocr" | "document" | "text";
@@ -394,25 +426,55 @@ export function canExtractFileText(mimeType: string, fileName?: string): boolean
 
 // 获取当前用户 access_token，用于手动附加 Authorization header
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  let { data: { session } } = await supabase.auth.getSession();
+  const expiresSoon = !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
+
+  if (!session?.access_token || expiresSoon) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) throw new Error("用户登录已失效，请重新登录后重试");
+    session = data.session;
+  }
+
   if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
-  return { Authorization: `Bearer ${session.access_token}` };
+
+  return {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${session.access_token}`,
+  };
+}
+
+async function invokeAuthedFunction<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const raw = await response.text();
+  const data = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+
+  if (!response.ok) {
+    throw new Error(
+      (typeof data.error === "string" && data.error) ||
+      (typeof data.message === "string" && data.message) ||
+      `调用 ${functionName} 失败 (${response.status})`
+    );
+  }
+
+  return data as T;
 }
 
 // OCR 提取结果类型
 export interface OcrExtractResult {
   success: boolean;
-  // 同步处理结果（图片）
-  text?: string;
-  summary?: string;
-  method?: string;
-  pageCount?: number;
-  isScannedDocument?: boolean;
+  queued?: boolean;
   skipped?: boolean;
-  // 异步处理结果（PDF 走 Worker）
-  async?: boolean;
+  alreadyQueued?: boolean;
   taskId?: string;
   message?: string;
+  error?: string;
 }
 
 // Hook to trigger OCR extraction for a file
@@ -422,26 +484,14 @@ export function useOcrExtract() {
   return useMutation({
     mutationFn: async ({ 
       fileId, 
-      fileUrl, 
       mimeType, 
       fileName 
     }: { 
       fileId: string; 
-      fileUrl: string; 
       mimeType: string; 
       fileName: string;
     }): Promise<OcrExtractResult> => {
-      // 手动附加 Bearer token，确保 Edge Function 能验证用户身份
-      const headers = await getAuthHeaders();
-      const { data, error } = await supabase.functions.invoke("ocr-extract", {
-        body: { fileId, fileUrl, mimeType, fileName },
-        headers,
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      
-      return data as OcrExtractResult;
+      return await invokeAuthedFunction<OcrExtractResult>("ocr-extract", { fileId, mimeType, fileName });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
@@ -649,89 +699,52 @@ export function useUpdateFileChapter() {
 // 批量 OCR 结果类型
 export interface BatchOcrResult {
   fileId: string;
-  success?: boolean;
-  async?: boolean;
+  status: "queued" | "skipped" | "already_processing" | "failed";
   taskId?: string;
   error?: string;
 }
 
-// Hook to batch process OCR for multiple files
-// Processes files sequentially to avoid overwhelming the Edge Function
-// PDF files are processed asynchronously via Worker, images are processed synchronously
+export interface BatchOcrSummary {
+  requested: number;
+  eligible: number;
+  submitted: number;
+  skipped: number;
+  failed: number;
+  alreadyProcessing: number;
+  batchCount: number;
+  batchSize: number;
+  results: BatchOcrResult[];
+  errors: string[];
+}
+
+// Hook to batch process OCR for multiple files.
+// The client submits the full target set once and the server batches worker task creation.
 export function useBatchOcrExtract() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (files: Array<{ 
       fileId: string; 
-      fileUrl: string; 
       mimeType: string; 
       fileName: string;
     }>) => {
-      const results: PromiseSettledResult<BatchOcrResult>[] = [];
-      let asyncCount = 0; // 统计异步处理的 PDF 数量
-      
-      // 一次性获取 token，所有请求复用
-      const headers = await getAuthHeaders();
+      const data = await invokeAuthedFunction<Record<string, unknown>>("ocr-extract", { files });
 
-      // Process files sequentially with small delay between requests
-      // This avoids overwhelming the Edge Function and reduces timeouts
-      for (const file of files) {
-        try {
-          const { data, error } = await supabase.functions.invoke("ocr-extract", {
-            body: file,
-            headers,
-          });
-          
-          if (error) {
-            results.push({ 
-              status: "rejected", 
-              reason: new Error(error.message || "OCR 请求失败") 
-            });
-          } else if (data?.error) {
-            results.push({ 
-              status: "rejected", 
-              reason: new Error(data.error) 
-            });
-          } else {
-            // 检查是否是异步处理（PDF 走 Worker）
-            if (data?.async) {
-              asyncCount++;
-            }
-            results.push({ 
-              status: "fulfilled", 
-              value: { fileId: file.fileId, async: data?.async, taskId: data?.taskId, success: data?.success } 
-            });
-          }
-        } catch (err) {
-          results.push({ 
-            status: "rejected", 
-            reason: err instanceof Error ? err : new Error(String(err)) 
-          });
-        }
-        
-        // Small delay between requests to avoid rate limiting
-        if (files.indexOf(file) < files.length - 1) {
-          await new Promise(r => setTimeout(r, 300));
-        }
-      }
-
-      const successful = results.filter(r => r.status === "fulfilled").length;
-      const failed = results.filter(r => r.status === "rejected").length;
-      
-      // Collect error messages for failed files
-      const errors = results
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .map(r => r.reason?.message || "未知错误");
-
-      return { successful, failed, asyncCount, results, errors };
+      return {
+        requested: Number(data?.requested || files.length),
+        eligible: Number(data?.eligible || 0),
+        submitted: Number((data?.submitted ?? data?.queued) || 0),
+        skipped: Number(data?.skipped || 0),
+        failed: Number(data?.failed || 0),
+        alreadyProcessing: Number((data?.alreadyProcessing ?? data?.alreadyQueued) || 0),
+        batchCount: Number(data?.batchCount || 0),
+        batchSize: Number(data?.batchSize || 0),
+        results: Array.isArray(data?.results) ? (data.results as BatchOcrResult[]) : [],
+        errors: Array.isArray(data?.errors) ? (data.errors as string[]) : [],
+      } satisfies BatchOcrSummary;
     },
     onSettled: () => {
-      // Always invalidate after mutation settles (success or error)
-      // to ensure UI reflects the actual database state
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
     },
   });
 }
-
-

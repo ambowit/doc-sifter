@@ -1,0 +1,220 @@
+﻿export type EntityType = "company" | "individual" | "institution" | "transaction" | "other";
+
+export interface DefinitionSourceTraceItem {
+  sourceFileId: string | null;
+  sourceFileName: string | null;
+  sourcePageRef: string | null;
+  sourceExcerpt: string | null;
+  confidence: number | null;
+  reviewReason?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface ExtractedDefinitionItem {
+  shortName?: string | null;
+  fullName?: string | null;
+  entityType?: EntityType | string | null;
+  description?: string | null;
+  sourceFileName?: string | null;
+  sourcePageRef?: string | null;
+  sourceExcerpt?: string | null;
+  confidence?: number | null;
+}
+
+export interface SourceFileLike {
+  id: string;
+  name: string;
+  category: string;
+  extractedText: string | null;
+  textSummary: string | null;
+}
+
+export interface SnippetItem {
+  fileId: string;
+  fileName: string;
+  category: string;
+  excerpt: string;
+}
+
+const WINDOW_RADIUS = 260;
+const MAX_SNIPPETS_PER_FILE = 4;
+const MAX_TOTAL_SNIPPETS = 80;
+const KEYWORD_REGEX = /(定义|释义|以下简称|以下称|系指|指为|简称|本协议|本公司|目标公司|投资方)/g;
+
+export function normalizeWhitespace(value: string | null | undefined): string {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+export function normalizeLookupKey(value: string | null | undefined): string {
+  return normalizeWhitespace(value)
+    .toLowerCase()
+    .replace(/[“”"'《》()（）\[\]【】,，。.；;:：·]/g, "")
+    .replace(/\s+/g, "");
+}
+
+export function inferEntityType(fullName: string, shortName: string): EntityType {
+  const text = `${fullName} ${shortName}`.toLowerCase();
+
+  if (["公司", "企业", "集团", "有限", "股份", "合伙", "投资方", "目标公司", "标的公司"].some((k) => text.includes(k))) {
+    return "company";
+  }
+  if (["先生", "女士", "自然人", "股东", "董事", "监事", "高管", "法定代表人", "实际控制人", "创始人"].some((k) => text.includes(k))) {
+    return "individual";
+  }
+  if (["委员会", "政府", "监管", "银行", "协会", "机构", "证监会", "工商局", "税务局"].some((k) => text.includes(k))) {
+    return "institution";
+  }
+  if (["交易", "收购", "合并", "投资", "融资", "增资", "股权转让", "重组", "项目"].some((k) => text.includes(k))) {
+    return "transaction";
+  }
+  return "other";
+}
+
+export function categorizeFile(fileName: string): string {
+  const name = fileName.toLowerCase();
+  if (name.includes("章程")) return "章程与治理";
+  if (name.includes("合同") || name.includes("协议")) return "合同协议";
+  if (name.includes("制度") || name.includes("手册") || name.includes("规则")) return "制度规则";
+  if (name.includes("营业执照") || name.includes("工商")) return "公司基本信息";
+  if (name.includes("股权") || name.includes("股东") || name.includes("出资")) return "股权结构";
+  if (name.includes("法律意见") || name.includes("尽调") || name.includes("说明书")) return "法律文件";
+  return "其他";
+}
+
+function getPriorityScore(fileName: string, category: string): number {
+  const text = `${fileName} ${category}`;
+  if (/章程|合同|协议|制度|规则|法律意见|说明书/i.test(text)) return 3;
+  if (/股权|工商|营业执照|投资/i.test(text)) return 2;
+  return 1;
+}
+
+export function buildDefinitionSnippets(files: SourceFileLike[]): SnippetItem[] {
+  const rankedFiles = [...files].sort((a, b) => {
+    const scoreDiff = getPriorityScore(b.name, b.category) - getPriorityScore(a.name, a.category);
+    if (scoreDiff !== 0) return scoreDiff;
+    return a.name.localeCompare(b.name, "zh-CN");
+  });
+
+  const snippets: SnippetItem[] = [];
+
+  for (const file of rankedFiles) {
+    if (snippets.length >= MAX_TOTAL_SNIPPETS) break;
+    const text = normalizeWhitespace(file.extractedText || file.textSummary || "");
+    if (!text) continue;
+
+    const localSnippets: SnippetItem[] = [];
+    const seen = new Set<string>();
+    for (const match of text.matchAll(KEYWORD_REGEX)) {
+      if (localSnippets.length >= MAX_SNIPPETS_PER_FILE) break;
+      const index = match.index ?? 0;
+      const start = Math.max(0, index - WINDOW_RADIUS);
+      const end = Math.min(text.length, index + WINDOW_RADIUS);
+      const excerpt = text.slice(start, end).trim();
+      const key = normalizeLookupKey(excerpt);
+      if (!excerpt || seen.has(key)) continue;
+      seen.add(key);
+      localSnippets.push({
+        fileId: file.id,
+        fileName: file.name,
+        category: file.category,
+        excerpt,
+      });
+    }
+
+    if (localSnippets.length === 0 && getPriorityScore(file.name, file.category) >= 3) {
+      localSnippets.push({
+        fileId: file.id,
+        fileName: file.name,
+        category: file.category,
+        excerpt: text.slice(0, 800),
+      });
+    }
+
+    snippets.push(...localSnippets);
+  }
+
+  return snippets.slice(0, MAX_TOTAL_SNIPPETS);
+}
+
+export function parseDefinitionResponse(content: string): ExtractedDefinitionItem[] {
+  let jsonStr = content.trim();
+  const blockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (blockMatch) {
+    jsonStr = blockMatch[1].trim();
+  }
+
+  const arrayStart = jsonStr.indexOf("[");
+  const arrayEnd = jsonStr.lastIndexOf("]");
+  if (arrayStart !== -1 && arrayEnd !== -1) {
+    jsonStr = jsonStr.slice(arrayStart, arrayEnd + 1);
+  }
+
+  const parsed = JSON.parse(jsonStr);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.map((item) => ({
+    shortName: normalizeWhitespace(item.shortName ?? item.short_name ?? item.alias),
+    fullName: normalizeWhitespace(item.fullName ?? item.full_name ?? item.name),
+    entityType: item.entityType ?? item.entity_type ?? item.type ?? null,
+    description: normalizeWhitespace(item.description ?? item.notes),
+    sourceFileName: normalizeWhitespace(item.sourceFileName ?? item.source_file_name ?? item.fileName),
+    sourcePageRef: normalizeWhitespace(item.sourcePageRef ?? item.source_page_ref ?? item.pageRef),
+    sourceExcerpt: normalizeWhitespace(item.sourceExcerpt ?? item.source_excerpt ?? item.evidence),
+    confidence: typeof item.confidence === "number" ? item.confidence : null,
+  }));
+}
+
+export function dedupeExtractedItems(items: ExtractedDefinitionItem[]): ExtractedDefinitionItem[] {
+  const bestByKey = new Map<string, ExtractedDefinitionItem>();
+
+  for (const item of items) {
+    const shortKey = normalizeLookupKey(item.shortName);
+    const fullKey = normalizeLookupKey(item.fullName);
+    const fileKey = normalizeLookupKey(item.sourceFileName);
+    const key = `${shortKey}|${fullKey}|${fileKey}`;
+    if (!shortKey && !fullKey) continue;
+
+    const previous = bestByKey.get(key);
+    const currentScore = (item.confidence ?? 0) + (item.sourceExcerpt ? 0.2 : 0) + (item.sourceFileName ? 0.1 : 0);
+    const previousScore = previous ? ((previous.confidence ?? 0) + (previous.sourceExcerpt ? 0.2 : 0) + (previous.sourceFileName ? 0.1 : 0)) : -1;
+    if (!previous || currentScore >= previousScore) {
+      bestByKey.set(key, item);
+    }
+  }
+
+  return [...bestByKey.values()];
+}
+
+export function buildDefinitionPrompts(
+  project: { name: string | null; target: string | null; client: string | null },
+  snippets: SnippetItem[],
+) {
+  const systemPrompt = `你是中国投资法律尽调定义管理专家。你的任务是从数据室文件中抽取“定义与简称”候选项，并保留证据链。
+
+请重点识别：
+1. 合同/协议/章程/制度中的“定义”“释义”“以下简称”“系指”条款
+2. 目标公司、投资方、股东、关联方、子公司、平台公司等主体简称
+3. 常用法规简称
+4. 报告固定定义（如本法律尽职调查报告→本报告，本次法律尽职调查→本次尽调）
+
+输出要求：
+- 只输出 JSON 数组，禁止输出解释文字
+- 每项字段：fullName, shortName, entityType, description, sourceFileName, sourcePageRef, sourceExcerpt, confidence
+- sourceExcerpt 必须直接引用命中的原文片段或最接近的上下文
+- confidence 取值 0 到 1
+- 若只能确定简称或全称其中一项，也保留该项，不要臆造另一项
+- 不要输出明显重复项`;
+
+  const snippetText = snippets.map((snippet, index) => `### 片段${index + 1}\n文件：${snippet.fileName}\n分类：${snippet.category}\n内容：${snippet.excerpt}`).join("\n\n");
+
+  const userPrompt = `项目信息：\n- 项目名称：${project.name || "未提供"}\n- 目标公司：${project.target || "未提供"}\n- 委托方：${project.client || "未提供"}\n\n请基于下列高相关片段提取定义与简称：\n\n${snippetText}`;
+
+  return { systemPrompt, userPrompt };
+}
+
+export function clampConfidence(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value));
+}

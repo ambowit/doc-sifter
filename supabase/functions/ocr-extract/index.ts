@@ -1,409 +1,229 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ZipReader, BlobReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
+import { buildSignedHeaders, corsHeaders, getBearerToken, jsonResponse } from "../_shared/worker-hmac.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-const logStep = (step: string, details?: unknown) => {
-  const detailsStr = details ? ` - ${JSON.stringify(details)}` : "";
-  console.log(`[ocr-extract] ${step}${detailsStr}`);
-};
-
-interface OCRRequest {
+interface SingleTaskRequest {
   fileId: string;
-  fileUrl: string;
-  mimeType: string;
-  fileName: string;
+  mimeType?: string;
+  fileName?: string;
+  fileUrl?: string;
 }
 
-// 图片文件大小限制 (1.5MB，base64 编码后约 2MB，避免 AI Gateway 413 错误)
-const MAX_IMAGE_SIZE = 1.5 * 1024 * 1024;
-
-// HMAC 签名函数
-async function hmacSign(secret: string, canonical: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(canonical));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+interface TaskRequestBody {
+  files?: SingleTaskRequest[];
+  fileId?: string;
+  mimeType?: string;
+  fileName?: string;
+  fileUrl?: string;
 }
 
-// 使用 Worker /extract-text 同步接口提取 PDF 文本（带重试）
-async function extractPdfWithWorker(
-  fileId: string,
-  fileUrl: string,
-  fileName: string,
-  maxRetries = 2
-): Promise<{ text: string; summary: string; pageCount: number; isScanned: boolean }> {
-  const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
-  const hmacSecret = Deno.env.get("WORKER_HMAC_SECRET");
-
-  if (!hmacSecret) {
-    throw new Error("WORKER_HMAC_SECRET not configured");
-  }
-
-  logStep("Extracting PDF with Worker", { fileId, fileName, workerBase });
-
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      logStep(`Retry attempt ${attempt}/${maxRetries}`);
-      await new Promise(r => setTimeout(r, 2000 * attempt)); // 指数退避
-    }
-
-    // 每次重试都重新生成签名（因为 timestamp 变了）
-    const payload = JSON.stringify({
-      file_url: fileUrl,
-      max_chars: 120000,
-    });
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const nonce = crypto.randomUUID();
-    const canonical = `${timestamp}.${nonce}.${payload}`;
-    const signature = await hmacSign(hmacSecret, canonical);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
-
-    try {
-      const workerRes = await fetch(`${workerBase}/extract-text`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Timestamp": timestamp,
-          "X-Nonce": nonce,
-          "X-Signature": signature,
-        },
-        body: payload,
-        signal: controller.signal,
-      });
-
-      const responseText = await workerRes.text();
-      logStep("Worker response", { status: workerRes.status, bodyLength: responseText.length });
-
-      // 502/503/504 网关错误，可重试
-      if (workerRes.status >= 502 && workerRes.status <= 504) {
-        lastError = new Error(`Worker 网关错误 (HTTP ${workerRes.status})，请稍后重试`);
-        logStep(`Gateway error, will retry`, { status: workerRes.status });
-        continue;
-      }
-
-      let workerData;
-      try {
-        workerData = JSON.parse(responseText);
-      } catch {
-        // 非 JSON 响应（如 HTML 错误页），可能是网关问题，可重试
-        if (responseText.includes("<!DOCTYPE") || responseText.includes("<html")) {
-          lastError = new Error(`Worker 返回 HTML 错误页 (可能是网关问题)`);
-          logStep(`HTML response, will retry`);
-          continue;
-        }
-        throw new Error(`Worker 返回非 JSON: ${responseText.substring(0, 100)}`);
-      }
-
-      // 检查错误状态
-      if (!workerRes.ok || workerData.status === "error") {
-        const errMsg = workerData.error?.message || workerData.message || `HTTP ${workerRes.status}`;
-        throw new Error(errMsg);
-      }
-
-      // 解析结果
-      const result = workerData.result || workerData;
-      const text = result.text || "";
-      const pageCount = result.page_count || 0;
-      const isScanned = result.is_scanned_document || false;
-
-      const summary = text.substring(0, 200).replace(/\s+/g, " ").trim();
-
-      logStep("PDF extraction complete", { 
-        textLength: text.length, 
-        pageCount, 
-        isScanned 
-      });
-
-      return { text, summary, pageCount, isScanned };
-    } catch (err) {
-      clearTimeout(timeout);
-      
-      if (err instanceof Error && err.name === "AbortError") {
-        lastError = new Error("Worker 处理超时，请稍后重试");
-      } else {
-        lastError = err instanceof Error ? err : new Error(String(err));
-      }
-      
-      // 超时错误不重试
-      if (lastError.message.includes("超时")) {
-        throw lastError;
-      }
-      
-      logStep(`Attempt ${attempt} failed`, { error: lastError.message });
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  throw lastError || new Error("PDF 提取失败");
+interface FileRow {
+  id: string;
+  project_id: string;
+  name: string;
+  original_name: string | null;
+  mime_type: string | null;
+  storage_path: string;
+  ocr_task_id: string | null;
+  ocr_task_status: string | null;
 }
 
-// Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.byteLength));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
-  }
-  return btoa(binary);
+interface ProjectRow {
+  id: string;
+  user_id: string;
 }
 
-async function extractTextFromDocxBuffer(buffer: ArrayBuffer): Promise<string> {
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  });
-  const zipReader = new ZipReader(new BlobReader(blob));
+const WORKER_TASK_TYPE = "text_extraction";
+const WORKER_RESOLVER_TYPE = "signed_url_ticket";
+const WORKER_APP_ID = "doc-sifter";
+const DEFAULT_BATCH_SUBMIT_LIMIT = 20;
+const DEFAULT_MAX_TOTAL_FILES_PER_REQUEST = 200;
 
-  try {
-    const entries = await zipReader.getEntries();
-    const documentEntry = entries.find((entry) => entry.filename === "word/document.xml");
-    if (!documentEntry?.getData) {
-      return "";
-    }
-
-    const xmlContent = await documentEntry.getData(new TextWriter());
-    return xmlContent
-      .replace(/<w:p[^>]*>/g, "\n\n")
-      .replace(/<w:tab\/>/g, "\t")
-      .replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, "$1")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/^\s+|\s+$/gm, "")
-      .trim();
-  } finally {
-    await zipReader.close();
+function normalizeTasks(payload: TaskRequestBody): SingleTaskRequest[] {
+  if (Array.isArray(payload.files)) {
+    return payload.files.filter((item) => typeof item?.fileId === "string" && item.fileId.trim().length > 0);
   }
+
+  if (typeof payload.fileId === "string" && payload.fileId.trim().length > 0) {
+    return [{
+      fileId: payload.fileId,
+      mimeType: payload.mimeType,
+      fileName: payload.fileName,
+      fileUrl: payload.fileUrl,
+    }];
+  }
+
+  return [];
 }
 
-async function extractDocumentText(
-  fileUrl: string,
-  mimeType: string,
-  fileName: string,
-): Promise<{ text: string; summary: string; entities: string[] }> {
-  const response = await fetch(fileUrl);
-  if (!response.ok) {
-    throw new Error(`下载失败: HTTP ${response.status}`);
-  }
-
-  const lowerMimeType = mimeType.toLowerCase();
+function isSupportedTextExtraction(mimeType: string, fileName: string): boolean {
+  const normalizedMimeType = mimeType.toLowerCase();
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
 
-  let text = "";
-  if (lowerMimeType.includes("word") || ext === "docx") {
-    const buffer = await response.arrayBuffer();
-    text = await extractTextFromDocxBuffer(buffer);
-  } else if (lowerMimeType.includes("text/plain") || ext === "txt") {
-    text = await response.text();
-  } else {
-    throw new Error(`暂不支持自动提取文本的文件类型: ${mimeType}`);
-  }
+  if (normalizedMimeType.includes("pdf") || ext === "pdf") return true;
+  if (normalizedMimeType.startsWith("image/")) return true;
+  if (normalizedMimeType.includes("word") || ext === "docx") return true;
+  if (normalizedMimeType.includes("text/plain") || ext === "txt") return true;
 
-  const normalizedText = text.replace(/\s+\n/g, "\n").trim();
-  return {
-    text: normalizedText,
-    summary: normalizedText.substring(0, 200).replace(/\s+/g, " ").trim(),
-    entities: [],
-  };
+  return false;
 }
 
-// Download file with timeout and size check
-async function downloadAsBase64(
-  url: string, 
-  mimeType: string, 
-  maxSize: number
-): Promise<{ data: string; size: number }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-  
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`下载失败: HTTP ${response.status}`);
-    }
-    
-    // Check content length header first
-    const contentLength = response.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > maxSize) {
-      throw new Error(`文件过大 (${Math.round(parseInt(contentLength) / 1024 / 1024)}MB)，最大支持 ${Math.round(maxSize / 1024 / 1024)}MB`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    
-    // Check actual size
-    if (buffer.byteLength > maxSize) {
-      throw new Error(`文件过大 (${Math.round(buffer.byteLength / 1024 / 1024)}MB)，最大支持 ${Math.round(maxSize / 1024 / 1024)}MB`);
-    }
-    
-    const base64 = arrayBufferToBase64(buffer);
-    return { 
-      data: `data:${mimeType};base64,${base64}`,
-      size: buffer.byteLength 
+async function updateFileForSkippedExtraction(
+  admin: ReturnType<typeof createClient>,
+  fileId: string,
+  message: string,
+) {
+  const now = new Date().toISOString();
+  await admin
+    .from("files")
+    .update({
+      text_summary: message,
+      extracted_text: null,
+      extracted_entities: [],
+      ocr_processed: true,
+      ocr_processed_at: now,
+      ocr_task_status: null,
+      ocr_task_completed_at: now,
+      extraction_status: "skipped",
+      extraction_method: null,
+      extraction_error: message,
+      extraction_completed_at: now,
+    })
+    .eq("id", fileId);
+}
+
+interface SubmitContext {
+  admin: ReturnType<typeof createClient>;
+  workerBase: string;
+  workerSecret: string;
+  resolverUrl: string;
+  callbackUrl: string;
+}
+
+interface SubmitResult {
+  fileId: string;
+  status: "queued" | "skipped" | "already_processing" | "failed";
+  taskId?: string;
+  message?: string;
+  error?: string;
+}
+
+async function submitTextExtractionTask(
+  ctx: SubmitContext,
+  file: FileRow,
+  requestFile: SingleTaskRequest,
+): Promise<SubmitResult> {
+  const mimeType = (requestFile.mimeType || file.mime_type || "application/octet-stream").trim();
+  const fileName = (requestFile.fileName || file.original_name || file.name || "").trim();
+
+  if (!isSupportedTextExtraction(mimeType, fileName)) {
+    const message = `暂不支持自动提取文本的文件类型: ${mimeType}`;
+    await updateFileForSkippedExtraction(ctx.admin, file.id, message);
+    return { fileId: file.id, status: "skipped", message };
+  }
+
+  if (file.ocr_task_status === "pending" || file.ocr_task_status === "processing") {
+    return {
+      fileId: file.id,
+      status: "already_processing",
+      taskId: file.ocr_task_id || undefined,
+      message: "文件已在后台处理中",
     };
-  } finally {
-    clearTimeout(timeout);
   }
-}
 
-// 使用 AI Gateway 处理图片 OCR（仅图片，PDF 走 Worker）
-async function extractImageTextWithAI(
-  apiKey: string,
-  fileUrl: string,
-  mimeType: string,
-  fileName: string,
-  retries = 2
-): Promise<{ text: string; summary: string; entities: string[] }> {
-  
-  // 直接使用图片 URL，不转 base64（避免 413 请求体过大）
-  logStep("Processing image via URL", { fileUrl: fileUrl.substring(0, 100) + "..." });
-  
-  // Build message content with image URL
-  const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-  
-  // Add the image/document (直接使用原始 URL)
-  messageContent.push({
-    type: "image_url",
-    image_url: { url: fileUrl }
-  });
-  
-  // Add the prompt
-  messageContent.push({
-    type: "text",
-    text: `请仔细阅读这份文件（${fileName}），提取所有文字内容。
+  const taskId = crypto.randomUUID();
+  const requestedAt = new Date().toISOString();
+  const taskPayload = {
+    task_type: WORKER_TASK_TYPE,
+    task_id: taskId,
+    job_id: file.id,
+    file_ref: file.id,
+    mime_type: mimeType,
+    file_name: fileName,
+    requested_at: requestedAt,
+    trace_id: crypto.randomUUID(),
+    app_id: WORKER_APP_ID,
+    resolver: {
+      type: WORKER_RESOLVER_TYPE,
+      url: ctx.resolverUrl,
+      auth: { type: "hmac" },
+    },
+    callback: {
+      url: ctx.callbackUrl,
+      auth: { type: "hmac" },
+    },
+    max_chars: 120000,
+    is_external: true,
+  };
 
-请按以下JSON格式返回：
-{
-  "text": "文件的完整文字内容（保持原文格式和结构）",
-  "summary": "文件内容摘要（100字以内）",
-  "entities": ["提取的关键实体，如公司名称、人名、日期、金额、百分比等"]
-}
+  const taskBody = JSON.stringify(taskPayload);
+  const signedHeaders = await buildSignedHeaders(ctx.workerSecret, taskBody);
+  const startedAt = Date.now();
 
-要求：
-1. 完整提取所有可见文字，包括表格、列表、标题等
-2. 保持原文的段落结构
-3. 如果有数字、百分比、金额等，请准确提取
-4. 如果是扫描件或图片，尽可能识别所有文字
-5. 直接输出JSON，不要添加其他说明`
+  const workerResponse = await fetch(`${ctx.workerBase}/tasks/ocr`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...signedHeaders,
+    },
+    body: taskBody,
   });
 
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      if (attempt > 0) {
-        logStep(`Retry attempt ${attempt}/${retries}`);
-        // Wait before retry (exponential backoff)
-        await new Promise(r => setTimeout(r, 1000 * attempt));
-      }
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for AI call
-      
-      try {
-        const gatewayUrl = (Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn").replace(/\/$/, "");
-        const response = await fetch(`${gatewayUrl}/api/ai/execute`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            capability: "ai.general_user_defined",
-            input: {
-              messages: [{ role: "user", content: messageContent }],
-              temperature: 0.1,
-              max_tokens: 16000,
-            },
-            constraints: { maxCost: 0.05 },
-          }),
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeout);
+  if (!workerResponse.ok) {
+    const workerError = (await workerResponse.text()).slice(0, 300);
+    const errorMessage = `Worker 入队失败(${workerResponse.status}): ${workerError}`;
+    const now = new Date().toISOString();
+    await ctx.admin
+      .from("files")
+      .update({
+        ocr_task_id: taskId,
+        ocr_task_status: "failed",
+        ocr_task_completed_at: now,
+        extraction_status: "failed",
+        extraction_error: errorMessage,
+        extraction_completed_at: now,
+      })
+      .eq("id", file.id);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`AI服务错误: ${response.status} - ${errorText.substring(0, 100)}`);
-        }
-
-        const result = await response.json();
-        // Handle OOOK Gateway response format
-        const content = result.result?.choices?.[0]?.message?.content || 
-                       result.choices?.[0]?.message?.content ||
-                       result.result?.content ||
-                       result.content || "";
-        
-        // Parse JSON response
-        try {
-          let jsonStr = content.trim();
-          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-          if (jsonMatch) jsonStr = jsonMatch[1].trim();
-          
-          const jsonStart = jsonStr.indexOf("{");
-          const jsonEnd = jsonStr.lastIndexOf("}");
-          if (jsonStart !== -1 && jsonEnd !== -1) {
-            jsonStr = jsonStr.substring(jsonStart, jsonEnd + 1);
-          }
-          
-          const parsed = JSON.parse(jsonStr);
-          return {
-            text: parsed.text || content,
-            summary: parsed.summary || "",
-            entities: Array.isArray(parsed.entities) ? parsed.entities : []
-          };
-        } catch {
-          // If JSON parsing fails, return raw content
-          return {
-            text: content,
-            summary: content.substring(0, 100),
-            entities: []
-          };
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // Don't retry on certain errors
-      if (lastError.message.includes("文件过大") || 
-          lastError.message.includes("下载失败")) {
-        throw lastError;
-      }
-      
-      // Check if it's an abort error (timeout)
-      if (lastError.name === "AbortError") {
-        lastError = new Error("AI 处理超时，请稍后重试");
-      }
-      
-      logStep(`Attempt ${attempt} failed`, { error: lastError.message });
-    }
+    console.warn("[ocr-extract] worker enqueue failed", {
+      fileId: file.id,
+      taskId,
+      status: workerResponse.status,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return { fileId: file.id, status: "failed", error: errorMessage, taskId };
   }
-  
-  throw lastError || new Error("OCR 处理失败");
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await ctx.admin
+    .from("files")
+    .update({
+      ocr_task_id: taskId,
+      ocr_task_status: "pending",
+      ocr_task_started_at: now,
+      ocr_task_completed_at: null,
+      ocr_processed: false,
+      ocr_processed_at: null,
+      extracted_text: null,
+      text_summary: null,
+      extracted_entities: [],
+      extraction_status: "processing",
+      extraction_method: null,
+      extraction_error: null,
+      extraction_completed_at: null,
+    })
+    .eq("id", file.id);
+
+  if (updateError) {
+    return { fileId: file.id, status: "failed", error: updateError.message, taskId };
+  }
+
+  console.info("[ocr-extract] worker enqueue ok", {
+    fileId: file.id,
+    taskId,
+    elapsedMs: Date.now() - startedAt,
+  });
+  return { fileId: file.id, status: "queued", taskId };
 }
 
 serve(async (req) => {
@@ -411,161 +231,164 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
   try {
-    const { fileId, fileUrl, mimeType, fileName } = await req.json() as OCRRequest;
-    
-    logStep("OCR request received", { fileId, fileName, mimeType });
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
+    const workerSecret = Deno.env.get("WORKER_HMAC_SECRET");
+    const batchSubmitLimit = Math.max(1, Number(Deno.env.get("OCR_BATCH_SUBMIT_LIMIT") || `${DEFAULT_BATCH_SUBMIT_LIMIT}`));
+    const maxFilesPerRequest = Math.max(batchSubmitLimit, Number(Deno.env.get("MAX_TOTAL_FILES_PER_REQUEST") || `${DEFAULT_MAX_TOTAL_FILES_PER_REQUEST}`));
 
-    if (!fileId || !fileUrl) {
-      return new Response(
-        JSON.stringify({ error: "fileId and fileUrl are required" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
+    if (!supabaseUrl || !serviceRoleKey || !workerSecret) {
+      return jsonResponse({ error: "Server configuration missing" }, 500);
     }
 
-    // Get API key
-    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const token = getBearerToken(req);
+    if (!token) {
+      return jsonResponse({ error: "Missing access token" }, 401);
     }
 
-    // 判断文件类型
-    const supportedImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
-    const isPdf = mimeType === "application/pdf" || mimeType.includes("pdf");
-    const isImage = supportedImageTypes.some(t => mimeType.includes(t.split("/")[1]) || mimeType === t);
-    const isDocx = mimeType.includes("word") || fileName.toLowerCase().endsWith(".docx");
-    const isTxt = mimeType.includes("text/plain") || fileName.toLowerCase().endsWith(".txt");
-
-    if (!isPdf && !isImage && !isDocx && !isTxt) {
-      logStep("Unsupported file type", { mimeType });
-      
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      
-      await supabase
-        .from("files")
-        .update({
-          text_summary: `暂不支持自动提取文本的文件类型: ${mimeType}`,
-          ocr_processed: true,
-          ocr_processed_at: new Date().toISOString()
-        })
-        .eq("id", fileId);
-      
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          text: "", 
-          summary: `暂不支持自动提取文本的文件类型: ${mimeType}`,
-          entities: [],
-          skipped: true
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
+    const { data: userData, error: userError } = await admin.auth.getUser(token);
+    if (userError || !userData.user) {
+      return jsonResponse({ error: "Invalid access token" }, 401);
     }
 
-    // 初始化 Supabase 客户端
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    let extractedText = "";
-    let textSummary = "";
-    let extractedEntities: string[] = [];
-
-    // PDF 文件使用 Worker /extract-text 同步处理
-    if (isPdf) {
-      logStep("PDF detected, extracting with Worker");
-      try {
-        const pdfResult = await extractPdfWithWorker(fileId, fileUrl, fileName);
-        extractedText = pdfResult.text;
-        textSummary = pdfResult.summary;
-        // Worker 不返回实体，留空
-        extractedEntities = [];
-        
-        logStep("PDF OCR complete", { 
-          textLength: extractedText.length, 
-          pageCount: pdfResult.pageCount,
-          isScanned: pdfResult.isScanned
-        });
-      } catch (workerError) {
-        const errMsg = workerError instanceof Error ? workerError.message : String(workerError);
-        logStep("Worker extraction failed", { error: errMsg });
-        return new Response(
-          JSON.stringify({ error: `PDF 处理失败: ${errMsg}` }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-        );
-      }
-    } else if (isImage) {
-      // 图片文件使用 AI Gateway 同步处理
-      logStep("Image detected, processing with AI Gateway");
-      const imageResult = await extractImageTextWithAI(apiKey, fileUrl, mimeType, fileName);
-      extractedText = imageResult.text;
-      textSummary = imageResult.summary;
-      extractedEntities = imageResult.entities;
-      
-      logStep("Image OCR complete", { 
-        textLength: extractedText.length, 
-        entitiesCount: extractedEntities.length 
-      });
-    } else {
-      logStep("Document detected, extracting text directly", { mimeType, fileName });
-      const documentResult = await extractDocumentText(fileUrl, mimeType, fileName);
-      extractedText = documentResult.text;
-      textSummary = documentResult.summary;
-      extractedEntities = documentResult.entities;
-
-      logStep("Document text extraction complete", {
-        textLength: extractedText.length,
-      });
+    const payload = (await req.json().catch(() => ({}))) as TaskRequestBody;
+    const requestedFiles = normalizeTasks(payload);
+    if (requestedFiles.length === 0) {
+      return jsonResponse({ error: "至少需要一个 fileId" }, 400);
+    }
+    if (requestedFiles.length > maxFilesPerRequest) {
+      return jsonResponse({
+        error: `单次最多提交 ${maxFilesPerRequest} 个文件，请拆分后重试`,
+        requested: requestedFiles.length,
+        maxTotalFilesPerRequest: maxFilesPerRequest,
+      }, 400);
     }
 
-    // Update file record with extracted text
-    const { error: updateError } = await supabase
+    const fileIds = [...new Set(requestedFiles.map((item) => item.fileId))];
+    const { data: fileRows, error: fileError } = await admin
       .from("files")
-      .update({
-        extracted_text: extractedText.substring(0, 50000), // Limit to 50K chars
-        text_summary: textSummary,
-        extracted_entities: extractedEntities,
-        ocr_processed: true,
-        ocr_processed_at: new Date().toISOString()
-      })
-      .eq("id", fileId);
+      .select("id, project_id, name, original_name, mime_type, storage_path, ocr_task_id, ocr_task_status")
+      .in("id", fileIds);
 
-    if (updateError) {
-      logStep("Failed to update file record", { error: updateError });
-      return new Response(
-        JSON.stringify({ 
-          error: `保存结果失败: ${updateError.message}`,
-          text: extractedText,
-          summary: textSummary,
-          entities: extractedEntities
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
+    if (fileError) {
+      return jsonResponse({ error: fileError.message }, 500);
     }
 
-    logStep("Database updated successfully", { fileId });
+    const rows = (fileRows || []) as FileRow[];
+    const projectIds = [...new Set(rows.map((row) => row.project_id))];
+    const { data: projectRows, error: projectError } = await admin
+      .from("projects")
+      .select("id, user_id")
+      .in("id", projectIds);
 
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        text: extractedText,
-        summary: textSummary,
-        entities: extractedEntities
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-    );
+    if (projectError) {
+      return jsonResponse({ error: projectError.message }, 500);
+    }
 
+    const fileMap = new Map(rows.map((row) => [row.id, row]));
+    const projectMap = new Map(((projectRows || []) as ProjectRow[]).map((row) => [row.id, row]));
+
+    const resolverUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/worker-file-ticket`;
+    const callbackUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/ocr-callback`;
+
+    const results: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    let submitted = 0;
+    let skipped = 0;
+    let failed = 0;
+    let alreadyProcessing = 0;
+    const candidates: Array<{ file: FileRow; requestFile: SingleTaskRequest }> = [];
+
+    for (const requestFile of requestedFiles) {
+      const file = fileMap.get(requestFile.fileId);
+      if (!file) {
+        const errorMessage = `文件不存在: ${requestFile.fileId}`;
+        failed += 1;
+        errors.push(errorMessage);
+        results.push({ fileId: requestFile.fileId, status: "failed", error: errorMessage });
+        continue;
+      }
+
+      const project = projectMap.get(file.project_id);
+      if (!project || project.user_id !== userData.user.id) {
+        const errorMessage = `无权处理文件: ${file.id}`;
+        failed += 1;
+        errors.push(errorMessage);
+        results.push({ fileId: file.id, status: "failed", error: errorMessage });
+        continue;
+      }
+
+      candidates.push({ file, requestFile });
+    }
+
+    const submitContext: SubmitContext = {
+      admin,
+      workerBase,
+      workerSecret,
+      resolverUrl,
+      callbackUrl,
+    };
+
+    const requested = requestedFiles.length;
+    const eligible = candidates.length;
+    const batchCount = eligible === 0 ? 0 : Math.ceil(eligible / batchSubmitLimit);
+
+    for (let index = 0; index < candidates.length; index += batchSubmitLimit) {
+      const batch = candidates.slice(index, index + batchSubmitLimit);
+      const batchStart = Date.now();
+      const batchResults = await Promise.all(
+        batch.map(({ file, requestFile }) => submitTextExtractionTask(submitContext, file, requestFile)),
+      );
+
+      for (const item of batchResults) {
+        if (item.status === "queued") {
+          submitted += 1;
+        } else if (item.status === "skipped") {
+          skipped += 1;
+        } else if (item.status === "already_processing") {
+          alreadyProcessing += 1;
+        } else if (item.status === "failed") {
+          failed += 1;
+          if (item.error) errors.push(item.error);
+        }
+        results.push(item);
+      }
+
+      console.info("[ocr-extract] batch submitted", {
+        batchIndex: Math.floor(index / batchSubmitLimit) + 1,
+        batchSize: batch.length,
+        elapsedMs: Date.now() - batchStart,
+      });
+    }
+
+    return jsonResponse({
+      success: true,
+      requested,
+      eligible,
+      submitted,
+      queued: submitted,
+      skipped,
+      failed,
+      alreadyProcessing,
+      alreadyQueued: alreadyProcessing,
+      batchCount,
+      batchSize: batchSubmitLimit,
+      results,
+      errors,
+    });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logStep("ERROR", { message: errorMessage });
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[ocr-extract] ERROR", error);
+    return jsonResponse({ error: message }, 500);
   }
 });
