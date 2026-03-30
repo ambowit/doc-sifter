@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLatestGeneratedReport } from "@/hooks/useGeneratedReports";
@@ -24,8 +24,8 @@ import {
   FolderOpen,
   GripVertical,
   Loader2,
-  RefreshCw,
   Sparkles,
+  X,
 } from "lucide-react";
 
 // ── 拖拽状态 ──────────────────────────────────────────────
