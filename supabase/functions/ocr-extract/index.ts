@@ -154,6 +154,8 @@ async function submitTextExtractionTask(
     },
     max_chars: 120000,
     is_external: true,
+    // force=true 时通知 Worker 释放旧锁并强制重新入队
+    ...(ctx.force ? { force: true } : {}),
   };
 
   const taskBody = JSON.stringify(taskPayload);
