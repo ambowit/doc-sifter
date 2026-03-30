@@ -23,15 +23,12 @@ export async function callAIGateway(
     constraints: { maxCost: 0.05 },
   };
 
-  // 详细日志：请求参数
-  console.log(`[AI-Gateway] === REQUEST ===`);
+  // 完整打印请求参数，方便外部测试
+  console.log(`[AI-Gateway] === FULL REQUEST ===`);
   console.log(`[AI-Gateway] URL: ${gatewayUrl}/api/ai/execute`);
-  console.log(`[AI-Gateway] Capability: ${requestBody.capability}`);
-  console.log(`[AI-Gateway] System Prompt Length: ${systemPrompt.length} chars`);
-  console.log(`[AI-Gateway] User Prompt Length: ${userPrompt.length} chars`);
-  console.log(`[AI-Gateway] Total Input: ${systemPrompt.length + userPrompt.length} chars`);
-  console.log(`[AI-Gateway] Timeout: ${timeoutMs}ms`);
-  console.log(`[AI-Gateway] User Prompt Preview (first 500 chars): ${userPrompt.slice(0, 500)}...`);
+  console.log(`[AI-Gateway] Method: POST`);
+  console.log(`[AI-Gateway] Headers: ${JSON.stringify({ "Authorization": "Bearer ***", "Content-Type": "application/json" })}`);
+  console.log(`[AI-Gateway] Body: ${JSON.stringify(requestBody)}`);
 
   try {
     const response = await fetch(`${gatewayUrl}/api/ai/execute`, {
@@ -47,10 +44,8 @@ export async function callAIGateway(
     clearTimeout(timeoutId);
     const elapsed = Date.now() - startTime;
 
-    // 详细日志：响应状态
-    console.log(`[AI-Gateway] === RESPONSE ===`);
-    console.log(`[AI-Gateway] Status: ${response.status} ${response.statusText}`);
-    console.log(`[AI-Gateway] Elapsed: ${elapsed}ms`);
+    // 响应状态
+    console.log(`[AI-Gateway] === RESPONSE === Status: ${response.status} | Elapsed: ${elapsed}ms`);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -60,17 +55,13 @@ export async function callAIGateway(
 
     const result = await response.json();
     
-    // 详细日志：响应内容
     const content = result.result?.choices?.[0]?.message?.content
       || result.choices?.[0]?.message?.content
       || result.result?.content
       || result.content
       || "";
     
-    console.log(`[AI-Gateway] Response Content Length: ${content.length} chars`);
-    console.log(`[AI-Gateway] Response Preview (first 300 chars): ${content.slice(0, 300)}...`);
-    console.log(`[AI-Gateway] Model Used: ${result.result?.model || result.model || "unknown"}`);
-    console.log(`[AI-Gateway] Usage: ${JSON.stringify(result.result?.usage || result.usage || {})}`);
+    console.log(`[AI-Gateway] Content Length: ${content.length} | Model: ${result.result?.model || result.model || "unknown"}`);
 
     return content;
   } catch (error) {
