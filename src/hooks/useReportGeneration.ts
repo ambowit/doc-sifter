@@ -502,6 +502,35 @@ export function useGenerateAIReport() {
             (acc: number, s: { content?: string }) => acc + (s.content?.length || 0), 0
           )
         });
+
+        // 保存报告到 generated_reports 表
+        const reportToSave = data.report as AIGeneratedReport;
+        const { error: saveError } = await supabase
+          .from("generated_reports")
+          .upsert({
+            project_id: projectId,
+            report_json: {
+              sections: reportToSave.content?.sections || [],
+              metadata: {
+                equityStructure: reportToSave.equityStructure,
+                definitions: reportToSave.definitions,
+              },
+              statistics: reportToSave.statistics,
+              files: reportToSave.files,
+              chapters: reportToSave.chapters,
+            },
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: "project_id",
+          });
+
+        if (saveError) {
+          console.error("[useGenerateAIReport] Failed to save report:", saveError);
+          // 不抛出错误，报告已生成成功，只是保存失败
+        } else {
+          console.log("[useGenerateAIReport] Report saved to database");
+        }
+
         return data.report;
       } catch (err) {
         console.error("[useGenerateAIReport] Catch error:", err);
@@ -526,6 +555,8 @@ export function useGenerateAIReport() {
       // Invalidate related queries
       if (data?.projectId) {
         queryClient.invalidateQueries({ queryKey: ["aiReport", data.projectId] });
+        queryClient.invalidateQueries({ queryKey: ["generated-reports", data.projectId] });
+        queryClient.invalidateQueries({ queryKey: ["latest-generated-report", data.projectId] });
       }
     },
   });
