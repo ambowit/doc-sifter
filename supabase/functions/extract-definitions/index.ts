@@ -1,18 +1,21 @@
-﻿import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAIGateway } from "../_shared/ai-gateway.ts";
 import { requireProjectAccess } from "../_shared/auth.ts";
 import {
   buildDefinitionPrompts,
-  buildDefinitionSnippets,
+  buildSnippetsForFiles,
   categorizeFile,
   clampConfidence,
   dedupeExtractedItems,
+  FILES_PER_BATCH,
   inferEntityType,
   normalizeLookupKey,
   normalizeWhitespace,
   parseDefinitionResponse,
   type DefinitionSourceTraceItem,
+  type ExtractedDefinitionItem,
+  type SourceFileLike,
 } from "../_shared/definitions.ts";
 import { corsHeaders, jsonResponse } from "../_shared/worker-hmac.ts";
 
@@ -86,7 +89,7 @@ serve(async (req) => {
       return jsonResponse({ error: fileError.message }, 500);
     }
 
-    const processedFiles = ((files || []) as FileRow[]).map((file) => ({
+    const processedFiles: SourceFileLike[] = ((files || []) as FileRow[]).map((file) => ({
       id: file.id,
       name: file.original_name || file.name,
       category: categorizeFile(file.original_name || file.name || ""),
@@ -126,8 +129,45 @@ serve(async (req) => {
       });
     }
 
-    const snippets = buildDefinitionSnippets(processedFiles);
-    if (snippets.length === 0) {
+    // 按文件分批处理，确保所有文件都被 AI 分析
+    const fileBatches: SourceFileLike[][] = [];
+    for (let i = 0; i < processedFiles.length; i += FILES_PER_BATCH) {
+      fileBatches.push(processedFiles.slice(i, i + FILES_PER_BATCH));
+    }
+
+    console.log(`[extract-definitions] Processing ${processedFiles.length} files in ${fileBatches.length} batches`);
+
+    const allExtracted: ExtractedDefinitionItem[] = [];
+    let totalSnippets = 0;
+    let batchErrors: string[] = [];
+
+    for (let batchIndex = 0; batchIndex < fileBatches.length; batchIndex++) {
+      const fileBatch = fileBatches[batchIndex];
+      const snippets = buildSnippetsForFiles(fileBatch);
+
+      if (snippets.length === 0) {
+        console.log(`[extract-definitions] Batch ${batchIndex + 1}/${fileBatches.length}: no snippets found, skipping`);
+        continue;
+      }
+
+      totalSnippets += snippets.length;
+      console.log(`[extract-definitions] Batch ${batchIndex + 1}/${fileBatches.length}: ${fileBatch.length} files, ${snippets.length} snippets`);
+
+      try {
+        const { systemPrompt, userPrompt } = buildDefinitionPrompts(project, snippets);
+        const aiResponse = await callAIGateway(apiKey, systemPrompt, userPrompt, 60000);
+        const batchExtracted = parseDefinitionResponse(aiResponse);
+        allExtracted.push(...batchExtracted);
+        console.log(`[extract-definitions] Batch ${batchIndex + 1}/${fileBatches.length}: extracted ${batchExtracted.length} items`);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[extract-definitions] Batch ${batchIndex + 1}/${fileBatches.length} failed: ${errMsg}`);
+        batchErrors.push(`批次${batchIndex + 1}失败: ${errMsg}`);
+        // 继续处理其他批次，不中断
+      }
+    }
+
+    if (totalSnippets === 0) {
       return jsonResponse({
         success: true,
         batchId,
@@ -141,9 +181,8 @@ serve(async (req) => {
       });
     }
 
-    const { systemPrompt, userPrompt } = buildDefinitionPrompts(project, snippets);
-    const aiResponse = await callAIGateway(apiKey, systemPrompt, userPrompt, 90000);
-    const extracted = dedupeExtractedItems(parseDefinitionResponse(aiResponse));
+    const extracted = dedupeExtractedItems(allExtracted);
+    console.log(`[extract-definitions] Total extracted after dedup: ${extracted.length} items from ${allExtracted.length} raw items`);
 
     const { data: existingDefinitions, error: definitionsError } = await admin
       .from("definitions")
@@ -289,8 +328,10 @@ serve(async (req) => {
       skipped,
       conflicts,
       sourceFiles: processedFiles.length,
-      snippets: snippets.length,
-      rawItems: extracted.length,
+      snippets: totalSnippets,
+      rawItems: allExtracted.length,
+      batches: fileBatches.length,
+      batchErrors: batchErrors.length > 0 ? batchErrors : undefined,
     });
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error));

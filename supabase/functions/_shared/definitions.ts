@@ -1,4 +1,4 @@
-﻿export type EntityType = "company" | "individual" | "institution" | "transaction" | "other";
+export type EntityType = "company" | "individual" | "institution" | "transaction" | "other";
 
 export interface DefinitionSourceTraceItem {
   sourceFileId: string | null;
@@ -39,7 +39,10 @@ export interface SnippetItem {
 const WINDOW_RADIUS = 260;
 const MAX_SNIPPETS_PER_FILE = 4;
 const MAX_TOTAL_SNIPPETS = 80;
+const FILES_PER_BATCH = 15; // 每批处理的文件数
 const KEYWORD_REGEX = /(定义|释义|以下简称|以下称|系指|指为|简称|本协议|本公司|目标公司|投资方)/g;
+
+export { FILES_PER_BATCH };
 
 export function normalizeWhitespace(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim();
@@ -88,6 +91,54 @@ function getPriorityScore(fileName: string, category: string): number {
   return 1;
 }
 
+// 从单个文件提取 snippets（内部函数）
+function extractSnippetsFromFile(file: SourceFileLike): SnippetItem[] {
+  const text = normalizeWhitespace(file.extractedText || file.textSummary || "");
+  if (!text) return [];
+
+  const localSnippets: SnippetItem[] = [];
+  const seen = new Set<string>();
+
+  for (const match of text.matchAll(KEYWORD_REGEX)) {
+    if (localSnippets.length >= MAX_SNIPPETS_PER_FILE) break;
+    const index = match.index ?? 0;
+    const start = Math.max(0, index - WINDOW_RADIUS);
+    const end = Math.min(text.length, index + WINDOW_RADIUS);
+    const excerpt = text.slice(start, end).trim();
+    const key = normalizeLookupKey(excerpt);
+    if (!excerpt || seen.has(key)) continue;
+    seen.add(key);
+    localSnippets.push({
+      fileId: file.id,
+      fileName: file.name,
+      category: file.category,
+      excerpt,
+    });
+  }
+
+  // 高优先级文件如果没找到关键词，取前 800 字符
+  if (localSnippets.length === 0 && getPriorityScore(file.name, file.category) >= 3) {
+    localSnippets.push({
+      fileId: file.id,
+      fileName: file.name,
+      category: file.category,
+      excerpt: text.slice(0, 800),
+    });
+  }
+
+  return localSnippets;
+}
+
+// 对一批文件构建 snippets（用于分批处理）
+export function buildSnippetsForFiles(files: SourceFileLike[]): SnippetItem[] {
+  const snippets: SnippetItem[] = [];
+  for (const file of files) {
+    snippets.push(...extractSnippetsFromFile(file));
+  }
+  return snippets;
+}
+
+// 原有函数：对所有文件构建 snippets（带全局上限）
 export function buildDefinitionSnippets(files: SourceFileLike[]): SnippetItem[] {
   const rankedFiles = [...files].sort((a, b) => {
     const scoreDiff = getPriorityScore(b.name, b.category) - getPriorityScore(a.name, a.category);
@@ -99,41 +150,12 @@ export function buildDefinitionSnippets(files: SourceFileLike[]): SnippetItem[] 
 
   for (const file of rankedFiles) {
     if (snippets.length >= MAX_TOTAL_SNIPPETS) break;
-    const text = normalizeWhitespace(file.extractedText || file.textSummary || "");
-    if (!text) continue;
-
-    const localSnippets: SnippetItem[] = [];
-    const seen = new Set<string>();
-    for (const match of text.matchAll(KEYWORD_REGEX)) {
-      if (localSnippets.length >= MAX_SNIPPETS_PER_FILE) break;
-      const index = match.index ?? 0;
-      const start = Math.max(0, index - WINDOW_RADIUS);
-      const end = Math.min(text.length, index + WINDOW_RADIUS);
-      const excerpt = text.slice(start, end).trim();
-      const key = normalizeLookupKey(excerpt);
-      if (!excerpt || seen.has(key)) continue;
-      seen.add(key);
-      localSnippets.push({
-        fileId: file.id,
-        fileName: file.name,
-        category: file.category,
-        excerpt,
-      });
-    }
-
-    if (localSnippets.length === 0 && getPriorityScore(file.name, file.category) >= 3) {
-      localSnippets.push({
-        fileId: file.id,
-        fileName: file.name,
-        category: file.category,
-        excerpt: text.slice(0, 800),
-      });
-    }
-
-    snippets.push(...localSnippets);
+    const localSnippets = extractSnippetsFromFile(file);
+    const remaining = MAX_TOTAL_SNIPPETS - snippets.length;
+    snippets.push(...localSnippets.slice(0, remaining));
   }
 
-  return snippets.slice(0, MAX_TOTAL_SNIPPETS);
+  return snippets;
 }
 
 export function parseDefinitionResponse(content: string): ExtractedDefinitionItem[] {
