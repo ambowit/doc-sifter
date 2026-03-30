@@ -132,7 +132,6 @@ serve(async (req) => {
     if (status === "completed") {
       const extractedText = (data.text || "").slice(0, 50000);
       const summary = (data.summary || extractedText.substring(0, 200)).slice(0, 500);
-      const extractionMethod = data.file_type === "pdf" || data.file_type === "image" ? "ocr" : "direct_text";
 
       const { error: updateError } = await supabaseAdmin
         .from("files")
@@ -145,10 +144,6 @@ serve(async (req) => {
           extracted_entities: [],
           ocr_processed: true,
           ocr_processed_at: now,
-          extraction_status: "succeeded",
-          extraction_method: extractionMethod,
-          extraction_error: null,
-          extraction_completed_at: now,
         })
         .eq("id", fileId);
 
@@ -175,10 +170,6 @@ serve(async (req) => {
           extracted_entities: [],
           ocr_processed: false,
           ocr_processed_at: null,
-          extraction_status: "failed",
-          extraction_method: null,
-          extraction_error: errorMessage,
-          extraction_completed_at: now,
         })
         .eq("id", fileId);
 
@@ -196,7 +187,6 @@ serve(async (req) => {
         ocr_task_id: data.task_id || null,
         ocr_task_status: normalizedStatus,
         ocr_task_started_at: now,
-        extraction_status: normalizedStatus === "processing" ? "processing" : "pending",
       })
       .eq("id", fileId);
 
