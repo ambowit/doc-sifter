@@ -488,12 +488,15 @@ export function useGenerateAIReport() {
           .from("generated_reports")
           .upsert(
             { project_id: projectId, user_id: session.user.id, status: "generating", report_json: {}, summary_json: {} },
-            { onConflict: "project_id" }
+            { onConflict: "project_id,user_id" }
           )
           .select("id")
           .single();
 
-        if (upsertError || !upsertedRow) throw new Error("初始化报告记录失败");
+        if (upsertError || !upsertedRow) {
+          console.error("[useGenerateAIReport] upsert error:", upsertError);
+          throw new Error(`初始化报告记录失败: ${upsertError?.message || "unknown"}`);
+        }
         const reportId = upsertedRow.id as string;
 
         // 3. 逐章节调用 generate-report（batch 模式，每次 1 章）
