@@ -36,10 +36,10 @@ export interface SnippetItem {
   excerpt: string;
 }
 
-const WINDOW_RADIUS = 260;
-const MAX_SNIPPETS_PER_FILE = 4;
-const MAX_TOTAL_SNIPPETS = 80;
-const FILES_PER_BATCH = 15; // 每批处理的文件数
+const WINDOW_RADIUS = 180; // 缩小窗口减少 token
+const MAX_SNIPPETS_PER_FILE = 3; // 减少每文件片段数
+const MAX_TOTAL_SNIPPETS = 60;
+const FILES_PER_BATCH = 8; // 减少每批文件数，避免 AI Gateway 超时
 const KEYWORD_REGEX = /(定义|释义|以下简称|以下称|系指|指为|简称|本协议|本公司|目标公司|投资方)/g;
 
 export { FILES_PER_BATCH };
@@ -213,25 +213,13 @@ export function buildDefinitionPrompts(
   project: { name: string | null; target: string | null; client: string | null },
   snippets: SnippetItem[],
 ) {
-  const systemPrompt = `你是中国投资法律尽调定义管理专家。你的任务是从数据室文件中抽取“定义与简称”候选项，并保留证据链。
+  // 精简 prompt 减少 token，加快 AI 响应
+  const systemPrompt = `从法律文件提取"定义与简称"。识别：以下简称、系指、定义、释义条款；公司/股东/关联方主体简称。
+输出JSON数组，字段：fullName,shortName,entityType,sourceFileName,sourceExcerpt,confidence(0-1)。禁止解释文字。`;
 
-请重点识别：
-1. 合同/协议/章程/制度中的“定义”“释义”“以下简称”“系指”条款
-2. 目标公司、投资方、股东、关联方、子公司、平台公司等主体简称
-3. 常用法规简称
-4. 报告固定定义（如本法律尽职调查报告→本报告，本次法律尽职调查→本次尽调）
+  const snippetText = snippets.map((s, i) => `[${i + 1}]${s.fileName}:${s.excerpt}`).join("\n");
 
-输出要求：
-- 只输出 JSON 数组，禁止输出解释文字
-- 每项字段：fullName, shortName, entityType, description, sourceFileName, sourcePageRef, sourceExcerpt, confidence
-- sourceExcerpt 必须直接引用命中的原文片段或最接近的上下文
-- confidence 取值 0 到 1
-- 若只能确定简称或全称其中一项，也保留该项，不要臆造另一项
-- 不要输出明显重复项`;
-
-  const snippetText = snippets.map((snippet, index) => `### 片段${index + 1}\n文件：${snippet.fileName}\n分类：${snippet.category}\n内容：${snippet.excerpt}`).join("\n\n");
-
-  const userPrompt = `项目信息：\n- 项目名称：${project.name || "未提供"}\n- 目标公司：${project.target || "未提供"}\n- 委托方：${project.client || "未提供"}\n\n请基于下列高相关片段提取定义与简称：\n\n${snippetText}`;
+  const userPrompt = `项目:${project.name || ""}|目标:${project.target || ""}\n\n${snippetText}`;
 
   return { systemPrompt, userPrompt };
 }
