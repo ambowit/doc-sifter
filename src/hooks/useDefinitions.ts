@@ -1,4 +1,4 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -223,7 +223,10 @@ export function useDefinitions(projectId: string | undefined) {
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      return withConflictMetadata((data || []).map((row) => transformDefinition(row as Record<string, unknown>)));
+      console.log("[v0] definitions raw data:", data);
+      const result = withConflictMetadata((data || []).map((row) => transformDefinition(row as Record<string, unknown>)));
+      console.log("[v0] definitions transformed:", result);
+      return result;
     },
     enabled: !!user && !!projectId,
   });
@@ -246,7 +249,10 @@ export function useDefinitionCandidates(projectId: string | undefined) {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data || []).map((row) => transformCandidate(row as Record<string, unknown>));
+      console.log("[v0] definition_candidates raw data:", data);
+      const transformed = (data || []).map((row) => transformCandidate(row as Record<string, unknown>));
+      console.log("[v0] definition_candidates transformed:", transformed);
+      return transformed;
     },
     enabled: !!user && !!projectId,
   });

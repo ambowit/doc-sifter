@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -437,7 +437,13 @@ export default function Definitions() {
             <div className="flex items-center gap-4 mb-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input value={finalSearch} onChange={(e) => setFinalSearch(e.target.value)} placeholder="搜索最终定义、来源文件..." className="pl-9" />
+                <Input
+                  value={finalSearch}
+                  onChange={(e) => setFinalSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                  placeholder="搜索最终定义、来源文件..."
+                  className="pl-9"
+                />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={filterType === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilterType("all")}>全部</Badge>
@@ -492,7 +498,13 @@ export default function Definitions() {
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input value={candidateSearch} onChange={(e) => setCandidateSearch(e.target.value)} placeholder="搜索候选、来源片段..." className="pl-9" />
+                <Input
+                  value={candidateSearch}
+                  onChange={(e) => setCandidateSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                  placeholder="搜索候选、来源片段..."
+                  className="pl-9"
+                />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={candidateFilter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setCandidateFilter("all")}>全部</Badge>
