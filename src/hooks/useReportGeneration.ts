@@ -487,7 +487,7 @@ export function useGenerateAIReport() {
         const { data: upsertedRow, error: upsertError } = await supabase
           .from("generated_reports")
           .upsert(
-            { project_id: projectId, user_id: session.user.id, status: "draft", report_json: {}, summary_json: {} },
+            { project_id: projectId, user_id: session.user.id, created_by: session.user.id, status: "draft", report_json: {}, summary_json: {} },
             { onConflict: "project_id,user_id" }
           )
           .select("id")
