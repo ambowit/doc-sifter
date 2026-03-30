@@ -109,8 +109,10 @@ serve(async (req) => {
     const data = JSON.parse(bodyStr) as CallbackPayload;
     log("OCR Callback received", { taskId: data.task_id, status: data.status, fileId: data.file_id });
 
-    const fileId = data.file_id;
+    // Worker 回调可能用 file_id 或 job_id（两者都是 file.id）
+    const fileId = data.file_id || data.job_id;
     if (!fileId) {
+      log("Missing file_id and job_id", { data });
       return jsonResponse({ error: "Missing file_id" }, 400);
     }
 
