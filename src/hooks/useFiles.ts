@@ -740,21 +740,23 @@ export function useBatchOcrExtract() {
         force: payload.force ?? false,
       });
 
+      // 后端立即返回 accepted 数量，实际处理在后台进行，通过 Realtime 更新
+      const accepted = Number(data?.accepted || 0);
       return {
-        requested: Number(data?.requested || payload.files.length),
-        eligible: Number(data?.eligible || 0),
-        submitted: Number((data?.submitted ?? data?.queued) || 0),
-        skipped: Number(data?.skipped || 0),
-        failed: Number(data?.failed || 0),
-        alreadyProcessing: Number((data?.alreadyProcessing ?? data?.alreadyQueued) || 0),
-        batchCount: Number(data?.batchCount || 0),
-        batchSize: Number(data?.batchSize || 0),
-        results: Array.isArray(data?.results) ? (data.results as BatchOcrResult[]) : [],
-        errors: Array.isArray(data?.errors) ? (data.errors as string[]) : [],
+        requested: payload.files.length,
+        eligible: accepted,
+        submitted: accepted,
+        skipped: 0,
+        failed: 0,
+        alreadyProcessing: 0,
+        batchCount: 1,
+        batchSize: accepted,
+        results: [],
+        errors: [],
       } satisfies BatchOcrSummary;
     },
-    onSettled: () => {
-      // 使用 predicate 匹配所有以 "files" 开头的 queryKey，包括 ["files", projectId]
+    onSuccess: () => {
+      // 立即刷新一次，后续通过 Realtime 自动更新
       queryClient.invalidateQueries({ 
         predicate: (query) => query.queryKey[0] === "files",
         refetchType: "all",
