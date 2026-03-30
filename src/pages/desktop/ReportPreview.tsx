@@ -590,10 +590,21 @@ export default function ReportPreview() {
 
   // Load report data from database
   useEffect(() => {
-    if (!latestReport?.reportJson) return;
+    console.log("[v0] latestReport:", latestReport);
+    console.log("[v0] reportJson:", latestReport?.reportJson);
+    
+    if (!latestReport?.reportJson) {
+      console.log("[v0] No reportJson found, hasGenerated will be false");
+      return;
+    }
 
     const reportJson = latestReport.reportJson as { sections?: unknown[]; metadata?: unknown };
-    if (!reportJson.sections || !Array.isArray(reportJson.sections)) return;
+    console.log("[v0] reportJson.sections:", reportJson.sections);
+    
+    if (!reportJson.sections || !Array.isArray(reportJson.sections)) {
+      console.log("[v0] No sections array found");
+      return;
+    }
 
     const rawSections = reportJson.sections as ReportSection[];
 
@@ -1515,7 +1526,7 @@ export default function ReportPreview() {
               <Download className="w-5 h-5" />
               导出尽调报告
             </DialogTitle>
-            <DialogDescription>选择输出格式，生成可交付的尽职调查报告</DialogDescription>
+            <DialogDescription>选择输出格式，生成可交付��尽职调查报告</DialogDescription>
           </DialogHeader>
 
           {!isExporting ? (
