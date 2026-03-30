@@ -55,6 +55,10 @@ export async function callAIGateway(
 
     const result = await response.json();
     
+    // 打印完整 AI 返回值，方便调试
+    console.log(`[AI-Gateway] === RAW RESPONSE ===`);
+    console.log(`[AI-Gateway] ${JSON.stringify(result)}`);
+    
     // 兼容多种返回格式：data.content (OOOK Gateway) / result.choices / choices
     const content = result.data?.content
       || result.result?.choices?.[0]?.message?.content
