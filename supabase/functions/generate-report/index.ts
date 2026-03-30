@@ -827,7 +827,7 @@ ${allFilesContent}
 
     const relevantCategories = getRelevantCategories(currentChapter.title);
 
-    // 筛选与当前章节相��的文件
+    // 筛选与当前章节相关的文件
     const relevantFiles = relevantCategories.length > 0
       ? processedFiles.filter(f => relevantCategories.includes(f.category) || f.category === "其他")
       : processedFiles;

@@ -322,7 +322,7 @@ export function useDeleteFileSections() {
   });
 }
 
-// 批量解��文档结构（带进度）
+// 批量解析文档结构（带进度）
 export interface ParseProgress {
   isRunning: boolean;
   isPaused: boolean;

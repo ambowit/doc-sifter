@@ -211,7 +211,7 @@ function EquityStructureSection({
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-[13px] text-amber-900">
-            股权结构信息尚未提取，请确保数据��中包含工商登记、公司章程等相关文件。
+            股权结构信息尚未提取，请确保数据室中包含工商登记、公司章程等相关文件。
           </div>
         </div>
       </div>
@@ -579,7 +579,7 @@ export default function ReportPreview() {
       const severity = normalizeSeverity(obj.severity || obj.级别 || obj.level);
       return {
         fact: fact || (risk ? "经核查，发现以下情况" : ""),
-        risk: risk || (fact ? "上述情况可能存��潜在风险" : ""),
+        risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
         suggestion: suggestion || "建议关注并进行进一步核查",
         severity,
       };
@@ -1515,7 +1515,7 @@ export default function ReportPreview() {
               <Download className="w-5 h-5" />
               导出尽调报告
             </DialogTitle>
-            <DialogDescription>选择输出格式，生成可交付��尽职调查报告</DialogDescription>
+            <DialogDescription>选择输出格式，生成可交付的尽职调查报告</DialogDescription>
           </DialogHeader>
 
           {!isExporting ? (
@@ -2047,7 +2047,7 @@ function generateReportHTML(
     const hasNoData = section.sourceFiles.length === 0;
     const isIntroSection = section.title.includes("引言") || section.title === "引言";
     const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义");
-    const isEquitySection = section.title.includes("股���结构") || section.title.includes("股权架构");
+    const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
 
     html += `
   <div class="section">
@@ -2063,7 +2063,7 @@ function generateReportHTML(
       <p><strong>一、报告依据</strong></p>
       <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核查。</p>
       <p><strong>二、尽调范围</strong></p>
-      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据���文件（共${fileCount}份）进行分析。</p>
+      <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据室文件（共${fileCount}份）进行分析。</p>
       <p><strong>三、免责声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>

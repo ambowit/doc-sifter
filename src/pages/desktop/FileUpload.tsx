@@ -821,7 +821,7 @@ export default function FileUpload() {
     }
 
     if (filesToProcess.length === 0) {
-      toast.info("所选文���无需提取或已提取过");
+      toast.info("所选文件无需提取或已提取过");
       return;
     }
 
@@ -1016,7 +1016,7 @@ export default function FileUpload() {
         toast.success(`成功匹配 ${result.completed} 个文件`);
       }
       if (result.failed > 0) {
-        toast.warning(`${result.failed} 个文件匹配失���`);
+        toast.warning(`${result.failed} 个文件匹配失败`);
       }
     }
   }, [currentProjectId, existingFiles, chapters, startClassify]);
@@ -1066,7 +1066,7 @@ export default function FileUpload() {
 
         const canExtract = archiveType === "zip" || (!archiveType && isZipFile(file));
         const reason = !canExtract
-          ? `${archiveType === "rar" ? "RAR" : archiveType === "7z" ? "7Z" : "该"}格式暂不支持在线解压。建议：使用 WinRAR/7-Zip 转换为 ZIP 格���，或在本地解压后上传`
+          ? `${archiveType === "rar" ? "RAR" : archiveType === "7z" ? "7Z" : "该"}格式暂不支持在线解压。建议：使用 WinRAR/7-Zip 转换为 ZIP 格式，或在本地解压后上传`
           : undefined;
 
         if (canExtract) {
@@ -1574,7 +1574,7 @@ export default function FileUpload() {
                           {stuckOcrFiles.length > 0 && `${stuckOcrFiles.length} 个任务未被处理`}
                         </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
-                          点击"全部��试"强制重新提交，或在文件后方单独重试
+                          点击"全部重试"强制重新提交，或在文件后方单独重试
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -2038,7 +2038,7 @@ export default function FileUpload() {
                           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                             <FileText className="w-12 h-12 mb-2 opacity-30" />
                             <p className="text-[13px]">该章节暂无文件</p>
-                            <p className="text-[11px] mt-1">可以���过自动匹配或手动添加文件</p>
+                            <p className="text-[11px] mt-1">可以通过自动匹配或手动添加文件</p>
                           </div>
                         ) : (
                           <div className="divide-y">
@@ -2144,7 +2144,7 @@ export default function FileUpload() {
                                         <Command>
                                           <CommandInput placeholder="搜索章节..." />
                                           <CommandList className="max-h-[200px]">
-                                            <CommandEmpty>���找到章节</CommandEmpty>
+                                            <CommandEmpty>未找到章节</CommandEmpty>
                                             <CommandGroup>
                                               {chapters.map((chapter) => {
                                                 const isMapped = isFileMappedToChapter(file.id!, chapter.id);

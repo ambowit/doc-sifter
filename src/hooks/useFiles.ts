@@ -442,7 +442,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     session = data.session;
   }
 
-  if (!session?.access_token) throw new Error("用户未登��，���刷新页面后重试");
+  if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
 
   return {
     "Content-Type": "application/json",
