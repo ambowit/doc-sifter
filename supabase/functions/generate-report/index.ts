@@ -106,11 +106,16 @@ async function callAI(
     }
 
     const result = await response.json();
-    // Handle OOOK Gateway response format
-    return result.result?.choices?.[0]?.message?.content ||
+    // 打印完整返回值便于调试
+    logStep("AI raw response", result);
+    // 兼容 OOOK Gateway 返回格式：data.content
+    const content = result.data?.content ||
+      result.result?.choices?.[0]?.message?.content ||
       result.choices?.[0]?.message?.content ||
       result.result?.content ||
       result.content || "";
+    logStep("AI parsed content length", { length: content.length });
+    return content;
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
@@ -822,7 +827,7 @@ ${allFilesContent}
 
     const relevantCategories = getRelevantCategories(currentChapter.title);
 
-    // 筛选与当前章节相关的文件
+    // 筛选与当前章节相��的文件
     const relevantFiles = relevantCategories.length > 0
       ? processedFiles.filter(f => relevantCategories.includes(f.category) || f.category === "其他")
       : processedFiles;
