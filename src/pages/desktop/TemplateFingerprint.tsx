@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,10 @@ import {
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
-import { useParseTemplate, fileToBase64, extractFileText, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
+import mammoth from "mammoth";
 import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
 import {
@@ -609,6 +610,14 @@ export default function TemplateFingerprint() {
   const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
   const [isEditingStyle, setIsEditingStyle] = useState(false);
   
+  // 上传的模板文件预览状态
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedFileType, setUploadedFileType] = useState<string | null>(null);
+  const [uploadedFileHtml, setUploadedFileHtml] = useState<string | null>(null);
+  const [isConvertingFile, setIsConvertingFile] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
+
   // Editable styles - each template can be edited independently
   // Load from localStorage if available, otherwise use defaults
   const [editableStyles, setEditableStyles] = useState<Record<string, typeof templateStyles[0]>>(() => {
@@ -626,7 +635,7 @@ export default function TemplateFingerprint() {
     } catch (error) {
       console.error("Failed to load saved styles:", error);
     }
-    
+
     // Fall back to default styles
     const initial: Record<string, typeof templateStyles[0]> = {};
     templateStyles.forEach(style => {
@@ -634,12 +643,12 @@ export default function TemplateFingerprint() {
     });
     return initial;
   });
-  
+
   // Get current selected style (from editable state)
   const currentStyle = useMemo(() => {
     return editableStyles[selectedStyleId] || templateStyles[0];
   }, [selectedStyleId, editableStyles]);
-  
+
   // Update a specific style's property
   const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
     setEditableStyles(prev => {
@@ -648,7 +657,7 @@ export default function TemplateFingerprint() {
         return prev;
       }
       const style = JSON.parse(JSON.stringify(newStyles[styleId]));
-      
+
       // Navigate to the nested property and update it
       let current: Record<string, unknown> = style;
       for (let i = 0; i < path.length - 1; i++) {
@@ -658,18 +667,18 @@ export default function TemplateFingerprint() {
         current = current[path[i]] as Record<string, unknown>;
       }
       current[path[path.length - 1]] = value;
-      
+
       newStyles[styleId] = style;
       return newStyles;
     });
   }, []);
-  
+
   // Save current style to localStorage for persistence
   const saveCurrentStyle = useCallback(() => {
     try {
       // Save all edited styles to localStorage
       localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
-      toast.success("样式���保存", {
+      toast.success("样式已保存", {
         description: `「${currentStyle.name}」的样式配置已保存到本地`,
       });
       setIsEditingStyle(false);
@@ -680,19 +689,19 @@ export default function TemplateFingerprint() {
       });
     }
   }, [currentStyle.name, editableStyles]);
-  
+
   // Reset style to default with undo support
   const resetStyleToDefault = useCallback((styleId: string) => {
     const defaultStyle = templateStyles.find(s => s.id === styleId);
     if (defaultStyle) {
       // Save current state for undo
       const previousStyle = editableStyles[styleId];
-      
+
       setEditableStyles(prev => ({
         ...prev,
         [styleId]: JSON.parse(JSON.stringify(defaultStyle)),
       }));
-      
+
       toast.success("已重置为默认样式", {
         description: "样式已恢复为初始设置",
         action: {
@@ -711,6 +720,15 @@ export default function TemplateFingerprint() {
 
   const hasTemplate = chapters.length > 0;
   const isLoading = projectLoading || chaptersLoading;
+  
+  // 清理上传的文件 URL（组件卸载或项目切换时）
+  useEffect(() => {
+    return () => {
+      if (uploadedFileUrl) {
+        URL.revokeObjectURL(uploadedFileUrl);
+      }
+    };
+  }, [uploadedFileUrl]);
 
   // Count chapters
   const countChapters = useCallback((chapters: Chapter[]): { level1: number; level2: number } => {
@@ -738,7 +756,7 @@ export default function TemplateFingerprint() {
     try {
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: DEMO_TEMPLATE_CONTENT,
+        content: "",
         filename: "标准法律尽调报告模板",
       });
       toast.success("报告模板已生成", {
@@ -770,6 +788,37 @@ export default function TemplateFingerprint() {
 
     // Clear input value for re-upload
     event.target.value = "";
+    
+    // 创建文件预览 URL
+    const fileUrl = URL.createObjectURL(file);
+    setUploadedFileUrl(fileUrl);
+    setUploadedFileName(file.name);
+    setUploadedFileType(file.type);
+    setUploadedFileHtml(null); // 重置 HTML
+    // 保持样式效果预览模式，用户可以手动切换到原文件预览
+    
+    // 如果是 Word 文件，转换为 HTML 预览
+    const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+      || file.type === "application/msword"
+      || file.name.endsWith(".docx")
+      || file.name.endsWith(".doc");
+    
+    if (isWordFile) {
+      setIsConvertingFile(true);
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setUploadedFileHtml(result.value);
+        if (result.messages.length > 0) {
+          console.log("[TemplateFingerprint] Word conversion messages:", result.messages);
+        }
+      } catch (err) {
+        console.error("[TemplateFingerprint] Word conversion error:", err);
+        toast.error("Word 文件预览转换失败", { description: "将继续解析章节结构" });
+      } finally {
+        setIsConvertingFile(false);
+      }
+    }
 
     const validTypes = [
       "application/pdf",
@@ -795,14 +844,22 @@ export default function TemplateFingerprint() {
         preview: extractedText.substring(0, 200),
       });
 
-      if (!extractedText || extractedText.trim().length < 20) {
-        toast.warning("文件内容读取有限，将基于文件名生成通用模板");
-      }
+      // 如果浏览器提取文本不足100字，传 fileData 让服务端重新提取
+      const needServerExtract = extractedText.length < 100;
+      const fileData = needServerExtract ? await fileToBase64(file) : undefined;
+
+      console.log("[TemplateFingerprint] Sending to AI", {
+        contentLen: extractedText.length,
+        needServerExtract,
+        hasFileData: !!fileData,
+      });
 
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: extractedText, // Pass extracted text directly to AI
+        content: extractedText,
         filename: file.name,
+        fileData,
+        mimeType: file.type,
       });
 
       toast.success("模板解析成功", {
@@ -818,13 +875,13 @@ export default function TemplateFingerprint() {
 
   // State for reset confirmation
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  
+
   // Handle reset template with confirmation
   const handleResetTemplate = async () => {
     if (!currentProjectId) return;
     setShowResetConfirm(true);
   };
-  
+
   const confirmResetTemplate = async () => {
     if (!currentProjectId) return;
     setShowResetConfirm(false);
@@ -1033,12 +1090,12 @@ export default function TemplateFingerprint() {
                             <div className="flex items-center gap-3">
                               {/* Color preview */}
                               <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
-                                <div 
-                                  className="h-1/2" 
+                                <div
+                                  className="h-1/2"
                                   style={{ backgroundColor: editedStyle?.preview.primaryColor || style.preview.primaryColor }}
                                 />
-                                <div 
-                                  className="h-1/2" 
+                                <div
+                                  className="h-1/2"
                                   style={{ backgroundColor: editedStyle?.preview.accentColor || style.preview.accentColor }}
                                 />
                               </div>
@@ -1072,16 +1129,16 @@ export default function TemplateFingerprint() {
                         <span className="text-[13px] font-medium">编辑样式</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-7 text-[11px]"
                           onClick={() => resetStyleToDefault(selectedStyleId)}
                         >
                           重置
                         </Button>
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           className="h-7 text-[11px]"
                           onClick={saveCurrentStyle}
                         >
@@ -1101,7 +1158,7 @@ export default function TemplateFingerprint() {
                         <div className="space-y-3">
                           <div>
                             <Label className="text-[11px]">样式名称</Label>
-                            <Input 
+                            <Input
                               value={currentStyle.name}
                               onChange={(e) => updateStyleProperty(selectedStyleId, ['name'], e.target.value)}
                               className="h-8 text-[12px] mt-1"
@@ -1110,13 +1167,13 @@ export default function TemplateFingerprint() {
                           <div>
                             <Label className="text-[11px]">主色调</Label>
                             <div className="flex gap-2 mt-1">
-                              <Input 
+                              <Input
                                 type="color"
                                 value={currentStyle.preview.primaryColor}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
                                 className="h-8 w-12 p-1"
                               />
-                              <Input 
+                              <Input
                                 value={currentStyle.preview.primaryColor}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'primaryColor'], e.target.value)}
                                 className="h-8 text-[12px] flex-1"
@@ -1126,13 +1183,13 @@ export default function TemplateFingerprint() {
                           <div>
                             <Label className="text-[11px]">辅助色</Label>
                             <div className="flex gap-2 mt-1">
-                              <Input 
+                              <Input
                                 type="color"
                                 value={currentStyle.preview.accentColor}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
                                 className="h-8 w-12 p-1"
                               />
-                              <Input 
+                              <Input
                                 value={currentStyle.preview.accentColor}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['preview', 'accentColor'], e.target.value)}
                                 className="h-8 text-[12px] flex-1"
@@ -1149,7 +1206,7 @@ export default function TemplateFingerprint() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[11px]">字体</Label>
-                              <Select 
+                              <Select
                                 value={currentStyle.styles.h1.font}
                                 onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'font'], v)}
                               >
@@ -1168,7 +1225,7 @@ export default function TemplateFingerprint() {
                             </div>
                             <div>
                               <Label className="text-[11px]">字号 (pt)</Label>
-                              <Input 
+                              <Input
                                 type="number"
                                 value={currentStyle.styles.h1.sizePt}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'sizePt'], Number(e.target.value))}
@@ -1178,7 +1235,7 @@ export default function TemplateFingerprint() {
                           </div>
                           <div className="flex items-center gap-4">
                             <label className="flex items-center gap-2 text-[11px]">
-                              <input 
+                              <input
                                 type="checkbox"
                                 checked={currentStyle.styles.h1.bold}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h1', 'bold'], e.target.checked)}
@@ -1197,7 +1254,7 @@ export default function TemplateFingerprint() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[11px]">字体</Label>
-                              <Select 
+                              <Select
                                 value={currentStyle.styles.h2.font}
                                 onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'font'], v)}
                               >
@@ -1216,7 +1273,7 @@ export default function TemplateFingerprint() {
                             </div>
                             <div>
                               <Label className="text-[11px]">字号 (pt)</Label>
-                              <Input 
+                              <Input
                                 type="number"
                                 value={currentStyle.styles.h2.sizePt}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'h2', 'sizePt'], Number(e.target.value))}
@@ -1234,7 +1291,7 @@ export default function TemplateFingerprint() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[11px]">字体</Label>
-                              <Select 
+                              <Select
                                 value={currentStyle.styles.body.font}
                                 onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'font'], v)}
                               >
@@ -1252,8 +1309,8 @@ export default function TemplateFingerprint() {
                               </Select>
                             </div>
                             <div>
-                              <Label className="text-[11px]">字�� (pt)</Label>
-                              <Input 
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input
                                 type="number"
                                 value={currentStyle.styles.body.sizePt}
                                 onChange={(e) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'sizePt'], Number(e.target.value))}
@@ -1264,7 +1321,7 @@ export default function TemplateFingerprint() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[11px]">行距</Label>
-                              <Input 
+                              <Input
                                 type="number"
                                 step="0.1"
                                 value={currentStyle.styles.body.lineSpacing}
@@ -1274,7 +1331,7 @@ export default function TemplateFingerprint() {
                             </div>
                             <div>
                               <Label className="text-[11px]">首行缩进 (cm)</Label>
-                              <Input 
+                              <Input
                                 type="number"
                                 step="0.1"
                                 value={currentStyle.styles.body.firstLineIndentCm}
@@ -1285,7 +1342,7 @@ export default function TemplateFingerprint() {
                           </div>
                           <div>
                             <Label className="text-[11px]">对齐方式</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.styles.body.align}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['styles', 'body', 'align'], v)}
                             >
@@ -1310,7 +1367,7 @@ export default function TemplateFingerprint() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[11px]">边框样式</Label>
-                              <Select 
+                              <Select
                                 value={currentStyle.tables.default.border}
                                 onValueChange={(v) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'border'], v)}
                               >
@@ -1318,7 +1375,7 @@ export default function TemplateFingerprint() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="single">单线边���</SelectItem>
+                                  <SelectItem value="single">单线边框</SelectItem>
                                   <SelectItem value="threeLines">三线表</SelectItem>
                                   <SelectItem value="none">无边框</SelectItem>
                                 </SelectContent>
@@ -1327,13 +1384,13 @@ export default function TemplateFingerprint() {
                             <div>
                               <Label className="text-[11px]">表头背景色</Label>
                               <div className="flex gap-1 mt-1">
-                                <Input 
+                                <Input
                                   type="color"
                                   value={currentStyle.tables.default.headerFill === "transparent" ? "#ffffff" : currentStyle.tables.default.headerFill}
                                   onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
                                   className="h-8 w-10 p-1"
                                 />
-                                <Input 
+                                <Input
                                   value={currentStyle.tables.default.headerFill}
                                   onChange={(e) => updateStyleProperty(selectedStyleId, ['tables', 'default', 'headerFill'], e.target.value)}
                                   className="h-8 text-[11px] flex-1"
@@ -1351,7 +1408,7 @@ export default function TemplateFingerprint() {
                           {/* Header Decoration */}
                           <div>
                             <Label className="text-[11px]">页眉装饰</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.headerDecoration || "none"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'headerDecoration'], v)}
                             >
@@ -1367,11 +1424,11 @@ export default function TemplateFingerprint() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           {/* Section Divider */}
                           <div>
                             <Label className="text-[11px]">章节分隔线</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.sectionDivider || "simple"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'sectionDivider'], v)}
                             >
@@ -1387,11 +1444,11 @@ export default function TemplateFingerprint() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           {/* Quote Style */}
                           <div>
                             <Label className="text-[11px]">引用块样式</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.quoteStyle || "border-left"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'quoteStyle'], v)}
                             >
@@ -1406,11 +1463,11 @@ export default function TemplateFingerprint() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           {/* Title Decoration */}
                           <div>
                             <Label className="text-[11px]">标题装饰</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.titleDecoration || "none"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'titleDecoration'], v)}
                             >
@@ -1426,11 +1483,11 @@ export default function TemplateFingerprint() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           {/* Page Corner */}
                           <div>
                             <Label className="text-[11px]">页面角标</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.pageCorner || "none"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'pageCorner'], v)}
                             >
@@ -1445,11 +1502,11 @@ export default function TemplateFingerprint() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
+
                           {/* List Bullet Style */}
                           <div>
                             <Label className="text-[11px]">列表项目符号</Label>
-                            <Select 
+                            <Select
                               value={currentStyle.preview.bulletStyle || "disc"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'bulletStyle'], v)}
                             >
@@ -1480,17 +1537,111 @@ export default function TemplateFingerprint() {
                         <Eye className="w-4 h-4 text-muted-foreground" />
                         <span className="text-[13px] font-medium">实时预览</span>
                       </div>
-                      <Badge variant="outline" className="text-[10px]">
-                        {currentStyle.name}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        {/* 预览模式切换按钮 */}
+                        {uploadedFileUrl && (
+                          <div className="flex rounded-md border border-border overflow-hidden">
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "file" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("file")}
+                            >
+                              上传文件
+                            </button>
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "style" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              样式效果
+                            </button>
+                          </div>
+                        )}
+                        <Badge variant="outline" className="text-[10px]">
+                          {previewMode === "file" && uploadedFileName ? uploadedFileName : currentStyle.name}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* 文件预览模式 */}
+                  {previewMode === "file" && uploadedFileUrl && (
+                    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                      {/* PDF 预览 */}
+                      {uploadedFileType?.includes("pdf") && (
+                        <iframe
+                          src={uploadedFileUrl}
+                          className="w-full h-full border-0"
+                          title="PDF 预览"
+                        />
+                      )}
+                      
+                      {/* Word 文件预览 - 转换中 */}
+                      {!uploadedFileType?.includes("pdf") && isConvertingFile && (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+                            <p className="text-sm text-muted-foreground">
+                              正在转换 Word 文档...
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Word 文件预览 - 已转换 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && uploadedFileHtml && (
+                        <ScrollArea className="h-full">
+                          <div className="p-6">
+                            <div className="max-w-3xl mx-auto bg-white border border-border shadow-sm p-8">
+                              <div 
+                                className="prose prose-sm max-w-none word-preview"
+                                dangerouslySetInnerHTML={{ __html: uploadedFileHtml }}
+                                style={{
+                                  fontSize: '12pt',
+                                  lineHeight: 1.6,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </ScrollArea>
+                      )}
+                      
+                      {/* Word 文件预览 - 转换失败 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && !uploadedFileHtml && (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-sm font-medium mb-2">
+                              {uploadedFileName}
+                            </p>
+                            <p className="text-xs text-muted-foreground mb-4">
+                              无法预览此文件格式，请切换到"样式效果"查看章节预览
+                            </p>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              查看样式效果
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* 样式预览模式 */}
+                  {(previewMode === "style" || !uploadedFileUrl) && (
                   <ScrollArea className="h-0 grow">
                     <div className="p-8">
-                      <div 
+                      <div
                         key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
                         className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
-                        style={{ 
+                        style={{
                           padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
                           minHeight: "600px"
                         }}
@@ -1508,23 +1659,23 @@ export default function TemplateFingerprint() {
                               </div>
                             )}
                             {currentStyle.preview.headerDecoration === 'gradient' && (
-                              <div 
-                                className="h-2 rounded-full" 
-                                style={{ 
-                                  background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})` 
-                                }} 
+                              <div
+                                className="h-2 rounded-full"
+                                style={{
+                                  background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})`
+                                }}
                               />
                             )}
                             {currentStyle.preview.headerDecoration === 'pattern' && (
                               <div className="flex items-center gap-1">
                                 {Array.from({ length: 12 }).map((_, i) => (
-                                  <div 
-                                    key={i} 
-                                    className="flex-1 h-2" 
-                                    style={{ 
+                                  <div
+                                    key={i}
+                                    className="flex-1 h-2"
+                                    style={{
                                       backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
                                       transform: 'skewX(-15deg)'
-                                    }} 
+                                    }}
                                   />
                                 ))}
                               </div>
@@ -1536,7 +1687,7 @@ export default function TemplateFingerprint() {
                         {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
                           <div className="absolute top-4 right-4">
                             {currentStyle.preview.pageCorner === 'fold' && (
-                              <div 
+                              <div
                                 className="w-8 h-8"
                                 style={{
                                   background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
@@ -1545,9 +1696,9 @@ export default function TemplateFingerprint() {
                               />
                             )}
                             {currentStyle.preview.pageCorner === 'stamp' && (
-                              <div 
+                              <div
                                 className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
-                                style={{ 
+                                style={{
                                   borderColor: currentStyle.preview.primaryColor,
                                   color: currentStyle.preview.primaryColor,
                                 }}
@@ -1556,7 +1707,7 @@ export default function TemplateFingerprint() {
                               </div>
                             )}
                             {currentStyle.preview.pageCorner === 'watermark' && (
-                              <div 
+                              <div
                                 className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
                                 style={{ color: currentStyle.preview.primaryColor }}
                               >
@@ -1567,7 +1718,7 @@ export default function TemplateFingerprint() {
                         )}
 
                         {/* Report Header Preview */}
-                        <div 
+                        <div
                           className={cn(
                             "text-center mb-8 pb-4",
                             currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
@@ -1575,15 +1726,15 @@ export default function TemplateFingerprint() {
                             currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
                             (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
                           )}
-                          style={{ 
+                          style={{
                             borderColor: currentStyle.preview.primaryColor,
                             backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
                           }}
                         >
                           {currentStyle.preview.titleDecoration === 'badge' && (
-                            <div 
+                            <div
                               className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
-                              style={{ 
+                              style={{
                                 backgroundColor: `${currentStyle.preview.primaryColor}15`,
                                 color: currentStyle.preview.primaryColor,
                               }}
@@ -1592,13 +1743,13 @@ export default function TemplateFingerprint() {
                             </div>
                           )}
                           {currentStyle.preview.titleDecoration === 'ribbon' && (
-                            <div 
+                            <div
                               className="absolute -left-2 top-0 w-1 h-full rounded-r"
                               style={{ backgroundColor: currentStyle.preview.primaryColor }}
                             />
                           )}
-                          <h1 
-                            style={{ 
+                          <h1
+                            style={{
                               fontFamily: currentStyle.styles.h1.font,
                               fontSize: `${currentStyle.styles.h1.sizePt}pt`,
                               fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
@@ -1609,8 +1760,8 @@ export default function TemplateFingerprint() {
                           >
                             法律尽职调查报告
                           </h1>
-                          <p 
-                            style={{ 
+                          <p
+                            style={{
                               fontFamily: currentStyle.styles.body.font,
                               fontSize: `${currentStyle.styles.body.sizePt}pt`,
                               color: "#666",
@@ -1620,8 +1771,8 @@ export default function TemplateFingerprint() {
                           </p>
                         </div>
 
-                        {/* Real chapters preview - show first 3 chapters with their children */}
-                        {chapters.slice(0, 3).map((chapter, chapterIdx) => (
+                        {/* Real chapters preview - show ALL chapters with their children */}
+                        {chapters.map((chapter, chapterIdx) => (
                           <div key={chapter.id} className="mb-6 pt-4">
                             {/* Section Divider (not for first chapter) */}
                             {chapterIdx > 0 && (
@@ -1660,11 +1811,26 @@ export default function TemplateFingerprint() {
                                 marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
                               }}
                             >
-                              {chapter.number ? `${chapter.number}、` : ""}{chapter.title}
+                              {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
                             </h2>
+                            
+                            {/* Chapter description/content */}
+                            <p
+                              style={{
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                lineHeight: currentStyle.styles.body.lineSpacing,
+                                textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                color: "#444",
+                              }}
+                            >
+                              {chapter.description || `本章将对${chapter.title}相关事项进行详细核查和分析，包括相关文件的合规性审查、法律风险识别及应对建议等内容。`}
+                            </p>
 
-                            {/* Sub-chapters H2 */}
-                            {chapter.children && chapter.children.slice(0, 2).map((child) => (
+                            {/* Sub-chapters H2 - show ALL children */}
+                            {chapter.children && chapter.children.map((child) => (
                               <div key={child.id}>
                                 <h3
                                   style={{
@@ -1676,58 +1842,75 @@ export default function TemplateFingerprint() {
                                     marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
                                   }}
                                 >
-                                  {child.number ? `${child.number} ` : ""}{child.title}
+                                  {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
                                 </h3>
-                                {child.description && (
-                                  <p
-                                    style={{
-                                      fontFamily: currentStyle.styles.body.font,
-                                      fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                      lineHeight: currentStyle.styles.body.lineSpacing,
-                                      textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                      textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                      marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                      color: "#666",
-                                    }}
-                                  >
-                                    {child.description}
-                                  </p>
-                                )}
+                                {/* Sub-chapter content - always show */}
+                                <p
+                                  style={{
+                                    fontFamily: currentStyle.styles.body.font,
+                                    fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                    lineHeight: currentStyle.styles.body.lineSpacing,
+                                    textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                    textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                    marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                    color: "#555",
+                                  }}
+                                >
+                                  {child.description || `针对${child.title}，我们核查了相关文件资料，审阅了公司提供的证明材料，并对关键事项进行了法律分析。`}
+                                </p>
+                                
+                                {/* Show H3 level children if exist */}
+                                {child.children && child.children.map((subChild) => (
+                                  <div key={subChild.id} className="ml-4">
+                                    <h4
+                                      style={{
+                                        fontFamily: currentStyle.styles.h3?.font || currentStyle.styles.h2.font,
+                                        fontSize: `${currentStyle.styles.h3?.sizePt || Number(currentStyle.styles.h2.sizePt) - 2}pt`,
+                                        fontWeight: currentStyle.styles.h3?.bold ? "bold" : "normal",
+                                        color: currentStyle.preview.secondaryColor,
+                                        marginTop: `${currentStyle.styles.h3?.spaceBeforePt || 6}pt`,
+                                        marginBottom: `${currentStyle.styles.h3?.spaceAfterPt || 4}pt`,
+                                      }}
+                                    >
+                                      {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
+                                    </h4>
+                                    {/* H3 level content - always show */}
+                                    <p
+                                      style={{
+                                        fontFamily: currentStyle.styles.body.font,
+                                        fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                        lineHeight: currentStyle.styles.body.lineSpacing,
+                                        textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                        textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                        marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                        color: "#666",
+                                      }}
+                                    >
+                                      {subChild.description || `经核查，${subChild.title}相关情况如下：（此处将显示具体核查内容和法律意见）`}
+                                    </p>
+                                  </div>
+                                ))}
                               </div>
                             ))}
-
-                            {/* Show remaining children count */}
-                            {chapter.children && chapter.children.length > 2 && (
-                              <p
-                                style={{
-                                  fontFamily: currentStyle.styles.body.font,
-                                  fontSize: `${Number(currentStyle.styles.body.sizePt) - 1}pt`,
-                                  color: currentStyle.preview.primaryColor + "99",
-                                  fontStyle: "italic",
-                                }}
-                              >
-                                …还有 {chapter.children.length - 2} 个子章节
-                              </p>
-                            )}
                           </div>
                         ))}
 
-                        {/* Show remaining chapters count */}
-                        {chapters.length > 3 && (
+                        {/* Footer showing total count */}
+                        {chapters.length > 0 && (
                           <div
-                            className="mt-4 p-3 rounded text-center text-[12px]"
+                            className="mt-6 pt-4 border-t text-center text-[11px]"
                             style={{
-                              backgroundColor: currentStyle.preview.primaryColor + '08',
-                              color: currentStyle.preview.primaryColor + 'aa',
-                              border: `1px dashed ${currentStyle.preview.primaryColor}30`,
+                              borderColor: currentStyle.preview.primaryColor + '20',
+                              color: currentStyle.preview.primaryColor + '80',
                             }}
                           >
-                            …还有 {chapters.length - 3} 个章节（共 {chapters.length} 章）
+                            共 {chapters.length} 个一级章节
                           </div>
                         )}
                       </div>
                     </div>
                   </ScrollArea>
+                  )}
                 </div>
               </div>
             </TabsContent>
@@ -1763,20 +1946,25 @@ export default function TemplateFingerprint() {
                     <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
                       <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
                       <div className="space-y-2 text-[14px]">
-                        {chapters.map((chapter, idx) => (
+                        {chapters.map((chapter) => (
                           <div key={chapter.id}>
                             <div className="flex items-baseline gap-2">
-                              <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
+                              {/* 有编号时单独展示编号列，无编号则列保持空白 */}
+                              <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                {chapter.number && chapter.number !== chapter.title ? chapter.number : ""}
+                              </span>
                               <span className="flex-1 font-semibold">{chapter.title}</span>
-                              <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                              <span className="text-muted-foreground">1</span>
+                              <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                              <span className="text-muted-foreground flex-shrink-0">1</span>
                             </div>
-                            {chapter.children?.map((child, childIdx) => (
-                              <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
-                                <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
+                            {chapter.children?.map((child) => (
+                              <div key={child.id} className="flex items-baseline gap-2 ml-10 mt-1">
+                                <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                  {child.number && child.number !== child.title ? child.number : ""}
+                                </span>
                                 <span className="flex-1">{child.title}</span>
-                                <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                                <span className="text-muted-foreground">1</span>
+                                <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                                <span className="text-muted-foreground flex-shrink-0">1</span>
                               </div>
                             ))}
                           </div>
@@ -1959,7 +2147,7 @@ export default function TemplateFingerprint() {
           </div>
         </Tabs>
       )}
-      
+
       {/* Reset Template Confirmation Dialog */}
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <AlertDialogContent>

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { mockTemplateFingerprint, type TemplateFingerprint as MockTemplateType } from "@/lib/reportMockData";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 
 // Re-export the complete template type from mockData
 export type TemplateFingerprint = MockTemplateType & {
@@ -80,7 +81,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         .eq("project_id", projectId)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) throw new Error(normalizeSupabaseError(error, "获取模板失败"));
 
       if (data) {
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
@@ -131,7 +132,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) throw new Error(normalizeSupabaseError(error, "更新模板失败"));
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
       } else {
         // Insert new
@@ -141,7 +142,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) throw new Error(normalizeSupabaseError(error, "保存模板失败"));
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
       }
     },
@@ -158,7 +159,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         .delete()
         .eq("id", templateId);
 
-      if (error) throw error;
+      if (error) throw new Error(normalizeSupabaseError(error, "删除模板失败"));
     },
     onSuccess: () => {
       queryClient.setQueryData(["templateFingerprint", projectId], null);

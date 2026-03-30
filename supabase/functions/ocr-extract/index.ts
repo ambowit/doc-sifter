@@ -1,355 +1,305 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildSignedHeaders, corsHeaders, getBearerToken, jsonResponse } from "../_shared/worker-hmac.ts";
+import {
+  extractTextByMethod,
+  generateTextSummary,
+  getLocalExtractionMethod,
+  needsWorkerOcr,
+} from "../_shared/office-extract.ts";
+import { getStorageBucketName } from "../_shared/upload-provider.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-const logStep = (step: string, details?: unknown) => {
-  const detailsStr = details ? ` - ${JSON.stringify(details)}` : "";
-  console.log(`[ocr-extract] ${step}${detailsStr}`);
-};
-
-interface OCRRequest {
+interface SingleTaskRequest {
   fileId: string;
-  fileUrl: string;
-  mimeType: string;
-  fileName: string;
+  mimeType?: string;
+  fileName?: string;
 }
 
-// Max file size for OCR processing (10MB for PDF, 5MB for images)
-const MAX_PDF_SIZE = 10 * 1024 * 1024;
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+interface TaskRequestBody {
+  files?: SingleTaskRequest[];
+  fileId?: string;
+  mimeType?: string;
+  fileName?: string;
+  force?: boolean;
+}
 
-// Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.byteLength));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
+interface FileRow {
+  id: string;
+  project_id: string;
+  name: string;
+  original_name: string | null;
+  mime_type: string | null;
+  storage_path: string;
+  ocr_task_id: string | null;
+  ocr_task_status: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  user_id: string;
+}
+
+const WORKER_TASK_TYPE = "text_extraction";
+const WORKER_RESOLVER_TYPE = "signed_url_ticket";
+const WORKER_APP_ID = "doc-sifter";
+
+function normalizeTasks(payload: TaskRequestBody): SingleTaskRequest[] {
+  if (Array.isArray(payload.files)) {
+    return payload.files.filter((item) => typeof item?.fileId === "string" && item.fileId.trim().length > 0);
   }
-  return btoa(binary);
-}
-
-// Download file with timeout and size check
-async function downloadAsBase64(
-  url: string, 
-  mimeType: string, 
-  maxSize: number
-): Promise<{ data: string; size: number }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-  
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`下载失败: HTTP ${response.status}`);
-    }
-    
-    // Check content length header first
-    const contentLength = response.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > maxSize) {
-      throw new Error(`文件过大 (${Math.round(parseInt(contentLength) / 1024 / 1024)}MB)，最大支持 ${Math.round(maxSize / 1024 / 1024)}MB`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    
-    // Check actual size
-    if (buffer.byteLength > maxSize) {
-      throw new Error(`文件过大 (${Math.round(buffer.byteLength / 1024 / 1024)}MB)，最大支持 ${Math.round(maxSize / 1024 / 1024)}MB`);
-    }
-    
-    const base64 = arrayBufferToBase64(buffer);
-    return { 
-      data: `data:${mimeType};base64,${base64}`,
-      size: buffer.byteLength 
-    };
-  } finally {
-    clearTimeout(timeout);
+  if (typeof payload.fileId === "string" && payload.fileId.trim().length > 0) {
+    return [{ fileId: payload.fileId, mimeType: payload.mimeType, fileName: payload.fileName }];
   }
+  return [];
 }
 
-// Call SuperunAI with image/document for OCR with retry
-async function extractTextWithAI(
-  apiKey: string,
-  fileUrl: string,
+// 下载文件
+async function downloadFile(
+  admin: ReturnType<typeof createClient>,
+  storagePath: string,
+): Promise<ArrayBuffer> {
+  const bucket = getStorageBucketName();
+  const { data, error } = await admin.storage.from(bucket).download(storagePath);
+  if (error || !data) {
+    throw new Error(`下载文件失败: ${error?.message || "未知错误"}`);
+  }
+  return data.arrayBuffer();
+}
+
+// 处理单个文件
+async function processFile(
+  admin: ReturnType<typeof createClient>,
+  file: FileRow,
   mimeType: string,
   fileName: string,
-  retries = 2
-): Promise<{ text: string; summary: string; entities: string[] }> {
-  
-  const isImage = mimeType.startsWith("image/");
-  const isPdf = mimeType === "application/pdf";
-  const maxSize = isPdf ? MAX_PDF_SIZE : MAX_IMAGE_SIZE;
-  
-  // For PDF files, we need to download and convert to base64
-  let imageUrl = fileUrl;
-  let fileSize = 0;
-  
-  if (isPdf) {
-    logStep("Downloading PDF for base64 conversion");
-    const result = await downloadAsBase64(fileUrl, mimeType, maxSize);
-    imageUrl = result.data;
-    fileSize = result.size;
-    logStep("PDF converted to base64", { sizeMB: Math.round(fileSize / 1024 / 1024 * 10) / 10 });
-  } else if (isImage) {
-    // For images, check size first
-    logStep("Downloading image for size check");
-    const result = await downloadAsBase64(fileUrl, mimeType, maxSize);
-    imageUrl = result.data;
-    fileSize = result.size;
-    logStep("Image loaded", { sizeMB: Math.round(fileSize / 1024 / 1024 * 10) / 10 });
-  }
-  
-  // Build message content with image
-  const messageContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-  
-  // Add the image/document
-  messageContent.push({
-    type: "image_url",
-    image_url: { url: imageUrl }
-  });
-  
-  // Add the prompt
-  messageContent.push({
-    type: "text",
-    text: `请仔细阅读这份文件（${fileName}），提取所有文字内容。
+  workerBase: string,
+  workerSecret: string,
+  resolverUrl: string,
+  callbackUrl: string,
+  force: boolean,
+): Promise<void> {
+  const now = () => new Date().toISOString();
 
-请按以下JSON格式返回：
-{
-  "text": "文件的完整文字内容（保持原文格式和结构）",
-  "summary": "文件内容摘要（100字以内）",
-  "entities": ["提取的关键实体，如公司名称、人名、日期、金额、百分比等"]
-}
-
-要求：
-1. 完整提取所有可见文字，包括表格、列表、标题等
-2. 保持原文的段落结构
-3. 如果有数字、百分比、金额等，请准确提取
-4. 如果是扫描件或图片，尽可能识别所有文字
-5. 直接输出JSON，不要添加其他说明`
-  });
-
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  // 1. 检查是否可以本地提取
+  const localMethod = getLocalExtractionMethod(mimeType, fileName);
+  if (localMethod) {
     try {
-      if (attempt > 0) {
-        logStep(`Retry attempt ${attempt}/${retries}`);
-        // Wait before retry (exponential backoff)
-        await new Promise(r => setTimeout(r, 1000 * attempt));
-      }
-      
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for AI call
-      
-      try {
-        const response = await fetch("https://gateway.oook.cn/api/ai/execute", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            capability: "ai.general_user_defined",
-            input: {
-              messages: [{ role: "user", content: messageContent }],
-              temperature: 0.1,
-              max_tokens: 16000,
-            },
-            constraints: { maxCost: 0.05 },
-          }),
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeout);
+      const buffer = await downloadFile(admin, file.storage_path);
+      const extractedText = await extractTextByMethod(localMethod, buffer);
+      const summary = generateTextSummary(extractedText);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`AI服务错误: ${response.status} - ${errorText.substring(0, 100)}`);
-        }
-
-        const result = await response.json();
-        // Handle OOOK Gateway response format
-        const content = result.result?.choices?.[0]?.message?.content || 
-                       result.choices?.[0]?.message?.content ||
-                       result.result?.content ||
-                       result.content || "";
-        
-        // Parse JSON response
-        try {
-          let jsonStr = content.trim();
-          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-          if (jsonMatch) jsonStr = jsonMatch[1].trim();
-          
-          const jsonStart = jsonStr.indexOf("{");
-          const jsonEnd = jsonStr.lastIndexOf("}");
-          if (jsonStart !== -1 && jsonEnd !== -1) {
-            jsonStr = jsonStr.substring(jsonStart, jsonEnd + 1);
-          }
-          
-          const parsed = JSON.parse(jsonStr);
-          return {
-            text: parsed.text || content,
-            summary: parsed.summary || "",
-            entities: Array.isArray(parsed.entities) ? parsed.entities : []
-          };
-        } catch {
-          // If JSON parsing fails, return raw content
-          return {
-            text: content,
-            summary: content.substring(0, 100),
-            entities: []
-          };
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
+      await admin.from("files").update({
+        extracted_text: extractedText,
+        text_summary: summary,
+        ocr_processed: true,
+        ocr_processed_at: now(),
+        ocr_task_status: "completed",
+        ocr_task_completed_at: now(),
+        extraction_method: localMethod,
+      }).eq("id", file.id);
+      return;
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // Don't retry on certain errors
-      if (lastError.message.includes("文件过大") || 
-          lastError.message.includes("下载失败")) {
-        throw lastError;
-      }
-      
-      // Check if it's an abort error (timeout)
-      if (lastError.name === "AbortError") {
-        lastError = new Error("AI 处理超时，请稍后重试");
-      }
-      
-      logStep(`Attempt ${attempt} failed`, { error: lastError.message });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      await admin.from("files").update({
+        ocr_task_status: "failed",
+        ocr_task_completed_at: now(),
+        text_summary: `提取失败: ${errorMsg}`,
+      }).eq("id", file.id);
+      return;
     }
   }
-  
-  throw lastError || new Error("OCR 处理失败");
+
+  // 2. PDF/图片走 Worker OCR
+  if (needsWorkerOcr(mimeType, fileName)) {
+    if ((file.ocr_task_status === "pending" || file.ocr_task_status === "processing") && !force) {
+      return; // 已在处理中
+    }
+
+    const taskId = crypto.randomUUID();
+    const taskPayload = {
+      task_type: WORKER_TASK_TYPE,
+      task_id: taskId,
+      job_id: file.id,
+      file_ref: file.id,
+      mime_type: mimeType,
+      file_name: fileName,
+      requested_at: now(),
+      trace_id: crypto.randomUUID(),
+      app_id: WORKER_APP_ID,
+      resolver: { type: WORKER_RESOLVER_TYPE, url: resolverUrl, auth: { type: "hmac" } },
+      callback: { url: callbackUrl, auth: { type: "hmac" } },
+      max_chars: 120000,
+      is_external: true,
+      ...(force ? { force: true } : {}),
+    };
+
+    const taskBody = JSON.stringify(taskPayload);
+    const signedHeaders = await buildSignedHeaders(workerSecret, taskBody);
+
+    const workerResponse = await fetch(`${workerBase}/tasks/ocr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...signedHeaders },
+      body: taskBody,
+    });
+
+    if (workerResponse.ok || workerResponse.status === 409) {
+      await admin.from("files").update({
+        ocr_task_id: taskId,
+        ocr_task_status: "pending",
+        ocr_task_started_at: now(),
+        ocr_task_completed_at: null,
+        ocr_processed: false,
+      }).eq("id", file.id);
+    } else {
+      const workerError = (await workerResponse.text()).slice(0, 200);
+      await admin.from("files").update({
+        ocr_task_id: taskId,
+        ocr_task_status: "failed",
+        ocr_task_completed_at: now(),
+        text_summary: `Worker 入队失败: ${workerError}`,
+      }).eq("id", file.id);
+    }
+    return;
+  }
+
+  // 3. 不支持的类型
+  await admin.from("files").update({
+    text_summary: `暂不支持自动提取: ${mimeType}`,
+    ocr_processed: true,
+    ocr_processed_at: now(),
+    ocr_task_status: null,
+  }).eq("id", file.id);
+}
+
+// 后台批量处理
+async function processFilesInBackground(
+  admin: ReturnType<typeof createClient>,
+  candidates: Array<{ file: FileRow; mimeType: string; fileName: string }>,
+  workerBase: string,
+  workerSecret: string,
+  resolverUrl: string,
+  callbackUrl: string,
+  force: boolean,
+): Promise<void> {
+  for (const { file, mimeType, fileName } of candidates) {
+    try {
+      await processFile(admin, file, mimeType, fileName, workerBase, workerSecret, resolverUrl, callbackUrl, force);
+    } catch (error) {
+      console.error(`[ocr-extract] Process file ${file.id} error:`, error);
+    }
+  }
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
 
   try {
-    const { fileId, fileUrl, mimeType, fileName } = await req.json() as OCRRequest;
-    
-    logStep("OCR request received", { fileId, fileName, mimeType });
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
+    const workerSecret = Deno.env.get("WORKER_HMAC_SECRET");
 
-    if (!fileId || !fileUrl) {
-      return new Response(
-        JSON.stringify({ error: "fileId and fileUrl are required" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
+    if (!supabaseUrl || !serviceRoleKey || !workerSecret) {
+      return jsonResponse({ error: "Server configuration missing" }, 500);
     }
 
-    // Get API key
-    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
-    }
-
-    // Check if mime type is supported
-    const supportedImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
-    const supportedDocTypes = ["application/pdf"];
-    const allSupportedTypes = [...supportedImageTypes, ...supportedDocTypes];
-    
-    const isSupported = allSupportedTypes.some(t => 
-      mimeType.includes(t.split("/")[1]) || mimeType === t
-    );
-    
-    if (!isSupported) {
-      logStep("Unsupported file type", { mimeType });
-      
-      // Update database to mark as processed (but skipped)
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      
-      await supabase
-        .from("files")
-        .update({
-          text_summary: `不支持的文件类型: ${mimeType}`,
-          ocr_processed: true,
-          ocr_processed_at: new Date().toISOString()
-        })
-        .eq("id", fileId);
-      
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          text: "", 
-          summary: `不支持的文件类型: ${mimeType}`,
-          entities: [],
-          skipped: true
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
-    }
-
-    // Extract text using AI vision
-    logStep("Starting OCR extraction");
-    const result = await extractTextWithAI(apiKey, fileUrl, mimeType, fileName);
-    
-    logStep("OCR complete", { 
-      textLength: result.text.length, 
-      entitiesCount: result.entities.length 
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Initialize Supabase client to update file record
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Update file record with extracted text
-    const { error: updateError } = await supabase
-      .from("files")
-      .update({
-        extracted_text: result.text.substring(0, 50000), // Limit to 50K chars
-        text_summary: result.summary,
-        extracted_entities: result.entities,
-        ocr_processed: true,
-        ocr_processed_at: new Date().toISOString()
-      })
-      .eq("id", fileId);
-
-    if (updateError) {
-      logStep("Failed to update file record", { error: updateError });
-      return new Response(
-        JSON.stringify({ 
-          error: `保存结果失败: ${updateError.message}`,
-          text: result.text,
-          summary: result.summary,
-          entities: result.entities
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
+    const token = getBearerToken(req);
+    if (!token) {
+      return jsonResponse({ error: "Missing access token" }, 401);
     }
 
-    logStep("Database updated successfully", { fileId });
+    const { data: userData, error: userError } = await admin.auth.getUser(token);
+    if (userError || !userData.user) {
+      return jsonResponse({ error: "Invalid access token" }, 401);
+    }
 
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        text: result.text,
-        summary: result.summary,
-        entities: result.entities
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-    );
+    const payload = (await req.json().catch(() => ({}))) as TaskRequestBody;
+    const force = payload.force === true;
+    const requestedFiles = normalizeTasks(payload);
 
+    if (requestedFiles.length === 0) {
+      return jsonResponse({ error: "至少需要一个 fileId" }, 400);
+    }
+    if (requestedFiles.length > 200) {
+      return jsonResponse({ error: "单次最多提交 200 个文件" }, 400);
+    }
+
+    // 查询文件和项目
+    const fileIds = [...new Set(requestedFiles.map((f) => f.fileId))];
+    const { data: fileRows, error: fileError } = await admin
+      .from("files")
+      .select("id, project_id, name, original_name, mime_type, storage_path, ocr_task_id, ocr_task_status")
+      .in("id", fileIds);
+
+    if (fileError) {
+      return jsonResponse({ error: fileError.message }, 500);
+    }
+
+    const rows = (fileRows || []) as FileRow[];
+    const projectIds = [...new Set(rows.map((r) => r.project_id))];
+    const { data: projectRows } = await admin.from("projects").select("id, user_id").in("id", projectIds);
+    const projectMap = new Map(((projectRows || []) as ProjectRow[]).map((r) => [r.id, r]));
+    const fileMap = new Map(rows.map((r) => [r.id, r]));
+
+    // 筛选有权限的文件
+    const candidates: Array<{ file: FileRow; mimeType: string; fileName: string }> = [];
+    for (const req of requestedFiles) {
+      const file = fileMap.get(req.fileId);
+      if (!file) continue;
+      const project = projectMap.get(file.project_id);
+      if (!project || project.user_id !== userData.user.id) continue;
+
+      const mimeType = (req.mimeType || file.mime_type || "application/octet-stream").trim();
+      const fileName = (req.fileName || file.original_name || file.name || "").trim();
+      candidates.push({ file, mimeType, fileName });
+    }
+
+    if (candidates.length === 0) {
+      return jsonResponse({ error: "没有可处理的文件" }, 400);
+    }
+
+    // 立即将文件状态设为 processing
+    const candidateIds = candidates.map((c) => c.file.id);
+    await admin.from("files").update({
+      ocr_task_status: "processing",
+      ocr_task_started_at: new Date().toISOString(),
+    }).in("id", candidateIds);
+
+    // 构建后台处理上下文
+    const resolverUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/worker-file-ticket`;
+    const callbackUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/ocr-callback`;
+
+    // 使用 EdgeRuntime.waitUntil 在后台异步处理
+    // @ts-ignore Deno EdgeRuntime API
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(
+        processFilesInBackground(admin, candidates, workerBase, workerSecret, resolverUrl, callbackUrl, force)
+      );
+    } else {
+      // Fallback: 同步处理（本地测试时）
+      await processFilesInBackground(admin, candidates, workerBase, workerSecret, resolverUrl, callbackUrl, force);
+    }
+
+    // 立即返回，不等待处理完成
+    return jsonResponse({
+      success: true,
+      message: "任务已提交，正在后台处理",
+      accepted: candidates.length,
+      fileIds: candidateIds,
+    });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logStep("ERROR", { message: errorMessage });
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[ocr-extract] ERROR", error);
+    return jsonResponse({ error: message }, 500);
   }
 });

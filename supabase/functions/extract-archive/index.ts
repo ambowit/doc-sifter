@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { ZipReader, BlobReader, BlobWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
+import { createDownloadUrl, createUploadTicket, getUploadProviderContext, uploadBytesToSignedUrl } from "../_shared/upload-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -84,44 +85,6 @@ function isSupportedFileType(filename: string): boolean {
   return supportedExtensions.includes(ext);
 }
 
-// Get pre-signed upload URL
-async function getPresignedUrl(key: string, contentType: string): Promise<{ uploadUrl: string; downloadUrl: string }> {
-  const bucket = Deno.env.get("SUPERUN_STORAGE_BUCKET");
-  if (!bucket) {
-    throw new Error("SUPERUN_STORAGE_BUCKET is not set");
-  }
-  
-  const response = await fetch("https://superun.ai/web-api/upload/s3/preSignUrl", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      bucket,
-      key,
-      expiresIn: 3600,
-      contentType,
-    }),
-  });
-  
-  const { data } = await response.json();
-  return {
-    uploadUrl: data?.uploadUrl,
-    downloadUrl: data?.downloadUrl,
-  };
-}
-
-// Upload file to S3
-async function uploadToS3(url: string, data: Uint8Array, contentType: string): Promise<void> {
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: data,
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Upload failed: ${response.status}`);
-  }
-}
-
 // Download archive from URL
 async function downloadArchive(url: string): Promise<Uint8Array> {
   console.log("[extract-archive] Downloading archive from:", url.substring(0, 100));
@@ -141,6 +104,7 @@ async function extractZipFile(
   dateFolder: string
 ): Promise<ExtractedFileInfo[]> {
   const extractedFiles: ExtractedFileInfo[] = [];
+  const uploadCtx = getUploadProviderContext();
   
   const blob = new Blob([archiveData]);
   const zipReader = new ZipReader(new BlobReader(blob));
@@ -182,8 +146,9 @@ async function extractZipFile(
       const storagePath = `${projectId}/${dateFolder}/${randomId}.${extension}`;
       
       // Get pre-signed URL and upload
-      const { uploadUrl, downloadUrl } = await getPresignedUrl(storagePath, mimeType);
-      await uploadToS3(uploadUrl, fileData, mimeType);
+      const ticket = await createUploadTicket(uploadCtx, storagePath, mimeType);
+      await uploadBytesToSignedUrl(ticket.uploadUrl, fileData, mimeType);
+      const downloadUrl = await createDownloadUrl(uploadCtx, storagePath);
       
       extractedFiles.push({
         name: baseName,

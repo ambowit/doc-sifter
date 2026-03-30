@@ -467,66 +467,136 @@ export function useGenerateAIReport() {
   return useMutation({
     mutationFn: async (projectId: string): Promise<AIGeneratedReport> => {
       console.log("[useGenerateAIReport] Starting AI report generation for project:", projectId);
-      
-      // Get current user session for JWT auth
+
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error("请重新登录后再试");
-      }
-      
+      if (!session?.access_token) throw new Error("请重新登录后再试");
+
       try {
-        const { data, error } = await supabase.functions.invoke("generate-report", {
-          body: { projectId },
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
+        // 1. 获取项目章节列表
+        const { data: chapters, error: chaptersError } = await supabase
+          .from("chapters")
+          .select("id, title, number, level")
+          .eq("project_id", projectId)
+          .order("order_index", { ascending: true });
 
-        if (error) {
-          console.error("[useGenerateAIReport] Supabase error:", error);
-          // Check for common error patterns
-          const errorStr = JSON.stringify(error);
-          if (errorStr.includes("504") || errorStr.includes("timeout") || errorStr.includes("non-2xx")) {
-            throw new Error("AI生成超时：章节内容量较大，处理时间超出限制。建议稍后重试或减少章节数量。");
+        if (chaptersError) throw new Error("获取章节列表失败");
+        const totalBatches = (chapters || []).length;
+        if (totalBatches === 0) throw new Error("该项目暂无章节，请先配置章节模板");
+
+        // 2. 先查是否已有记录，有则复用，无则新建
+        const { data: existingRow } = await supabase
+          .from("generated_reports")
+          .select("id")
+          .eq("project_id", projectId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        let reportId: string;
+
+        if (existingRow?.id) {
+          reportId = existingRow.id as string;
+        } else {
+          const insertPayload: Record<string, unknown> = {
+            project_id: projectId,
+            user_id: session.user.id,
+            created_by: session.user.id,
+            status: "draft",
+            report_json: {},
+            summary_json: {},
+          };
+          const { data: insertedRow, error: insertError } = await supabase
+            .from("generated_reports")
+            .insert(insertPayload)
+            .select("id")
+            .single();
+
+          if (insertError || !insertedRow) {
+            console.error("[useGenerateAIReport] insert error:", insertError);
+            throw new Error(`初始化报告记录失败: ${insertError?.message || "unknown"}`);
           }
-          throw new Error(error.message || "报告生成失败，请稍后重试");
+          reportId = insertedRow.id as string;
         }
 
-        if (!data?.success) {
-          const errorMsg = data?.error || "报告生成失败";
-          const suggestion = data?.suggestion || "";
-          throw new Error(suggestion ? `${errorMsg}。${suggestion}` : errorMsg);
+        // 3. 逐章节调用 generate-report（batch 模式，每次 1 章）
+        const allSections: AIGeneratedReport["content"]["sections"] = [];
+
+        for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+          const chapter = (chapters || [])[batchIndex];
+          const { data, error } = await supabase.functions.invoke("generate-report", {
+            body: {
+              projectId,
+              mode: "batch",
+              batchIndex,
+              totalBatches,
+              chapterId: chapter.id,
+              chapterTitle: chapter.title,
+              chapterNumber: chapter.number || "",
+            },
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+
+          if (error) {
+            const errStr = JSON.stringify(error);
+            if (errStr.includes("504") || errStr.includes("timeout")) {
+              // 超时章节跳过，继续下一章
+              console.warn(`[useGenerateAIReport] Chapter ${batchIndex + 1} timeout, skipping`);
+              continue;
+            }
+            throw new Error(error.message || "报告生成失败");
+          }
+
+          if (data?.sections && Array.isArray(data.sections)) {
+            allSections.push(...data.sections);
+          }
         }
 
-        console.log("[useGenerateAIReport] Report generated successfully", {
-          sections: data.report?.content?.sections?.length,
-          totalContentLength: data.report?.content?.sections?.reduce(
-            (acc: number, s: { content?: string }) => acc + (s.content?.length || 0), 0
-          )
-        });
-        return data.report;
+        // 4. 组装最终报告结构并保存
+        const reportJson = { sections: allSections };
+
+        // 统计 issues
+        const issuesFound = allSections.reduce((count, section) => count + (section?.issues?.length || 0), 0);
+        const evidenceFileCount = allSections.reduce((count, section) => count + (section?.sourceFiles?.length || 0), 0);
+        const sectionsWithEvidence = allSections.filter(s => (s?.sourceFiles?.length || 0) > 0).length;
+        const citationCoverage = allSections.length > 0 ? Number((sectionsWithEvidence / allSections.length).toFixed(4)) : 0;
+
+        const { error: updateError } = await supabase
+          .from("generated_reports")
+          .update({
+            report_json: reportJson,
+            summary_json: {},
+            status: "final",
+            total_chapters: allSections.length,
+            issues_found: issuesFound,
+            evidence_file_count: evidenceFileCount,
+            citation_coverage: citationCoverage,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", reportId);
+
+        if (updateError) console.error("[useGenerateAIReport] Failed to save report:", updateError);
+
+        // 5. 返回符合 AIGeneratedReport 的结构供前端使用
+        return {
+          projectId,
+          projectName: "",
+          client: "",
+          target: "",
+          generatedAt: new Date().toISOString(),
+          content: { sections: allSections },
+        };
       } catch (err) {
         console.error("[useGenerateAIReport] Catch error:", err);
-        // Re-throw with user-friendly message
         if (err instanceof Error) {
-          // Check if already has a good error message
-          if (err.message.includes("超时") || err.message.includes("章节")) {
-            throw err;
-          }
-          // Check for network/timeout errors
           if (err.message.includes("Failed to fetch") || err.message.includes("network")) {
             throw new Error("网络连接失败，请检查网络后重试");
-          }
-          if (err.message.includes("non-2xx") || err.message.includes("504")) {
-            throw new Error("AI生成超时：章节内容量较大，处理时间超出限制。建议稍后重试。");
           }
         }
         throw err;
       }
     },
-    onSuccess: (data) => {
-      // Invalidate related queries
-      if (data?.projectId) {
-        queryClient.invalidateQueries({ queryKey: ["aiReport", data.projectId] });
-      }
+    onSuccess: (_data, projectId) => {
+      queryClient.invalidateQueries({ queryKey: ["generatedReport", projectId] });
     },
   });
 }

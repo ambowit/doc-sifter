@@ -488,7 +488,7 @@ const mockFacts: Fact[] = [
     },
     time: { asOf: "2025-12-31" },
     evidence: [
-      { docId: "d06", loc: "p1-26", quote: "共含发明专利3�����、实用新型专利8项、外观设计专利2项，均在有效期内" },
+      { docId: "d06", loc: "p1-26", quote: "共含发明专利3项、实用新型专利8项、外观设计专利2项，均在有效期内" },
     ],
     confidence: 0.99,
     conflicts: [],
@@ -728,7 +728,7 @@ const createTaxBlocks = (): ContentBlock[] => {
       blockId: "blk_tax_note",
       type: "paragraph",
       style: "body",
-      text: "建议委托��在交割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
+      text: "建议委托人在交割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
     },
   ];
 };
@@ -916,7 +916,7 @@ export function getDocumentById(docId: string): Document | undefined {
 export function getEquityStructureFromKG() {
   const equityFacts = mockKnowledgeGraph.facts.filter(f => f.type === "equity_holding");
   const targetCompany = mockKnowledgeGraph.entities.find(e => e.eid === "E001");
-  
+
   return {
     companyName: targetCompany?.name || "目标公司",
     shareholders: equityFacts.map(f => {
@@ -939,7 +939,7 @@ export function getEquityStructureFromKG() {
         notes: e.aliases?.[0],
       })),
     notes: [
-      "以上股权结构信息来源于公司章程及股东��决���",
+      "以上股权结构信息来源于公司章程及股东会决议",
       "员工持股平台为有限合伙企业，实际控制人为张明",
       "截至2025年12月31日，股权无质押、冻结情况",
     ],
