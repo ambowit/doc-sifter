@@ -734,7 +734,7 @@ export function useBatchOcrExtract() {
       });
 
       return {
-        requested: Number(data?.requested || files.length),
+        requested: Number(data?.requested || payload.files.length),
         eligible: Number(data?.eligible || 0),
         submitted: Number((data?.submitted ?? data?.queued) || 0),
         skipped: Number(data?.skipped || 0),
