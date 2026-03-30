@@ -754,7 +754,11 @@ export function useBatchOcrExtract() {
       } satisfies BatchOcrSummary;
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
+      // 使用 predicate 匹配所有以 "files" 开头的 queryKey，包括 ["files", projectId]
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0] === "files",
+        refetchType: "all",
+      });
     },
   });
 }
