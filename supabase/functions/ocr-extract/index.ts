@@ -37,7 +37,9 @@ interface ProjectRow {
 const WORKER_TASK_TYPE = "text_extraction";
 const WORKER_RESOLVER_TYPE = "signed_url_ticket";
 const WORKER_APP_ID = "doc-sifter";
-const DEFAULT_BATCH_SUBMIT_LIMIT = 20;
+// Worker consumer 并发能力有限，单批不超过 3，防止瞬间提交过多导致超时
+const DEFAULT_BATCH_SUBMIT_LIMIT = 3;
+const DEFAULT_BATCH_DELAY_MS = 1500; // 批次间间隔，单位 ms
 const DEFAULT_MAX_TOTAL_FILES_PER_REQUEST = 200;
 
 function normalizeTasks(payload: TaskRequestBody): SingleTaskRequest[] {
@@ -85,10 +87,6 @@ async function updateFileForSkippedExtraction(
       ocr_processed_at: now,
       ocr_task_status: null,
       ocr_task_completed_at: now,
-      extraction_status: "skipped",
-      extraction_method: null,
-      extraction_error: message,
-      extraction_completed_at: now,
     })
     .eq("id", fileId);
 }
@@ -198,7 +196,6 @@ async function submitTextExtractionTask(
           ocr_task_completed_at: null,
           ocr_processed: false,
           ocr_processed_at: null,
-          extraction_error: null,
         })
         .eq("id", file.id);
       return { fileId: file.id, status: "queued", taskId: existingTaskId, message: "任务已在队列中" };
@@ -212,9 +209,6 @@ async function submitTextExtractionTask(
         ocr_task_id: taskId,
         ocr_task_status: "failed",
         ocr_task_completed_at: now,
-        extraction_status: "failed",
-        extraction_error: errorMessage,
-        extraction_completed_at: now,
       })
       .eq("id", file.id);
 
@@ -240,10 +234,6 @@ async function submitTextExtractionTask(
       extracted_text: null,
       text_summary: null,
       extracted_entities: [],
-      extraction_status: "processing",
-      extraction_method: null,
-      extraction_error: null,
-      extraction_completed_at: null,
     })
     .eq("id", file.id);
 
@@ -274,6 +264,7 @@ serve(async (req) => {
     const workerBase = (Deno.env.get("WORKER_BASE_URL") || "https://pre-safe-scan.oook.cn").replace(/\/$/, "");
     const workerSecret = Deno.env.get("WORKER_HMAC_SECRET");
     const batchSubmitLimit = Math.max(1, Number(Deno.env.get("OCR_BATCH_SUBMIT_LIMIT") || `${DEFAULT_BATCH_SUBMIT_LIMIT}`));
+    const batchDelayMs = Math.max(0, Number(Deno.env.get("OCR_BATCH_DELAY_MS") || `${DEFAULT_BATCH_DELAY_MS}`));
     const maxFilesPerRequest = Math.max(batchSubmitLimit, Number(Deno.env.get("MAX_TOTAL_FILES_PER_REQUEST") || `${DEFAULT_MAX_TOTAL_FILES_PER_REQUEST}`));
 
     if (!supabaseUrl || !serviceRoleKey || !workerSecret) {
@@ -404,6 +395,12 @@ serve(async (req) => {
         batchSize: batch.length,
         elapsedMs: Date.now() - batchStart,
       });
+
+      // 批次间间隔，避免瞬间打满 Worker 队列导致后续任务超时
+      const isLastBatch = index + batchSubmitLimit >= candidates.length;
+      if (!isLastBatch && batchDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+      }
     }
 
     return jsonResponse({
