@@ -8,6 +8,7 @@ import {
   needsWorkerOcr,
   type ExtractionMethod,
 } from "../_shared/office-extract.ts";
+import { getStorageBucketName } from "../_shared/upload-provider.ts";
 
 interface SingleTaskRequest {
   fileId: string;
@@ -133,7 +134,8 @@ async function downloadFile(
   admin: ReturnType<typeof createClient>,
   storagePath: string,
 ): Promise<ArrayBuffer> {
-  const { data, error } = await admin.storage.from("files").download(storagePath);
+  const bucket = getStorageBucketName();
+  const { data, error } = await admin.storage.from(bucket).download(storagePath);
   if (error || !data) {
     throw new Error(`下载文件失败: ${error?.message || "未知错误"}`);
   }
