@@ -6,7 +6,7 @@ import { normalizeSupabaseError } from "@/lib/errorUtils";
 export interface GeneratedReportRecord {
   id: string;
   projectId: string;
-  userId: string;
+  userId: string | null;
   status: string;
   version: number;
   reportJson: Record<string, unknown>;
@@ -23,7 +23,7 @@ export interface GeneratedReportRecord {
 const transformGeneratedReport = (row: Record<string, unknown>): GeneratedReportRecord => ({
   id: row.id as string,
   projectId: row.project_id as string,
-  userId: row.user_id as string,
+  userId: (row.user_id || row.created_by) as string | null,
   status: row.status as string,
   version: (row.version as number) || 1,
   reportJson: (row.report_json as Record<string, unknown>) || {},
@@ -59,7 +59,6 @@ export function useLatestGeneratedReport(projectId: string | undefined) {
         .from("generated_reports")
         .select("*")
         .eq("project_id", projectId)
-        .eq("user_id", user.id)
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();

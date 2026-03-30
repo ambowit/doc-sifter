@@ -483,21 +483,39 @@ export function useGenerateAIReport() {
         const totalBatches = (chapters || []).length;
         if (totalBatches === 0) throw new Error("该项目暂无章节，请先配置章节模板");
 
-        // 2. 确保 generated_reports 表中存在该项目记录（upsert 保证有行供后续 update）
-        const { data: upsertedRow, error: upsertError } = await supabase
+        // 2. 先查是否已有记录，有则复用，无则新建
+        const { data: existingRow } = await supabase
           .from("generated_reports")
-          .upsert(
-            { project_id: projectId, user_id: session.user.id, created_by: session.user.id, status: "draft", report_json: {}, summary_json: {} },
-            { onConflict: "project_id,user_id" }
-          )
           .select("id")
-          .single();
+          .eq("project_id", projectId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-        if (upsertError || !upsertedRow) {
-          console.error("[useGenerateAIReport] upsert error:", upsertError);
-          throw new Error(`初始化报告记录失败: ${upsertError?.message || "unknown"}`);
+        let reportId: string;
+
+        if (existingRow?.id) {
+          reportId = existingRow.id as string;
+        } else {
+          const insertPayload: Record<string, unknown> = {
+            project_id: projectId,
+            created_by: session.user.id,
+            status: "draft",
+            report_json: {},
+            summary_json: {},
+          };
+          const { data: insertedRow, error: insertError } = await supabase
+            .from("generated_reports")
+            .insert(insertPayload)
+            .select("id")
+            .single();
+
+          if (insertError || !insertedRow) {
+            console.error("[useGenerateAIReport] insert error:", insertError);
+            throw new Error(`初始化报告记录失败: ${insertError?.message || "unknown"}`);
+          }
+          reportId = insertedRow.id as string;
         }
-        const reportId = upsertedRow.id as string;
 
         // 3. 逐章节调用 generate-report（batch 模式，每次 1 章）
         const allSections: AIGeneratedReport["content"]["sections"] = [];
