@@ -149,12 +149,29 @@ export async function extractTxtText(buffer: ArrayBuffer): Promise<string> {
 }
 
 /**
+ * 检查文件是否为有效的 ZIP 格式（Office 2007+ 文件本质是 ZIP）
+ */
+function isValidZipFile(buffer: ArrayBuffer): boolean {
+  const arr = new Uint8Array(buffer);
+  // ZIP 文件魔数：PK (0x50, 0x4B)
+  return arr.length > 4 && arr[0] === 0x50 && arr[1] === 0x4B;
+}
+
+/**
  * 根据提取方法执行文本提取
  */
 export async function extractTextByMethod(
   method: ExtractionMethod,
   buffer: ArrayBuffer
 ): Promise<string> {
+  // 对于 Office 格式，先检查是否为有效 ZIP（Office 2007+ 格式）
+  if (method === "docx" || method === "xlsx" || method === "pptx") {
+    if (!isValidZipFile(buffer)) {
+      const formatMap = { docx: "Word (.doc)", xlsx: "Excel (.xls)", pptx: "PowerPoint (.ppt)" };
+      throw new Error(`文件是老版本 ${formatMap[method]} 格式，暂不支持自动提取。请转换为新格式 (.${method}) 后重试`);
+    }
+  }
+
   switch (method) {
     case "docx":
       return extractDocxText(buffer);
