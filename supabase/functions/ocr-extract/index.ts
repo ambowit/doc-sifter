@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildSignedHeaders, corsHeaders, getBearerToken, jsonResponse } from "../_shared/worker-hmac.ts";
+import {
+  extractTextByMethod,
+  generateTextSummary,
+  getLocalExtractionMethod,
+  needsWorkerOcr,
+  type ExtractionMethod,
+} from "../_shared/office-extract.ts";
 
 interface SingleTaskRequest {
   fileId: string;
@@ -15,7 +22,7 @@ interface TaskRequestBody {
   mimeType?: string;
   fileName?: string;
   fileUrl?: string;
-  force?: boolean; // 强制重新入队，跳过 pending/processing 状态检查
+  force?: boolean;
 }
 
 interface FileRow {
@@ -37,41 +44,70 @@ interface ProjectRow {
 const WORKER_TASK_TYPE = "text_extraction";
 const WORKER_RESOLVER_TYPE = "signed_url_ticket";
 const WORKER_APP_ID = "doc-sifter";
-// Worker consumer 并发能力有限，单批不超过 3，防止瞬间提交过多导致超时
 const DEFAULT_BATCH_SUBMIT_LIMIT = 3;
-const DEFAULT_BATCH_DELAY_MS = 1500; // 批次间间隔，单位 ms
+const DEFAULT_BATCH_DELAY_MS = 1500;
 const DEFAULT_MAX_TOTAL_FILES_PER_REQUEST = 200;
 
 function normalizeTasks(payload: TaskRequestBody): SingleTaskRequest[] {
   if (Array.isArray(payload.files)) {
     return payload.files.filter((item) => typeof item?.fileId === "string" && item.fileId.trim().length > 0);
   }
-
   if (typeof payload.fileId === "string" && payload.fileId.trim().length > 0) {
-    return [{
-      fileId: payload.fileId,
-      mimeType: payload.mimeType,
-      fileName: payload.fileName,
-      fileUrl: payload.fileUrl,
-    }];
+    return [{ fileId: payload.fileId, mimeType: payload.mimeType, fileName: payload.fileName, fileUrl: payload.fileUrl }];
   }
-
   return [];
 }
 
-function isSupportedTextExtraction(mimeType: string, fileName: string): boolean {
-  const normalizedMimeType = mimeType.toLowerCase();
-  const ext = fileName.split(".").pop()?.toLowerCase() || "";
-
-  if (normalizedMimeType.includes("pdf") || ext === "pdf") return true;
-  if (normalizedMimeType.startsWith("image/")) return true;
-  if (normalizedMimeType.includes("word") || ext === "docx") return true;
-  if (normalizedMimeType.includes("text/plain") || ext === "txt") return true;
-
-  return false;
+interface SubmitContext {
+  admin: ReturnType<typeof createClient>;
+  supabaseUrl: string;
+  workerBase: string;
+  workerSecret: string;
+  resolverUrl: string;
+  callbackUrl: string;
+  force: boolean;
 }
 
-async function updateFileForSkippedExtraction(
+interface SubmitResult {
+  fileId: string;
+  status: "extracted" | "queued" | "skipped" | "already_processing" | "failed";
+  taskId?: string;
+  message?: string;
+  error?: string;
+  method?: string;
+  textLength?: number;
+}
+
+/**
+ * 更新文件为已提取状态（本地提取成功）
+ */
+async function updateFileExtracted(
+  admin: ReturnType<typeof createClient>,
+  fileId: string,
+  extractedText: string,
+  method: string,
+) {
+  const now = new Date().toISOString();
+  const summary = generateTextSummary(extractedText);
+
+  await admin
+    .from("files")
+    .update({
+      extracted_text: extractedText,
+      text_summary: summary,
+      ocr_processed: true,
+      ocr_processed_at: now,
+      ocr_task_status: "completed",
+      ocr_task_completed_at: now,
+      extraction_method: method,
+    })
+    .eq("id", fileId);
+}
+
+/**
+ * 更新文件为跳过状态（不支持的类型）
+ */
+async function updateFileSkipped(
   admin: ReturnType<typeof createClient>,
   fileId: string,
   message: string,
@@ -82,7 +118,6 @@ async function updateFileForSkippedExtraction(
     .update({
       text_summary: message,
       extracted_text: null,
-      extracted_entities: [],
       ocr_processed: true,
       ocr_processed_at: now,
       ocr_task_status: null,
@@ -91,37 +126,30 @@ async function updateFileForSkippedExtraction(
     .eq("id", fileId);
 }
 
-interface SubmitContext {
-  admin: ReturnType<typeof createClient>;
-  workerBase: string;
-  workerSecret: string;
-  resolverUrl: string;
-  callbackUrl: string;
-  force: boolean;
+/**
+ * 下载文件内容
+ */
+async function downloadFile(
+  admin: ReturnType<typeof createClient>,
+  storagePath: string,
+): Promise<ArrayBuffer> {
+  const { data, error } = await admin.storage.from("files").download(storagePath);
+  if (error || !data) {
+    throw new Error(`下载文件失败: ${error?.message || "未知错误"}`);
+  }
+  return data.arrayBuffer();
 }
 
-interface SubmitResult {
-  fileId: string;
-  status: "queued" | "skipped" | "already_processing" | "failed";
-  taskId?: string;
-  message?: string;
-  error?: string;
-}
-
-async function submitTextExtractionTask(
+/**
+ * 提交 Worker OCR 任务（仅 PDF 和图片）
+ */
+async function submitWorkerOcrTask(
   ctx: SubmitContext,
   file: FileRow,
-  requestFile: SingleTaskRequest,
+  mimeType: string,
+  fileName: string,
 ): Promise<SubmitResult> {
-  const mimeType = (requestFile.mimeType || file.mime_type || "application/octet-stream").trim();
-  const fileName = (requestFile.fileName || file.original_name || file.name || "").trim();
-
-  if (!isSupportedTextExtraction(mimeType, fileName)) {
-    const message = `暂不支持自动提取文本的文件类型: ${mimeType}`;
-    await updateFileForSkippedExtraction(ctx.admin, file.id, message);
-    return { fileId: file.id, status: "skipped", message };
-  }
-
+  // 检查是否已在处理中
   if ((file.ocr_task_status === "pending" || file.ocr_task_status === "processing") && !ctx.force) {
     return {
       fileId: file.id,
@@ -154,34 +182,25 @@ async function submitTextExtractionTask(
     },
     max_chars: 120000,
     is_external: true,
-    // force=true 时通知 Worker 释放旧锁并强制重新入队
     ...(ctx.force ? { force: true } : {}),
   };
 
   const taskBody = JSON.stringify(taskPayload);
   const signedHeaders = await buildSignedHeaders(ctx.workerSecret, taskBody);
-  const startedAt = Date.now();
 
   const workerResponse = await fetch(`${ctx.workerBase}/tasks/ocr`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...signedHeaders,
-    },
+    headers: { "Content-Type": "application/json", ...signedHeaders },
     body: taskBody,
   });
 
   if (!workerResponse.ok) {
     const workerError = (await workerResponse.text()).slice(0, 300);
 
-    // 409 Conflict = Worker 认为任务已存在（基于 job_id 去重）
-    // 保持原有的 ocr_task_id 不变，让 Worker 继续使用它队列中已有的任务
+    // 409 Conflict = 任务已存在
     if (workerResponse.status === 409) {
       const existingTaskId = file.ocr_task_id || taskId;
-      console.info("[ocr-extract] worker 409 conflict - task exists", { fileId: file.id, existingTaskId, newTaskId: taskId, elapsedMs: Date.now() - startedAt });
       const now = new Date().toISOString();
-      // 只更新状态，不更新 ocr_task_id（保持 Worker 队列中的 task_id 一致）
-      // 必须清除 ocr_task_completed_at，否则 Worker consumer 会误判任务已完成而跳过
       await ctx.admin
         .from("files")
         .update({
@@ -192,31 +211,21 @@ async function submitTextExtractionTask(
           ocr_processed_at: null,
         })
         .eq("id", file.id);
-      return { fileId: file.id, status: "queued", taskId: existingTaskId, message: "任务已在队列中" };
+      return { fileId: file.id, status: "queued", taskId: existingTaskId, message: "任务已在队列中", method: "worker_ocr" };
     }
 
     const errorMessage = `Worker 入队失败(${workerResponse.status}): ${workerError}`;
     const now = new Date().toISOString();
     await ctx.admin
       .from("files")
-      .update({
-        ocr_task_id: taskId,
-        ocr_task_status: "failed",
-        ocr_task_completed_at: now,
-      })
+      .update({ ocr_task_id: taskId, ocr_task_status: "failed", ocr_task_completed_at: now })
       .eq("id", file.id);
 
-    console.warn("[ocr-extract] worker enqueue failed", {
-      fileId: file.id,
-      taskId,
-      status: workerResponse.status,
-      elapsedMs: Date.now() - startedAt,
-    });
-    return { fileId: file.id, status: "failed", error: errorMessage, taskId };
+    return { fileId: file.id, status: "failed", error: errorMessage, taskId, method: "worker_ocr" };
   }
 
   const now = new Date().toISOString();
-  const { error: updateError } = await ctx.admin
+  await ctx.admin
     .from("files")
     .update({
       ocr_task_id: taskId,
@@ -227,20 +236,68 @@ async function submitTextExtractionTask(
       ocr_processed_at: null,
       extracted_text: null,
       text_summary: null,
-      extracted_entities: [],
     })
     .eq("id", file.id);
 
-  if (updateError) {
-    return { fileId: file.id, status: "failed", error: updateError.message, taskId };
+  return { fileId: file.id, status: "queued", taskId, method: "worker_ocr" };
+}
+
+/**
+ * 处理单个文件的文本提取
+ */
+async function submitTextExtractionTask(
+  ctx: SubmitContext,
+  file: FileRow,
+  requestFile: SingleTaskRequest,
+): Promise<SubmitResult> {
+  const mimeType = (requestFile.mimeType || file.mime_type || "application/octet-stream").trim();
+  const fileName = (requestFile.fileName || file.original_name || file.name || "").trim();
+
+  // 1. 检查是否可以本地提取（docx/xlsx/pptx/txt）
+  const localMethod = getLocalExtractionMethod(mimeType, fileName);
+  if (localMethod) {
+    try {
+      console.info(`[ocr-extract] Local extraction: ${file.id}, method: ${localMethod}`);
+      const buffer = await downloadFile(ctx.admin, file.storage_path);
+      const extractedText = await extractTextByMethod(localMethod, buffer);
+
+      await updateFileExtracted(ctx.admin, file.id, extractedText, localMethod);
+
+      return {
+        fileId: file.id,
+        status: "extracted",
+        method: localMethod,
+        textLength: extractedText.length,
+        message: `本地提取成功 (${localMethod})`,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[ocr-extract] Local extraction failed: ${file.id}`, errorMsg);
+
+      // 本地提取失败，更新状态
+      const now = new Date().toISOString();
+      await ctx.admin
+        .from("files")
+        .update({
+          ocr_task_status: "failed",
+          ocr_task_completed_at: now,
+          text_summary: `提取失败: ${errorMsg}`,
+        })
+        .eq("id", file.id);
+
+      return { fileId: file.id, status: "failed", error: errorMsg, method: localMethod };
+    }
   }
 
-  console.info("[ocr-extract] worker enqueue ok", {
-    fileId: file.id,
-    taskId,
-    elapsedMs: Date.now() - startedAt,
-  });
-  return { fileId: file.id, status: "queued", taskId };
+  // 2. 检查是否需要 Worker OCR（PDF/图片）
+  if (needsWorkerOcr(mimeType, fileName)) {
+    return submitWorkerOcrTask(ctx, file, mimeType, fileName);
+  }
+
+  // 3. 不支持的类型
+  const message = `暂不支持自动提取文本的文件类型: ${mimeType}`;
+  await updateFileSkipped(ctx.admin, file.id, message);
+  return { fileId: file.id, status: "skipped", message };
 }
 
 serve(async (req) => {
@@ -282,6 +339,7 @@ serve(async (req) => {
     const payload = (await req.json().catch(() => ({}))) as TaskRequestBody;
     const forceRequeue = payload.force === true;
     const requestedFiles = normalizeTasks(payload);
+
     if (requestedFiles.length === 0) {
       return jsonResponse({ error: "至少需要一个 fileId" }, 400);
     }
@@ -322,10 +380,12 @@ serve(async (req) => {
 
     const results: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
-    let submitted = 0;
+    let extracted = 0;
+    let queued = 0;
     let skipped = 0;
     let failed = 0;
     let alreadyProcessing = 0;
+
     const candidates: Array<{ file: FileRow; requestFile: SingleTaskRequest }> = [];
 
     for (const requestFile of requestedFiles) {
@@ -352,6 +412,7 @@ serve(async (req) => {
 
     const submitContext: SubmitContext = {
       admin,
+      supabaseUrl,
       workerBase,
       workerSecret,
       resolverUrl,
@@ -361,18 +422,18 @@ serve(async (req) => {
 
     const requested = requestedFiles.length;
     const eligible = candidates.length;
-    const batchCount = eligible === 0 ? 0 : Math.ceil(eligible / batchSubmitLimit);
 
     for (let index = 0; index < candidates.length; index += batchSubmitLimit) {
       const batch = candidates.slice(index, index + batchSubmitLimit);
-      const batchStart = Date.now();
       const batchResults = await Promise.all(
         batch.map(({ file, requestFile }) => submitTextExtractionTask(submitContext, file, requestFile)),
       );
 
       for (const item of batchResults) {
-        if (item.status === "queued") {
-          submitted += 1;
+        if (item.status === "extracted") {
+          extracted += 1;
+        } else if (item.status === "queued") {
+          queued += 1;
         } else if (item.status === "skipped") {
           skipped += 1;
         } else if (item.status === "already_processing") {
@@ -384,13 +445,7 @@ serve(async (req) => {
         results.push(item);
       }
 
-      console.info("[ocr-extract] batch submitted", {
-        batchIndex: Math.floor(index / batchSubmitLimit) + 1,
-        batchSize: batch.length,
-        elapsedMs: Date.now() - batchStart,
-      });
-
-      // 批次间间隔，避免瞬间打满 Worker 队列导致后续任务超时
+      // 批次间间隔
       const isLastBatch = index + batchSubmitLimit >= candidates.length;
       if (!isLastBatch && batchDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
@@ -401,14 +456,11 @@ serve(async (req) => {
       success: true,
       requested,
       eligible,
-      submitted,
-      queued: submitted,
+      extracted,
+      queued,
       skipped,
       failed,
       alreadyProcessing,
-      alreadyQueued: alreadyProcessing,
-      batchCount,
-      batchSize: batchSubmitLimit,
       results,
       errors,
     });
