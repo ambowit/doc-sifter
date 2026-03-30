@@ -78,7 +78,12 @@ serve(async (req) => {
       .createSignedUrl(file.storage_path, 900);
 
     if (signedUrlError || !signedUrlData?.signedUrl) {
-      return jsonResponse({ error: signedUrlError?.message || "Failed to create signed URL" }, 500);
+      const errMsg = signedUrlError?.message || "Failed to create signed URL";
+      // Storage 找不到对象时返回 404，让 Worker consumer 能正确识别并标记任务失败
+      const isNotFound = errMsg.toLowerCase().includes("not found") || errMsg.toLowerCase().includes("does not exist");
+      const statusCode = isNotFound ? 404 : 500;
+      console.error("[worker-file-ticket] storage error", { fileId: file.id, storagePath: file.storage_path, bucket: storageBucket, error: errMsg, statusCode });
+      return jsonResponse({ error: errMsg }, statusCode);
     }
 
     return jsonResponse({
