@@ -57,7 +57,7 @@ export default function ChapterMapping() {
     try {
       await generateAIReport.mutateAsync(projectId);
       toast.success("报告生成成功");
-      navigate(`/projects/${projectId}/preview`);
+      navigate(`/project/${projectId}/preview`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "报告生成失败，请重试";
       toast.error(msg);
@@ -164,7 +164,7 @@ export default function ChapterMapping() {
               size="sm"
               variant="outline"
               className="h-8 text-xs"
-              onClick={() => navigate(`/projects/${projectId}/preview`)}
+              onClick={() => navigate(`/project/${projectId}/preview`)}
             >
               查看报告
             </Button>
