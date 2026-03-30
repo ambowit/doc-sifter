@@ -527,46 +527,11 @@ ${actualContent.length > 20000 ? "\n[内容已截断，共" + actualContent.leng
 请以JSON格式返回完整的章节结构。`;
       } else {
         // Generate professional DD structure based on filename
-        systemPrompt = `你是一个专业的法律尽调报告专家，具有丰富的并购、投融资项目经验。
+        systemPrompt = `你是法律尽调报告专家。根据项目信息生成标准法律尽调报告章节结构，直接返回JSON，不要解释。
 
-你需要根据提供的信息，生成一份专业、完整的法律尽职调查报告章节结构。
+返回格式：{"chapters":[{"number":"1","title":"标题","level":1,"description":"核查要点","children":[{"number":"1.1","title":"子标题","level":2,"description":"要点"}]}]}
 
-## 专业参考标准
-法律尽调报告通常包含以下核心模块：
-1. 公司基本情况（设立、沿革、股权结构、组织架构）
-2. 公司治理（章程、三会运作、高管）
-3. 重大资产（房产、土地、知识产权、设备）
-4. 重大合同（投资协议、借款担保、业务合同）
-5. 劳动人事（劳动合同、社保公积金、劳动争议）
-6. 税务合规（税务登记、各税种、优惠政策）
-7. 诉讼/仲裁/行政处罚
-8. 合规经营（行业资质、环保、其他合规）
-
-## 返回格式
-{
-  "chapters": [
-    {
-      "number": "1",
-      "title": "章节标题",
-      "level": 1,
-      "description": "该章节需要核查的具体内容和要点",
-      "children": [
-        {
-          "number": "1.1",
-          "title": "子章节标题",
-          "level": 2,
-          "description": "子章节核查要点"
-        }
-      ]
-    }
-  ]
-}
-
-## 要求
-- 生成8-10个一级章节
-- 每个一级章节包含2-4个子章节
-- description 必须具体说明该章节需要核查的内容要点
-- 结构应专业、完整、符合行业标准`;
+标准模块：公司基本情况、公司治理、重大资产、重大合同、劳动人事、税务合规、诉讼仲裁、合规经营。生成8个一级章节，每章2-3个子章节，description不超过20字。`;
 
         const contextInfo = [];
         if (filename) contextInfo.push(`文件名: ${filename}`);
@@ -610,9 +575,9 @@ ${actualContent || `[仅有文件名: ${filename}]`}
       tokenPrefix: apiKey?.substring(0, 8) + "..."
     });
 
-    // Add timeout controller - 25s to stay within Edge Function's 30s limit
+    // Add timeout controller - Supabase Edge Functions support up to 150s
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     let response;
     try {
