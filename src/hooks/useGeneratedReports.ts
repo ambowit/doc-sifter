@@ -1,4 +1,4 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { normalizeSupabaseError } from "@/lib/errorUtils";
@@ -60,6 +60,8 @@ export function useLatestGeneratedReport(projectId: string | undefined) {
         .select("*")
         .eq("project_id", projectId)
         .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (error) {
