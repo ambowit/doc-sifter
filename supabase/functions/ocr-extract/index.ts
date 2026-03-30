@@ -181,6 +181,24 @@ async function submitTextExtractionTask(
 
   if (!workerResponse.ok) {
     const workerError = (await workerResponse.text()).slice(0, 300);
+
+    // 409 Conflict = Worker 认为任务已存在，视为成功（任务已在队列中）
+    if (workerResponse.status === 409) {
+      console.info("[ocr-extract] worker 409 conflict - task exists", { fileId: file.id, taskId, elapsedMs: Date.now() - startedAt });
+      const now = new Date().toISOString();
+      await ctx.admin
+        .from("files")
+        .update({
+          ocr_task_id: taskId,
+          ocr_task_status: "pending",
+          ocr_task_started_at: now,
+          extraction_status: "processing",
+          extraction_error: null,
+        })
+        .eq("id", file.id);
+      return { fileId: file.id, status: "queued", taskId, message: "任务已在队列中" };
+    }
+
     const errorMessage = `Worker 入队失败(${workerResponse.status}): ${workerError}`;
     const now = new Date().toISOString();
     await ctx.admin
