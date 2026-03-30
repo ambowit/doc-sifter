@@ -711,7 +711,7 @@ export default function FileUpload() {
       mimeType: string;
       fileName: string;
     }>,
-    options?: { autoRedirect?: boolean }
+    options?: { autoRedirect?: boolean; force?: boolean }
   ) => {
     if (files.length === 0) return;
 
@@ -725,7 +725,7 @@ export default function FileUpload() {
     toast.info(`正在提交 ${files.length} 个文件到后台处理...`, { duration: 3000 });
 
     try {
-      const result = await batchOcrMutation.mutateAsync(files);
+      const result = await batchOcrMutation.mutateAsync({ files, force: options?.force ?? false });
 
       if (result.submitted > 0) {
         const batchHint = result.batchCount > 1
@@ -815,9 +815,11 @@ export default function FileUpload() {
     }]);
   };
 
-  // Handle retry all failed files
+  // Handle retry all failed + stuck files
   const handleRetryAllFailed = async () => {
-    if (failedOcrFiles.length === 0) return;
+    // 合并 failed + stuck（pending/processing 但 worker 未收到）
+    const allRetryFiles = [...failedOcrFiles, ...stuckOcrFiles];
+    if (allRetryFiles.length === 0) return;
 
     const filesToRetry: Array<{
       fileId: string;
@@ -825,9 +827,8 @@ export default function FileUpload() {
       fileName: string;
     }> = [];
 
-    for (const file of failedOcrFiles) {
+    for (const file of allRetryFiles) {
       if (!file?.id || !file.mimeType || !canExtractFileText(file.mimeType, file.name)) continue;
-
       filesToRetry.push({
         fileId: file.id,
         mimeType: file.mimeType,
@@ -840,8 +841,20 @@ export default function FileUpload() {
       return;
     }
 
-    await handleBatchOcr(filesToRetry);
+    // force=true 确保 pending/processing 状态的文件也能重新入队
+    await handleBatchOcr(filesToRetry, { force: true });
   };
+
+  // 卡住的文件（pending/processing 但没有本地追踪记录 → worker 没收到）
+  const stuckOcrFiles = uploadedFiles.filter(
+    f =>
+      f.id &&
+      f.mimeType &&
+      canExtractFileText(f.mimeType, f.name) &&
+      !f.ocrProcessed &&
+      (f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing") &&
+      !ocrProcessingIds.has(f.id)
+  );
 
   // Count files needing extraction (failed + never tried, excluding currently processing)
   const unextractedOcrFiles = uploadedFiles.filter(
@@ -1511,8 +1524,8 @@ export default function FileUpload() {
                     ))}
                   </div>
 
-                  {/* Failed Extraction Banner */}
-                  {failedOcrFiles.length > 0 && (
+                  {/* Failed / Stuck Extraction Banner */}
+                  {(failedOcrFiles.length > 0 || stuckOcrFiles.length > 0) && (
                     <motion.div
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1520,6 +1533,16 @@ export default function FileUpload() {
                     >
                       <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center flex-shrink-0">
                         <AlertTriangle className="w-4 h-4 text-destructive" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-destructive">
+                          {failedOcrFiles.length > 0 && `${failedOcrFiles.length} 个文件提取失败`}
+                          {failedOcrFiles.length > 0 && stuckOcrFiles.length > 0 && "，"}
+                          {stuckOcrFiles.length > 0 && `${stuckOcrFiles.length} 个任务未被处理`}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          点击"全部重试"强制重新提交，或在文件后方单独重试
+                        </div>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13px] font-medium text-destructive">
@@ -2007,27 +2030,23 @@ export default function FileUpload() {
                                     <Loader2 className="w-3 h-3 animate-spin" />
                                     <span>处理中</span>
                                   </span>
-                                ) : file.ocrTaskStatus === "failed" ? (
+                                ) : (file.ocrTaskStatus === "failed" || file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing") && !ocrProcessingIds.has(file.id!) ? (
                                   <button
                                     onClick={() => {
                                       const fileToRetry = {
                                         fileId: file.id!,
                                         fileName: file.name,
-                                        storagePath: file.storagePath,
                                         mimeType: file.mimeType || "application/octet-stream",
                                       };
-                                      handleBatchOcr([fileToRetry]);
+                                      // force=true 强制重新入队，解决卡住的 pending/processing
+                                      handleBatchOcr([fileToRetry], { force: true });
                                     }}
                                     className="flex items-center gap-1 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-0.5 rounded transition-colors"
-                                    title="点击重新提取"
+                                    title={file.ocrTaskStatus === "failed" ? "点击重新提取" : "任务卡住，点击强制重试"}
                                     disabled={ocrProcessingIds.has(file.id!)}
                                   >
-                                    {ocrProcessingIds.has(file.id!) ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <RefreshCw className="w-3 h-3" />
-                                    )}
-                                    <span>重试</span>
+                                    <RefreshCw className="w-3 h-3" />
+                                    <span>{file.ocrTaskStatus === "failed" ? "重试" : "强制重试"}</span>
                                   </button>
                                 ) : file.ocrProcessed ? (
                                   <span className="flex items-center gap-1 text-[10px] text-green-600" title="已完成文字提取">

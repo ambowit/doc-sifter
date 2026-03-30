@@ -15,6 +15,7 @@ interface TaskRequestBody {
   mimeType?: string;
   fileName?: string;
   fileUrl?: string;
+  force?: boolean; // 强制重新入队，跳过 pending/processing 状态检查
 }
 
 interface FileRow {
@@ -98,6 +99,7 @@ interface SubmitContext {
   workerSecret: string;
   resolverUrl: string;
   callbackUrl: string;
+  force: boolean;
 }
 
 interface SubmitResult {
@@ -122,13 +124,21 @@ async function submitTextExtractionTask(
     return { fileId: file.id, status: "skipped", message };
   }
 
-  if (file.ocr_task_status === "pending" || file.ocr_task_status === "processing") {
+  if ((file.ocr_task_status === "pending" || file.ocr_task_status === "processing") && !ctx.force) {
     return {
       fileId: file.id,
       status: "already_processing",
       taskId: file.ocr_task_id || undefined,
       message: "文件已在后台处理中",
     };
+  }
+
+  // force 模式：先将状态重置，再重新入队
+  if (ctx.force && (file.ocr_task_status === "pending" || file.ocr_task_status === "processing")) {
+    await ctx.admin
+      .from("files")
+      .update({ ocr_task_status: "failed", ocr_task_completed_at: new Date().toISOString() })
+      .eq("id", file.id);
   }
 
   const taskId = crypto.randomUUID();
@@ -262,6 +272,7 @@ serve(async (req) => {
     }
 
     const payload = (await req.json().catch(() => ({}))) as TaskRequestBody;
+    const forceRequeue = payload.force === true;
     const requestedFiles = normalizeTasks(payload);
     if (requestedFiles.length === 0) {
       return jsonResponse({ error: "至少需要一个 fileId" }, 400);
@@ -337,6 +348,7 @@ serve(async (req) => {
       workerSecret,
       resolverUrl,
       callbackUrl,
+      force: forceRequeue,
     };
 
     const requested = requestedFiles.length;

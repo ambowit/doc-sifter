@@ -435,7 +435,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     session = data.session;
   }
 
-  if (!session?.access_token) throw new Error("用户未登��，请刷新页面后重试");
+  if (!session?.access_token) throw new Error("用户未登��，���刷新页面后重试");
 
   return {
     "Content-Type": "application/json",
@@ -724,12 +724,14 @@ export function useBatchOcrExtract() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (files: Array<{ 
-      fileId: string; 
-      mimeType: string; 
-      fileName: string;
-    }>) => {
-      const data = await invokeAuthedFunction<Record<string, unknown>>("ocr-extract", { files });
+    mutationFn: async (payload: { 
+      files: Array<{ fileId: string; mimeType: string; fileName: string; }>;
+      force?: boolean;
+    }) => {
+      const data = await invokeAuthedFunction<Record<string, unknown>>("ocr-extract", {
+        files: payload.files,
+        force: payload.force ?? false,
+      });
 
       return {
         requested: Number(data?.requested || files.length),
