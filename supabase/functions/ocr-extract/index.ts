@@ -131,10 +131,7 @@ async function submitTextExtractionTask(
     };
   }
 
-  // force 模式：复用旧 task_id（让 Worker 认为是幂等重试，避免 409 idempotent=False）
-  // 只有在旧任务 failed/null 状态时才生成新 task_id
-  const isStuck = ctx.force && (file.ocr_task_status === "pending" || file.ocr_task_status === "processing");
-  const taskId = (isStuck && file.ocr_task_id) ? file.ocr_task_id : crypto.randomUUID();
+  const taskId = crypto.randomUUID();
   const requestedAt = new Date().toISOString();
   const taskPayload = {
     task_type: WORKER_TASK_TYPE,
