@@ -405,15 +405,22 @@ export function formatFileSize(bytes: number | null | undefined): string {
   return `${(normalized / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export type FileExtractionMethod = "ocr" | "document" | "text";
+export type FileExtractionMethod = "ocr" | "document" | "spreadsheet" | "presentation" | "text";
 
 export function getFileExtractionMethod(mimeType: string, fileName?: string): FileExtractionMethod | null {
   const m = mimeType.toLowerCase();
   const ext = (fileName || "").split(".").pop()?.toLowerCase() || "";
 
-  if (["jpeg", "jpg", "png", "gif", "webp", "tiff"].some(t => m.includes(t))) return "ocr";
-  if (m.includes("pdf")) return "ocr";
-  if (m.includes("word") || ext === "docx") return "document";
+  // PDF 和图片走 Worker OCR
+  if (m.includes("pdf") || ext === "pdf") return "ocr";
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"].includes(ext)) return "ocr";
+
+  // Office 文件本地提取
+  if (m.includes("wordprocessingml") || m.includes("msword") || ext === "docx" || ext === "doc") return "document";
+  if (m.includes("spreadsheetml") || m.includes("ms-excel") || ext === "xlsx" || ext === "xls") return "spreadsheet";
+  if (m.includes("presentationml") || m.includes("ms-powerpoint") || ext === "pptx" || ext === "ppt") return "presentation";
+
+  // 纯文本
   if (m.includes("text/plain") || ext === "txt") return "text";
 
   return null;
