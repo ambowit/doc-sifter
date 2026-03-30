@@ -28,23 +28,29 @@ export function needsWorkerOcr(mimeType: string, fileName: string): boolean {
 
 /**
  * 判断文件是否可以在 Edge Function 内直接提取文本
+ * 仅支持新版 Office 格式 (.docx/.xlsx/.pptx)，不支持老版本 (.doc/.xls/.ppt)
  */
 export function getLocalExtractionMethod(mimeType: string, fileName: string): ExtractionMethod {
   const m = mimeType.toLowerCase();
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
 
-  // Word
-  if (m.includes("wordprocessingml") || m.includes("msword") || ext === "docx" || ext === "doc") {
+  // 老版本 Office 格式不支持
+  if (["doc", "xls", "ppt"].includes(ext)) {
+    return null;
+  }
+
+  // Word (仅 .docx)
+  if (m.includes("wordprocessingml") || ext === "docx") {
     return "docx";
   }
 
-  // Excel
-  if (m.includes("spreadsheetml") || m.includes("ms-excel") || ext === "xlsx" || ext === "xls") {
+  // Excel (仅 .xlsx)
+  if (m.includes("spreadsheetml") || ext === "xlsx") {
     return "xlsx";
   }
 
-  // PowerPoint
-  if (m.includes("presentationml") || m.includes("ms-powerpoint") || ext === "pptx" || ext === "ppt") {
+  // PowerPoint (仅 .pptx)
+  if (m.includes("presentationml") || ext === "pptx") {
     return "pptx";
   }
 

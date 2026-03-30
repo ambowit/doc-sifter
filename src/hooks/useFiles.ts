@@ -415,15 +415,21 @@ export function getFileExtractionMethod(mimeType: string, fileName?: string): Fi
   if (m.includes("pdf") || ext === "pdf") return "ocr";
   if (m.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"].includes(ext)) return "ocr";
 
-  // Office 文件本地提取
-  if (m.includes("wordprocessingml") || m.includes("msword") || ext === "docx" || ext === "doc") return "document";
-  if (m.includes("spreadsheetml") || m.includes("ms-excel") || ext === "xlsx" || ext === "xls") return "spreadsheet";
-  if (m.includes("presentationml") || m.includes("ms-powerpoint") || ext === "pptx" || ext === "ppt") return "presentation";
+  // Office 新格式本地提取（仅支持 .docx/.xlsx/.pptx，不支持老版本 .doc/.xls/.ppt）
+  if (m.includes("wordprocessingml") || ext === "docx") return "document";
+  if (m.includes("spreadsheetml") || ext === "xlsx") return "spreadsheet";
+  if (m.includes("presentationml") || ext === "pptx") return "presentation";
 
   // 纯文本
   if (m.includes("text/plain") || ext === "txt") return "text";
 
   return null;
+}
+
+// 判断文件是否为不支持提取的老版本 Office 格式
+export function isLegacyOfficeFormat(fileName?: string): boolean {
+  const ext = (fileName || "").split(".").pop()?.toLowerCase() || "";
+  return ["doc", "xls", "ppt"].includes(ext);
 }
 
 // Check if file type supports automatic text extraction

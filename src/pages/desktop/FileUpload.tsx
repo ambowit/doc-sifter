@@ -11,6 +11,7 @@ import {
   detectFileType,
   formatFileSize,
   canExtractFileText,
+  isLegacyOfficeFormat,
   useBatchOcrExtract,
   useClassifyFilesWithProgress,
   getFileDownloadUrl,
@@ -2058,12 +2059,17 @@ export default function FileUpload() {
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
                                 
                                 {/* OCR Task Status Indicator */}
-                                {file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing" ? (
-                                  <span className="flex items-center gap-1 text-[10px] text-blue-600" title="PDF 正在后台处理中">
+                                {isLegacyOfficeFormat(file.name) ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground" title="老版本 Office 格式，请转换为 .docx/.xlsx/.pptx">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    <span>不支持提取</span>
+                                  </span>
+                                ) : file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing" ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-blue-600" title="正在后台处理中">
                                     <Loader2 className="w-3 h-3 animate-spin" />
                                     <span>处理中</span>
                                   </span>
-                                ) : (file.ocrTaskStatus === "failed" || file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing") && !ocrProcessingIds.has(file.id!) ? (
+                                ) : file.ocrTaskStatus === "failed" && !ocrProcessingIds.has(file.id!) ? (
                                   <button
                                     onClick={() => {
                                       const fileToRetry = {
@@ -2071,15 +2077,14 @@ export default function FileUpload() {
                                         fileName: file.name,
                                         mimeType: file.mimeType || "application/octet-stream",
                                       };
-                                      // force=true 强制重新入队，解决卡住的 pending/processing
                                       handleBatchOcr([fileToRetry], { force: true });
                                     }}
                                     className="flex items-center gap-1 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-0.5 rounded transition-colors"
-                                    title={file.ocrTaskStatus === "failed" ? "点击重新提取" : "任务卡住，点击强制重试"}
+                                    title="点击重新提取"
                                     disabled={ocrProcessingIds.has(file.id!)}
                                   >
                                     <RefreshCw className="w-3 h-3" />
-                                    <span>{file.ocrTaskStatus === "failed" ? "重试" : "强制重试"}</span>
+                                    <span>重试</span>
                                   </button>
                                 ) : file.ocrProcessed ? (
                                   <span className="flex items-center gap-1 text-[10px] text-green-600" title="已完成文字提取">
