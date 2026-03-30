@@ -45,8 +45,8 @@ interface ProjectRow {
 const WORKER_TASK_TYPE = "text_extraction";
 const WORKER_RESOLVER_TYPE = "signed_url_ticket";
 const WORKER_APP_ID = "doc-sifter";
-const DEFAULT_BATCH_SUBMIT_LIMIT = 3;
-const DEFAULT_BATCH_DELAY_MS = 1500;
+const DEFAULT_BATCH_SUBMIT_LIMIT = 5;
+const DEFAULT_BATCH_DELAY_MS = 500;
 const DEFAULT_MAX_TOTAL_FILES_PER_REQUEST = 200;
 
 function normalizeTasks(payload: TaskRequestBody): SingleTaskRequest[] {
