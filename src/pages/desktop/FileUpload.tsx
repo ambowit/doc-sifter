@@ -218,6 +218,8 @@ export default function FileUpload() {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedRoomFile[]>([]);
   const [ocrProcessingIds, setOcrProcessingIds] = useState<Set<string>>(new Set());
+  // 已成功提交给 Worker 正在处理中的文件 id（用于防止横幅重复显示）
+  const [submittedToWorkerIds, setSubmittedToWorkerIds] = useState<Set<string>>(new Set());
   const [isPreparingOcr, setIsPreparingOcr] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState<{
     isExtracting: boolean;
@@ -442,6 +444,17 @@ export default function FileUpload() {
         };
       });
       setUploadedFiles(updatedFiles);
+      // 将已到达终态（completed/failed/null）的文件从 submittedToWorkerIds 移除
+      setSubmittedToWorkerIds(prev => {
+        if (prev.size === 0) return prev;
+        const next = new Set(prev);
+        updatedFiles.forEach(f => {
+          if (f.id && (f.ocrProcessed || f.ocrTaskStatus === "failed" || f.ocrTaskStatus === null || f.ocrTaskStatus === "completed")) {
+            next.delete(f.id);
+          }
+        });
+        return next.size === prev.size ? prev : next;
+      });
     } else {
       setUploadedFiles([]);
     }
@@ -727,11 +740,29 @@ export default function FileUpload() {
     try {
       const result = await batchOcrMutation.mutateAsync({ files, force: options?.force ?? false });
 
+      // 成功提交（含 already_processing）的文件标记为"Worker 处理中"，从 stuck 横幅移除
+      const succeededIds = (result.results || [])
+        .filter((r: { status: string; fileId: string }) => r.status === "queued" || r.status === "already_processing")
+        .map((r: { fileId: string }) => r.fileId);
+      if (succeededIds.length > 0) {
+        setSubmittedToWorkerIds(prev => {
+          const next = new Set(prev);
+          succeededIds.forEach((id: string) => next.add(id));
+          return next;
+        });
+      }
+
       if (result.submitted > 0) {
         const batchHint = result.batchCount > 1
           ? `，服务端已分 ${result.batchCount} 批提交`
           : "";
         toast.success(`已提交 ${result.submitted} 个文件到后台处理${batchHint}`);
+      }
+      if (result.alreadyProcessing > 0) {
+        toast.info(`${result.alreadyProcessing} 个文件已在后台处理中`, { duration: 4000 });
+      }
+      if (result.skipped > 0) {
+        toast.info(`${result.skipped} 个文件无需重复提取`, { duration: 4000 });
       }
       if (result.alreadyProcessing > 0) {
         toast.info(`${result.alreadyProcessing} 个文件已在后台处理中`, { duration: 4000 });
@@ -790,7 +821,7 @@ export default function FileUpload() {
     }
 
     if (filesToProcess.length === 0) {
-      toast.info("所选文件无需提取或已提取过");
+      toast.info("所选文���无需提取或已提取过");
       return;
     }
 
@@ -846,6 +877,7 @@ export default function FileUpload() {
   };
 
   // 卡住的文件（pending/processing 但没有本地追踪记录 → worker 没收到）
+  // 排除：正在提交中（ocrProcessingIds）、刚成功提交给 worker 等待回调（submittedToWorkerIds）
   const stuckOcrFiles = uploadedFiles.filter(
     f =>
       f.id &&
@@ -853,7 +885,8 @@ export default function FileUpload() {
       canExtractFileText(f.mimeType, f.name) &&
       !f.ocrProcessed &&
       (f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing") &&
-      !ocrProcessingIds.has(f.id)
+      !ocrProcessingIds.has(f.id) &&
+      !submittedToWorkerIds.has(f.id)
   );
 
   // Count files needing extraction (failed + never tried, excluding currently processing)
@@ -983,7 +1016,7 @@ export default function FileUpload() {
         toast.success(`成功匹配 ${result.completed} 个文件`);
       }
       if (result.failed > 0) {
-        toast.warning(`${result.failed} 个文件匹配失败`);
+        toast.warning(`${result.failed} 个文件匹配失���`);
       }
     }
   }, [currentProjectId, existingFiles, chapters, startClassify]);
@@ -1541,7 +1574,7 @@ export default function FileUpload() {
                           {stuckOcrFiles.length > 0 && `${stuckOcrFiles.length} 个任务未被处理`}
                         </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
-                          点击"全部重试"强制重新提交，或在文件后方单独重试
+                          点击"全部��试"强制重新提交，或在文件后方单独重试
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -2111,7 +2144,7 @@ export default function FileUpload() {
                                         <Command>
                                           <CommandInput placeholder="搜索章节..." />
                                           <CommandList className="max-h-[200px]">
-                                            <CommandEmpty>未找到章节</CommandEmpty>
+                                            <CommandEmpty>���找到章节</CommandEmpty>
                                             <CommandGroup>
                                               {chapters.map((chapter) => {
                                                 const isMapped = isFileMappedToChapter(file.id!, chapter.id);
