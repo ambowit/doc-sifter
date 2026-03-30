@@ -821,7 +821,7 @@ ${allFilesContent}
     };
 
     const relevantCategories = getRelevantCategories(currentChapter.title);
-    
+
     // 筛选与当前章节相关的文件
     const relevantFiles = relevantCategories.length > 0
       ? processedFiles.filter(f => relevantCategories.includes(f.category) || f.category === "其他")
@@ -916,7 +916,7 @@ ${chapterFilesContent}
     });
 
     try {
-      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 45000); // 45秒超时
+      const aiContent = await callAI(apiKey, systemPrompt, userPrompt, 120000); // 120秒超时
       logStep("AI response received", { length: aiContent.length, preview: aiContent.slice(0, 200) });
 
       // 解析单章节 JSON 响应
@@ -932,9 +932,9 @@ ${chapterFilesContent}
         if (objStart !== -1 && objEnd !== -1) {
           jsonStr = jsonStr.substring(objStart, objEnd + 1);
         }
-        
+
         const parsed = JSON.parse(jsonStr);
-        
+
         // 规范化 issues
         let normalizedIssues = Array.isArray(parsed.issues)
           ? parsed.issues.map((issue: Record<string, unknown>) => ({
@@ -944,7 +944,7 @@ ${chapterFilesContent}
             severity: (issue.severity || "low") as "high" | "medium" | "low",
           })).filter((i: { fact: string; risk: string; suggestion: string }) => i.fact || i.risk)
           : [];
-        
+
         if (normalizedIssues.length === 0) {
           normalizedIssues = [{
             fact: `经核查，尚未获取到「${currentChapter.title}」相关的完整资料`,
@@ -953,7 +953,7 @@ ${chapterFilesContent}
             severity: "low" as const
           }];
         }
-        
+
         section = {
           id: currentChapter.id,
           title: currentChapter.title,
@@ -1000,7 +1000,7 @@ ${chapterFilesContent}
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logStep("AI error", { error: errorMsg });
-      
+
       const fallbackSection: ChapterContent = {
         id: currentChapter.id,
         title: currentChapter.title,
