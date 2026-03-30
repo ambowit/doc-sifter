@@ -189,11 +189,15 @@ async function submitTextExtractionTask(
       console.info("[ocr-extract] worker 409 conflict - task exists", { fileId: file.id, existingTaskId, newTaskId: taskId, elapsedMs: Date.now() - startedAt });
       const now = new Date().toISOString();
       // 只更新状态，不更新 ocr_task_id（保持 Worker 队列中的 task_id 一致）
+      // 必须清除 ocr_task_completed_at，否则 Worker consumer 会误判任务已完成而跳过
       await ctx.admin
         .from("files")
         .update({
           ocr_task_status: "pending",
           ocr_task_started_at: now,
+          ocr_task_completed_at: null,
+          ocr_processed: false,
+          ocr_processed_at: null,
           extraction_error: null,
         })
         .eq("id", file.id);
