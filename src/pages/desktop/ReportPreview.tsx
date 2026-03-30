@@ -211,7 +211,7 @@ function EquityStructureSection({
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-[13px] text-amber-900">
-            股权结构信息尚未提取，请确保数据室中包含工商登记、公司章程等相关文件。
+            股权结构信息尚未提取，请确保数据��中包含工商登记、公司章程等相关文件。
           </div>
         </div>
       </div>
@@ -579,7 +579,7 @@ export default function ReportPreview() {
       const severity = normalizeSeverity(obj.severity || obj.级别 || obj.level);
       return {
         fact: fact || (risk ? "经核查，发现以下情况" : ""),
-        risk: risk || (fact ? "上述情况可能存在潜在风险" : ""),
+        risk: risk || (fact ? "上述情况可能存��潜在风险" : ""),
         suggestion: suggestion || "建议关注并进行进一步核查",
         severity,
       };
@@ -590,21 +590,10 @@ export default function ReportPreview() {
 
   // Load report data from database
   useEffect(() => {
-    console.log("[v0] latestReport:", latestReport);
-    console.log("[v0] reportJson:", latestReport?.reportJson);
-    
-    if (!latestReport?.reportJson) {
-      console.log("[v0] No reportJson found, hasGenerated will be false");
-      return;
-    }
+    if (!latestReport?.reportJson) return;
 
     const reportJson = latestReport.reportJson as { sections?: unknown[]; metadata?: unknown };
-    console.log("[v0] reportJson.sections:", reportJson.sections);
-    
-    if (!reportJson.sections || !Array.isArray(reportJson.sections)) {
-      console.log("[v0] No sections array found");
-      return;
-    }
+    if (!reportJson.sections || !Array.isArray(reportJson.sections)) return;
 
     const rawSections = reportJson.sections as ReportSection[];
 
