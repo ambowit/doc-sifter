@@ -55,13 +55,16 @@ export async function callAIGateway(
 
     const result = await response.json();
     
-    const content = result.result?.choices?.[0]?.message?.content
+    // 兼容多种返回格式：data.content (OOOK Gateway) / result.choices / choices
+    const content = result.data?.content
+      || result.result?.choices?.[0]?.message?.content
       || result.choices?.[0]?.message?.content
       || result.result?.content
       || result.content
       || "";
     
-    console.log(`[AI-Gateway] Content Length: ${content.length} | Model: ${result.result?.model || result.model || "unknown"}`);
+    const model = result.data?.model || result.meta?.model || result.result?.model || result.model || "unknown";
+    console.log(`[AI-Gateway] Content Length: ${content.length} | Model: ${model}`);
 
     return content;
   } catch (error) {
