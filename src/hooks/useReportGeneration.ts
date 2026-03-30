@@ -160,7 +160,7 @@ function generatePartialContent(chapter: Chapter, files: UploadedFile[]): string
   
   let content = `【资料待补充】\n\n`;
   content += `就${chapter.title}，我们已收到并核查了以下部分资料：${fileList}。\n\n`;
-  content += `但根据尽职调查的通常要求，建议委托方补充提供以�����资料以完善本章节的核查：\n\n`;
+  content += `但根据尽职调查的通常要求，建议委托方补充提供以�������资料以完善本章节的核查：\n\n`;
   content += `• ${chapter.description || "其他与本章节相关的补充资料"}\n\n`;
   content += `待资料补充完整后，我们将更新本章节的核查意见。\n\n`;
   content += `【已核查证据】\n`;
@@ -499,6 +499,7 @@ export function useGenerateAIReport() {
         } else {
           const insertPayload: Record<string, unknown> = {
             project_id: projectId,
+            user_id: session.user.id,
             created_by: session.user.id,
             status: "draft",
             report_json: {},
