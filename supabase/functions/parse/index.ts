@@ -610,9 +610,9 @@ ${actualContent || `[仅有文件名: ${filename}]`}
       tokenPrefix: apiKey?.substring(0, 8) + "..."
     });
 
-    // Add timeout controller - 60s for AI generation which can be slow
+    // Add timeout controller - 25s to stay within Edge Function's 30s limit
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     let response;
     try {
