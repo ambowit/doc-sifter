@@ -182,21 +182,22 @@ async function submitTextExtractionTask(
   if (!workerResponse.ok) {
     const workerError = (await workerResponse.text()).slice(0, 300);
 
-    // 409 Conflict = Worker 认为任务已存在，视为成功（任务已在队列中）
+    // 409 Conflict = Worker 认为任务已存在（基于 job_id 去重）
+    // 保持原有的 ocr_task_id 不变，让 Worker 继续使用它队列中已有的任务
     if (workerResponse.status === 409) {
-      console.info("[ocr-extract] worker 409 conflict - task exists", { fileId: file.id, taskId, elapsedMs: Date.now() - startedAt });
+      const existingTaskId = file.ocr_task_id || taskId;
+      console.info("[ocr-extract] worker 409 conflict - task exists", { fileId: file.id, existingTaskId, newTaskId: taskId, elapsedMs: Date.now() - startedAt });
       const now = new Date().toISOString();
+      // 只更新状态，不更新 ocr_task_id（保持 Worker 队列中的 task_id 一致）
       await ctx.admin
         .from("files")
         .update({
-          ocr_task_id: taskId,
           ocr_task_status: "pending",
           ocr_task_started_at: now,
-          extraction_status: "processing",
           extraction_error: null,
         })
         .eq("id", file.id);
-      return { fileId: file.id, status: "queued", taskId, message: "任务已在队列中" };
+      return { fileId: file.id, status: "queued", taskId: existingTaskId, message: "任务已在队列中" };
     }
 
     const errorMessage = `Worker 入队失败(${workerResponse.status}): ${workerError}`;

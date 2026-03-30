@@ -58,8 +58,19 @@ serve(async (req) => {
       return jsonResponse({ error: "File not found" }, 404);
     }
 
-    if (file.ocr_task_id !== payload.task_id) {
+    // 校验 task_id：如果数据库有记录则必须匹配，如果为 null 则允许通过并更新
+    if (file.ocr_task_id && file.ocr_task_id !== payload.task_id) {
+      console.warn("[worker-file-ticket] task mismatch", { fileId: file.id, expected: file.ocr_task_id, received: payload.task_id });
       return jsonResponse({ error: "Task mismatch" }, 403);
+    }
+
+    // 如果 ocr_task_id 为空，说明任务提交时没有保存成功，现在补充保存
+    if (!file.ocr_task_id && payload.task_id) {
+      await admin
+        .from("files")
+        .update({ ocr_task_id: payload.task_id, ocr_task_status: "processing" })
+        .eq("id", file.id);
+      console.info("[worker-file-ticket] backfilled ocr_task_id", { fileId: file.id, taskId: payload.task_id });
     }
 
     const { data: signedUrlData, error: signedUrlError } = await admin.storage
