@@ -15,10 +15,8 @@ export interface UploadProviderContext {
 }
 
 export function getStorageBucketName(): string {
-  const bucket = Deno.env.get("VITE_STORAGE_BUCKET");
-  if (!bucket) {
-    throw new Error("VITE_STORAGE_BUCKET is not set");
-  }
+  // 同时兼容 VITE_STORAGE_BUCKET 和 STORAGE_BUCKET，默认 dd-files
+  const bucket = Deno.env.get("VITE_STORAGE_BUCKET") || Deno.env.get("STORAGE_BUCKET") || "dd-files";
   return bucket;
 }
 
