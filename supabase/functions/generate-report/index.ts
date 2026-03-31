@@ -276,12 +276,12 @@ serve(async (req) => {
     // ============ BUILD ALL FILES CONTENT SUMMARY ============
     // This is the key change: we provide ALL files to AI for intelligent matching
     // OPTIMIZED: Reduced content per file to prevent timeout with large file counts
-    const buildFilesContentSummary = (maxLength: number = 50000): string => {
+    const buildFilesContentSummary = (maxLength: number = 50000, filesOverride?: typeof processedFiles): string => {
       let summary = "";
       let currentLength = 0;
 
-      // Sort files by category for better organization
-      const sortedFiles = [...processedFiles].sort((a, b) =>
+      // 支持传入指定文件列表（用于章节关联文件筛选）
+      const sortedFiles = [...(filesOverride ?? processedFiles)].sort((a, b) =>
         a.category.localeCompare(b.category)
       );
 
@@ -542,10 +542,63 @@ ${allFilesContent}
         );
       }
 
-      // Build file content summary (with smaller limit for single chapter)
-      const filesWithContent = processedFiles.filter(f => f.ocrText || f.textSummary).length;
+      // 查询该章节已关联的文件 ID
+      const { data: singleMappingRows, error: singleMappingError } = await supabase
+        .from("chapter_file_mappings")
+        .select("file_id")
+        .eq("chapter_id", chapterId);
+
+      // 数据库查询失败 → 生成失败，不走 AI
+      if (singleMappingError) {
+        logStep("Single mode: mapping query failed", { error: singleMappingError.message });
+        return new Response(JSON.stringify({
+          success: false,
+          mode: "single",
+          error: `无法获取章节关联文件：${singleMappingError.message}`,
+          section: {
+            id: chapterId,
+            title: chapterTitle,
+            number: chapterNumber || "",
+            content: `【${chapterTitle}】\n\n生成失败：无法获取章节关联文件（${singleMappingError.message}）。`,
+            findings: [],
+            issues: [{
+              fact: `经核查，章节「${chapterTitle}」关联文件查询失败`,
+              risk: "报告生成异常",
+              suggestion: "建议稍后重新生成该章节",
+              severity: "low",
+            }],
+            sourceFiles: [],
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const singleMappedFileIds = new Set((singleMappingRows || []).map((r: { file_id: string }) => r.file_id));
+
+      // 无关联文件 → 跳过，不走 AI
+      if (singleMappedFileIds.size === 0) {
+        logStep("Single mode: no mapped files, skipping", { chapter: chapterTitle });
+        return new Response(JSON.stringify({
+          success: true,
+          mode: "single",
+          skipped: true,
+          skipReason: "no_mapped_files",
+          section: {
+            id: chapterId,
+            title: chapterTitle,
+            number: chapterNumber || "",
+            content: `【${chapterTitle}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件后重新生成。`,
+            findings: [],
+            issues: [],
+            sourceFiles: [],
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 只使用已关联的文件构建内容摘要
+      const singleRelevantFiles = processedFiles.filter(f => f.id && singleMappedFileIds.has(f.id));
+      const filesWithContent = singleRelevantFiles.filter(f => f.ocrText || f.textSummary).length;
       const contentMaxLength = filesWithContent > 50 ? 20000 : filesWithContent > 30 ? 25000 : 30000;
-      const allFilesContent = buildFilesContentSummary(contentMaxLength);
+      const allFilesContent = buildFilesContentSummary(contentMaxLength, singleRelevantFiles);
 
       const singleChapterPrompt = `你是中国顶级PE/VC投资法律尽职调查合伙人。
 
@@ -828,7 +881,7 @@ ${allFilesContent}
           id: currentChapter.id,
           title: currentChapter.title,
           number: currentChapter.number || "",
-          content: `【${currentChapter.title}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件后重新生成。`,
+          content: `【${currentChapter.title}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页���为该章节关联相关文件后重新生成。`,
           findings: [],
           issues: [],
           sourceFiles: [],
