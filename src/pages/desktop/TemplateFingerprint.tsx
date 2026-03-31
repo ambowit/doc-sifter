@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1008,6 +1009,26 @@ export default function TemplateFingerprint() {
           )}
         </div>
       </div>
+
+      {/* Parsing Progress Bar */}
+      <AnimatePresence>
+        {parseTemplateMutation.isPending && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-6 py-3 bg-blue-50 border-b border-blue-200"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+              <span className="text-[13px] font-medium text-blue-900">
+                正在解析模板文件...
+              </span>
+            </div>
+            <Progress value={undefined} className="h-1.5" />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* No template state */}
       {!hasTemplate && (
