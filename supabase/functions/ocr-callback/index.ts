@@ -118,7 +118,8 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     const now = new Date().toISOString();
-    const status = String(data.status || "processing");
+    // Worker 可能用 status 或 phase 字段
+    const status = String(data.status || (data as Record<string, unknown>).phase || "processing");
 
     const { data: currentFile, error: fileLookupError } = await supabaseAdmin
       .from("files")
