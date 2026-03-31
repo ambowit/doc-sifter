@@ -54,6 +54,7 @@ import {
   Trash2,
   FolderOpen,
   ArrowRight,
+  X,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
@@ -1019,11 +1020,25 @@ export default function TemplateFingerprint() {
             exit={{ opacity: 0, height: 0 }}
             className="px-6 py-3 bg-blue-50 border-b border-blue-200"
           >
-            <div className="flex items-center gap-3 mb-2">
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-              <span className="text-[13px] font-medium text-blue-900">
-                正在解析模板文件...
-              </span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                <span className="text-[13px] font-medium text-blue-900">
+                  正在解析模板文件...
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  parseTemplateMutation.abort();
+                  toast.info("已取消解析");
+                }}
+                className="h-7 px-2 text-[12px] text-blue-700 hover:text-blue-900 hover:bg-blue-100"
+              >
+                <X className="w-3.5 h-3.5 mr-1" />
+                取消
+              </Button>
             </div>
             <Progress value={undefined} className="h-1.5" />
           </motion.div>

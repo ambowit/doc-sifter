@@ -175,12 +175,15 @@ export async function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// 全局 AbortController 引用，用于外部取消
+let parseTemplateAbortController: AbortController | null = null;
+
 export function useParseTemplate() {
   const { user } = useAuth();
   const bulkCreateChapters = useBulkCreateChapters();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: async ({
       projectId,
       content,
@@ -208,6 +211,7 @@ export function useParseTemplate() {
       // Use fetch with timeout for better control
       const TIMEOUT_MS = 90000; // 90 seconds
       const controller = new AbortController();
+      parseTemplateAbortController = controller; // 保存引用供外部取消
       const timeoutId = setTimeout(() => {
         console.log("[ParseTemplate] Request timeout, aborting...");
         controller.abort();
@@ -270,10 +274,12 @@ export function useParseTemplate() {
 
         if (fetchError instanceof Error) {
           if (fetchError.name === "AbortError") {
-            throw new Error("AI解析超时（90秒），请重试");
+            throw new Error("已取消解析");
           }
         }
         throw new Error(normalizeSupabaseError(fetchError, "AI解析失败"));
+      } finally {
+        parseTemplateAbortController = null;
       }
     },
     onSuccess: (_, variables) => {
@@ -281,6 +287,18 @@ export function useParseTemplate() {
       queryClient.invalidateQueries({ queryKey: ["flatChapters", variables.projectId] });
     },
   });
+
+  // 返回 mutation 及取消方法
+  return {
+    ...mutation,
+    abort: () => {
+      if (parseTemplateAbortController) {
+        console.log("[ParseTemplate] User cancelled parsing");
+        parseTemplateAbortController.abort();
+        parseTemplateAbortController = null;
+      }
+    },
+  };
 }
 
 // Hook to parse document and extract summary
