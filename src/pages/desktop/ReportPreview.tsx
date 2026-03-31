@@ -858,6 +858,17 @@ export default function ReportPreview() {
         throw new Error(data?.error || "生成失败，请稍后重试");
       }
 
+      // 跳过（无关联文件）
+      if (data?.skipped === true) {
+        toast.warning(`「${sectionTitle}」无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件`);
+        return;
+      }
+
+      // 后端返回 warning 说明 AI 调用失败（如 504）
+      if (data?.warning) {
+        throw new Error(`AI 服务异常，请稍后重试`);
+      }
+
       if (data?.section) {
         // Helper to normalize issue fields (handle both objects and strings)
         // Reuse the same logic as the main normalizeIssue function
