@@ -427,13 +427,13 @@ export default function Definitions() {
       </div>
 
       <div className="flex-1 px-6 pb-6 pt-4 overflow-hidden">
-        <Tabs defaultValue="final" className="h-full flex flex-col">
-          <TabsList className="w-fit">
+        <Tabs defaultValue="final" className="h-full flex flex-col min-h-0">
+          <TabsList className="w-fit flex-shrink-0">
             <TabsTrigger value="final">最终定义（{definitions.length}）</TabsTrigger>
             <TabsTrigger value="candidates">AI 候选（{candidates.length}）</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="final" className="flex-1 flex flex-col mt-4 overflow-hidden">
+          <TabsContent value="final" className="flex-1 flex flex-col mt-4 overflow-hidden min-h-0 data-[state=inactive]:hidden">
             <div className="flex items-center gap-4 mb-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -494,7 +494,7 @@ export default function Definitions() {
             </div>
           </TabsContent>
 
-          <TabsContent value="candidates" className="flex-1 flex flex-col mt-4 overflow-hidden">
+          <TabsContent value="candidates" className="flex-1 flex flex-col mt-4 overflow-hidden min-h-0 data-[state=inactive]:hidden">
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
