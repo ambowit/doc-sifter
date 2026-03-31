@@ -782,59 +782,66 @@ ${allFilesContent}
       totalFiles: processedFiles.length,
     });
 
-    // 根据章节标题智能匹配相关文件分类
-    const getRelevantCategories = (chapterTitle: string): string[] => {
-      const title = chapterTitle.toLowerCase();
-      if (title.includes("基本") || title.includes("设立") || title.includes("历史沿革")) {
-        return ["公司基本信息", "公司治理"];
-      }
-      if (title.includes("股权") || title.includes("股东") || title.includes("出资")) {
-        return ["股权结构", "公司基本信息"];
-      }
-      if (title.includes("治理") || title.includes("董事") || title.includes("监事") || title.includes("章程")) {
-        return ["公司治理", "公司基本信息"];
-      }
-      if (title.includes("劳动") || title.includes("人事") || title.includes("员工") || title.includes("社保")) {
-        return ["劳动人事"];
-      }
-      if (title.includes("知识产权") || title.includes("专利") || title.includes("商标")) {
-        return ["知识产权"];
-      }
-      if (title.includes("合同") || title.includes("业务")) {
-        return ["重大合同"];
-      }
-      if (title.includes("财务") || title.includes("税务") || title.includes("审计")) {
-        return ["财务", "税务"];
-      }
-      if (title.includes("资产") || title.includes("房产") || title.includes("土地")) {
-        return ["资产"];
-      }
-      if (title.includes("诉讼") || title.includes("仲裁") || title.includes("处罚")) {
-        return ["诉讼与行政处罚"];
-      }
-      if (title.includes("资质") || title.includes("许可") || title.includes("证照")) {
-        return ["资质证照"];
-      }
-      if (title.includes("环保") || title.includes("环境")) {
-        return ["环保"];
-      }
-      if (title.includes("投资") || title.includes("融资") || title.includes("关联")) {
-        return ["投融资", "股权结构"];
-      }
-      // 默认返回所有分类（但限制数量）
-      return [];
-    };
+    // 从数据库查询该章节已关联的文件 ID
+    const { data: mappingRows, error: mappingError } = await supabase
+      .from("chapter_file_mappings")
+      .select("file_id")
+      .eq("chapter_id", currentChapter.id);
 
-    const relevantCategories = getRelevantCategories(currentChapter.title);
+    // 数据库查询失败 → 生成失败，不走 AI
+    if (mappingError) {
+      logStep("Chapter-file mapping query failed", { error: mappingError.message });
+      return new Response(JSON.stringify({
+        success: false,
+        mode: "batch",
+        batchIndex,
+        sections: [{
+          id: currentChapter.id,
+          title: currentChapter.title,
+          number: currentChapter.number || "",
+          content: `【${currentChapter.title}】\n\n生成失败：无法获取章节关联文件（${mappingError.message}）。`,
+          findings: [],
+          issues: [{
+            fact: `经核查，章节「${currentChapter.title}」关联文件查询失败`,
+            risk: "报告生成异常",
+            suggestion: "建议稍后重新生成该章节",
+            severity: "low",
+          }],
+          sourceFiles: [],
+        }],
+        error: mappingError.message,
+      }), { headers: { "Content-Type": "application/json" } });
+    }
 
-    // 筛选与当前章节相关的文件
-    const relevantFiles = relevantCategories.length > 0
-      ? processedFiles.filter(f => relevantCategories.includes(f.category) || f.category === "其他")
-      : processedFiles;
+    const mappedFileIds = new Set((mappingRows || []).map((r: { file_id: string }) => r.file_id));
 
-    logStep("Chapter-file matching", {
+    // 无关联文件 → 跳过，不走 AI
+    if (mappedFileIds.size === 0) {
+      logStep("No mapped files for chapter, skipping", { chapter: currentChapter.title });
+      return new Response(JSON.stringify({
+        success: true,
+        mode: "batch",
+        batchIndex,
+        skipped: true,
+        skipReason: "no_mapped_files",
+        sections: [{
+          id: currentChapter.id,
+          title: currentChapter.title,
+          number: currentChapter.number || "",
+          content: `【${currentChapter.title}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件后重新生成。`,
+          findings: [],
+          issues: [],
+          sourceFiles: [],
+        }],
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // 只使用已关联的文件
+    const relevantFiles = processedFiles.filter(f => f.id && mappedFileIds.has(f.id));
+
+    logStep("Chapter-file matching via DB", {
       chapter: currentChapter.title,
-      relevantCategories,
+      mappedFileIds: mappedFileIds.size,
       relevantFilesCount: relevantFiles.length,
       totalFilesCount: processedFiles.length,
     });
