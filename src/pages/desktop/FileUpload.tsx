@@ -877,7 +877,18 @@ export default function FileUpload() {
     await handleBatchOcr(filesToRetry, { force: true });
   };
 
-  // 卡住的文件（pending/processing 但没有本地追踪记录 → worker 没收到）
+  // 正在处理中的文件（processing — worker 已收到，等待回调）
+  const processingOcrFiles = uploadedFiles.filter(
+    f =>
+      f.id &&
+      f.mimeType &&
+      canExtractFileText(f.mimeType, f.name) &&
+      !f.ocrProcessed &&
+      f.ocrTaskStatus === "processing" &&
+      !ocrProcessingIds.has(f.id)
+  );
+
+  // 卡住的文件（pending 但没有本地追踪记录 → worker 未收到）
   // 排除：正在提交中（ocrProcessingIds）、刚成功提交给 worker 等待回调（submittedToWorkerIds）
   const stuckOcrFiles = uploadedFiles.filter(
     f =>
@@ -885,7 +896,7 @@ export default function FileUpload() {
       f.mimeType &&
       canExtractFileText(f.mimeType, f.name) &&
       !f.ocrProcessed &&
-      (f.ocrTaskStatus === "pending" || f.ocrTaskStatus === "processing") &&
+      f.ocrTaskStatus === "pending" &&
       !ocrProcessingIds.has(f.id) &&
       !submittedToWorkerIds.has(f.id)
   );
@@ -975,7 +986,7 @@ export default function FileUpload() {
     }
   }, [currentProjectId, existingFiles, chapters, startBatchParse, matchSectionsMutation]);
 
-  // AI 自动匹配文件到章节
+  // AI 自动匹配文件到章���
   const handleAutoMatch = useCallback(async () => {
     if (!currentProjectId || chapters.length === 0) {
       toast.error("请先设置章节模板");
@@ -1557,6 +1568,27 @@ export default function FileUpload() {
                       </motion.div>
                     ))}
                   </div>
+
+                  {/* Processing Banner */}
+                  {processingOcrFiles.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-blue-900">
+                          {processingOcrFiles.length} 个文件提取中
+                        </div>
+                        <div className="text-[11px] text-blue-700 mt-0.5">
+                          正在后台提取文字，完成后自动更新
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
 
                   {/* Failed / Stuck Extraction Banner */}
                   {(failedOcrFiles.length > 0 || stuckOcrFiles.length > 0) && (
