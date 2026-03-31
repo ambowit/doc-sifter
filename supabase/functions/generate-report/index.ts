@@ -542,8 +542,8 @@ ${allFilesContent}
         );
       }
 
-      // 查询该章节已关联的文件 ID
-      const { data: singleMappingRows, error: singleMappingError } = await supabase
+      // 查询该章节已关联的文件 ID（用 supabaseAdmin 绕过 RLS）
+      const { data: singleMappingRows, error: singleMappingError } = await supabaseAdmin
         .from("chapter_file_mappings")
         .select("file_id")
         .eq("chapter_id", chapterId);
@@ -835,8 +835,8 @@ ${allFilesContent}
       totalFiles: processedFiles.length,
     });
 
-    // 从数据库查询该章节已关联的文件 ID
-    const { data: mappingRows, error: mappingError } = await supabase
+    // 从数据库查询该章节已关联的文件 ID（用 supabaseAdmin 绕过 RLS）
+    const { data: mappingRows, error: mappingError } = await supabaseAdmin
       .from("chapter_file_mappings")
       .select("file_id")
       .eq("chapter_id", currentChapter.id);
