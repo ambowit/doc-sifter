@@ -87,14 +87,26 @@ export function usePersistGeneratedReport() {
         });
         return count + validIssues.length;
       }, 0);
-      const evidenceFileCount = sections.reduce((count, section) => {
-        const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-        return count + sourceFiles.length;
-      }, 0);
-      const sectionsWithEvidence = sections.filter((section) => {
-        const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-        return sourceFiles.length > 0;
-      }).length;
+      
+      // 证据统计改为基于 chapter_file_mappings 映射统计
+      const sectionIds = sections.map(s => String(s.id || "")).filter(Boolean);
+      let evidenceFileCount = 0;
+      let sectionsWithEvidence = 0;
+      
+      if (sectionIds.length > 0) {
+        // 从映射表获取每个章节关联的文件数
+        const { data: mappingRows, error: mappingError } = await supabase
+          .from("chapter_file_mappings")
+          .select("chapter_id")
+          .in("chapter_id", sectionIds);
+          
+        if (!mappingError && mappingRows) {
+          const mappedChapterIds = new Set(mappingRows.map(r => r.chapter_id));
+          evidenceFileCount = mappingRows.length;
+          sectionsWithEvidence = sectionIds.filter(id => mappedChapterIds.has(id)).length;
+        }
+      }
+      
       const citationCoverage = sections.length > 0 ? Number((sectionsWithEvidence / sections.length).toFixed(4)) : 0;
 
       const { data, error } = await supabase

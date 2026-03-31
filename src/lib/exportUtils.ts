@@ -29,7 +29,9 @@ interface ReportSection {
     suggestion: string;
     severity: "high" | "medium" | "low";
   }>;
-  sourceFiles: string[];
+  // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
+  // 导出时需从外部传入关联文件列表
+  mappedFiles?: Array<{ name: string; id: string }>;
 }
 
 interface ReportMetadata {
@@ -256,10 +258,11 @@ function generatePDFHTML(
     }
 
     let sourceFilesHTML = "";
-    if (section.sourceFiles && section.sourceFiles.length > 0) {
+    // 证据来源改为从 mappedFiles 获取（由外部传入）
+    if (section.mappedFiles && section.mappedFiles.length > 0) {
       sourceFilesHTML = `
         <div style="margin-top: 16px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 12px; color: #6b7280;">
-          <strong>证据来源：</strong>${section.sourceFiles.join("、")}
+          <strong>证据来源：</strong>${section.mappedFiles.map(f => f.name).join("、")}
         </div>
       `;
     }
@@ -1033,8 +1036,8 @@ export async function exportToWord(
       );
     }
 
-    // Source files
-    if (section.sourceFiles && section.sourceFiles.length > 0) {
+    // Source files (从 mappedFiles 获取)
+    if (section.mappedFiles && section.mappedFiles.length > 0) {
       docChildren.push(
         new Paragraph({
           children: [
@@ -1045,7 +1048,7 @@ export async function exportToWord(
               italics: true,
             }),
             new TextRun({
-              text: section.sourceFiles.join("、"),
+              text: section.mappedFiles.map(f => f.name).join("、"),
               size: 20,
               italics: true,
             }),

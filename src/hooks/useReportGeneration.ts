@@ -160,7 +160,7 @@ function generatePartialContent(chapter: Chapter, files: UploadedFile[]): string
   
   let content = `【资料待补充】\n\n`;
   content += `就${chapter.title}，我们已收到并核查了以下部分资料：${fileList}。\n\n`;
-  content += `但根据尽职调查的通常要求，建议委托方补充提供以下资料以完善本章节的核查：\n\n`;
+  content += `但根据尽职调查的通常要求，建议委托方补充提供以���资料以完善本章节的核查：\n\n`;
   content += `• ${chapter.description || "其他与本章节相关的补充资料"}\n\n`;
   content += `待资料补充完整后，我们将更新本章节的核查意见。\n\n`;
   content += `【已核查证据】\n`;
@@ -423,7 +423,7 @@ export interface AIGeneratedReport {
         suggestion: string;
         severity?: "high" | "medium" | "low";
       }>;
-      sourceFiles?: string[];
+      // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
       subsections?: Array<{
         id: string;
         title: string;
@@ -543,7 +543,7 @@ export function useGenerateAIReport() {
               console.warn(`[useGenerateAIReport] Chapter ${batchIndex + 1} timeout, skipping`);
               continue;
             }
-            throw new Error(error.message || "报告生成失败");
+            throw new Error(error.message || "报告生成���败");
           }
 
           if (data?.sections && Array.isArray(data.sections)) {
@@ -556,9 +556,12 @@ export function useGenerateAIReport() {
 
         // 统计 issues
         const issuesFound = allSections.reduce((count, section) => count + (section?.issues?.length || 0), 0);
-        const evidenceFileCount = allSections.reduce((count, section) => count + (section?.sourceFiles?.length || 0), 0);
-        const sectionsWithEvidence = allSections.filter(s => (s?.sourceFiles?.length || 0) > 0).length;
-        const citationCoverage = allSections.length > 0 ? Number((sectionsWithEvidence / allSections.length).toFixed(4)) : 0;
+        
+        // 证据统计改为基于 chapter_file_mappings 映射统计（在服务端计算）
+        // 这里只传递章节数量，实际统计由 usePersistGeneratedReport 完成
+        const evidenceFileCount = 0; // 由服务端/前端从映射表计算
+        const sectionsWithEvidence = 0; // 由服务端/前端从映射表计算
+        const citationCoverage = 0; // 由服务端/前端从映射表计算
 
         const { error: updateError } = await supabase
           .from("generated_reports")

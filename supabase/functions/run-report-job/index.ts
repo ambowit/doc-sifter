@@ -209,7 +209,7 @@ serve(async (req) => {
       content: string;
       findings: string[];
       issues: string[];
-      sourceFiles: string[];
+      // sourceFiles 已移除：证据来源由 chapter_file_mappings 驱动
     }[] = [];
     let issuesFound = 0;
 
@@ -236,21 +236,36 @@ serve(async (req) => {
         content: `根据我们对目标公司相关文件的核查，现就${chapter.title || `章节 ${i + 1}`}报告如下。`,
         findings: chapterFiles.length > 0 ? ["已完成核查"] : [],
         issues: [],
-        sourceFiles: chapterFiles.map(f => f.original_name || f.name || "未命名文件"),
+        // sourceFiles 移除：证据来源由 chapter_file_mappings 表驱动
       });
     }
 
-    // Quality gate: EMPTY_CITATIONS
-    const sectionsWithCitations = sections.filter(s => s.sourceFiles?.length > 0);
-    const citationCoverage = sections.length > 0 ? sectionsWithCitations.length / sections.length : 0;
+    // 证据统计改为基于 chapter_file_mappings 映射统计
+    const sectionIds = sections.map(s => s.id).filter(Boolean);
+    let sectionsWithCitations = 0;
+    
+    if (sectionIds.length > 0) {
+      // 查询每个章节是否有映射
+      const { data: mappingRows } = await supabaseAdmin
+        .from("chapter_file_mappings")
+        .select("chapter_id")
+        .in("chapter_id", sectionIds);
+        
+      if (mappingRows) {
+        const mappedChapterIds = new Set(mappingRows.map(r => r.chapter_id));
+        sectionsWithCitations = sectionIds.filter(id => mappedChapterIds.has(id)).length;
+      }
+    }
+    
+    const citationCoverage = sections.length > 0 ? sectionsWithCitations / sections.length : 0;
 
     console.log("[run-report-job] Generation complete:", {
       sectionsCount: sections.length,
-      sectionsWithCitations: sectionsWithCitations.length,
+      sectionsWithCitations,
       citationCoverage: (citationCoverage * 100).toFixed(1) + "%",
     });
 
-    if (sectionsWithCitations.length === 0) {
+    if (sectionsWithCitations === 0) {
       await updateJobProgress(supabaseAdmin, jobId, {
         status: "failed",
         error_code: "EMPTY_CITATIONS",

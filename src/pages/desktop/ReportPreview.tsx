@@ -45,6 +45,7 @@ import {
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
 import { useFiles } from "@/hooks/useFiles";
+import { useMappings } from "@/hooks/useMappings";
 import { useDefinitions, Definition } from "@/hooks/useDefinitions";
 import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/useGeneratedReports";
 import { EquityChart } from "@/components/desktop/EquityChart";
@@ -76,7 +77,7 @@ interface ReportSection {
     suggestion: string;
     severity: "high" | "medium" | "low";
   }>;
-  sourceFiles: string[];
+  // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
   locked?: boolean; // 锁定状态，锁定后重新生成时跳过
 }
 
@@ -257,7 +258,7 @@ function SectionRenderer({
   onToggleLock,
 }: {
   section: ReportSection;
-  mappedFiles: Array<{ name: string; id: string }>;
+  mappedFiles: Array<{ name: string; id: string }>; // 从 chapter_file_mappings 获取
   metadata?: ReportMetadata | null;
   project?: { name: string; target?: string; client?: string } | null;
   fileCount?: number;
@@ -271,7 +272,8 @@ function SectionRenderer({
 }) {
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
-  const hasNoData = section.content.includes("暂无") || section.sourceFiles.length === 0;
+  // 判断无数据：改为基于 mappedFiles（来自 chapter_file_mappings）
+  const hasNoData = section.content.includes("暂无") || mappedFiles.length === 0;
 
   // Check if section failed due to timeout
   const isTimeoutError = section.content.includes("超时") || section.content.includes("请重试");
@@ -323,10 +325,10 @@ function SectionRenderer({
                 已核查
               </Badge>
             )}
-            {section.sourceFiles.length > 0 && (
+            {mappedFiles.length > 0 && (
               <Badge variant="secondary" className="text-[10px]">
                 <File className="w-3 h-3 mr-1" />
-                {section.sourceFiles.length} 份证据
+                {mappedFiles.length} 份证据
               </Badge>
             )}
             {/* Lock button */}
@@ -508,9 +510,25 @@ export default function ReportPreview() {
   const { data: currentProject, isLoading: isProjectLoading } = useCurrentProject(projectId);
   const { data: flatChapters = [], isLoading: isChaptersLoading } = useFlatChapters(projectId);
   const { data: files = [], isLoading: isFilesLoading } = useFiles(projectId);
+  const { data: mappings = [], isLoading: isMappingsLoading } = useMappings(projectId);
   const { data: definitions = [] } = useDefinitions(projectId);
   const { data: latestReport, isLoading: isReportLoading } = useLatestGeneratedReport(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
+
+  // 基于 chapter_file_mappings 构建章节-文件映射表
+  const chapterFilesMap = useMemo(() => {
+    const map = new Map<string, Array<{ name: string; id: string }>>();
+    for (const mapping of mappings) {
+      const chapterId = mapping.chapterId;
+      const file = files.find(f => f.id === mapping.fileId);
+      if (file) {
+        const existing = map.get(chapterId) || [];
+        existing.push({ name: file.originalName, id: file.id });
+        map.set(chapterId, existing);
+      }
+    }
+    return map;
+  }, [mappings, files]);
 
   // State for generated report
   const [sections, setSections] = useState<ReportSection[]>([]);
@@ -627,7 +645,7 @@ export default function ReportPreview() {
         content: section.content || "",
         findings: normalizedFindings,
         issues: normalizedIssues,
-        sourceFiles: Array.isArray(section.sourceFiles) ? section.sourceFiles : [],
+        // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
       };
     });
 
@@ -780,14 +798,11 @@ export default function ReportPreview() {
     return sections.find(s => s.id === activeSectionId) || sections[0];
   }, [activeSectionId, sections]);
 
-  // Get files referenced by active section (from AI-generated sourceFiles)
+  // 获取当前章节关联的文件（从 chapter_file_mappings 获取）
   const activeSectionFiles = useMemo(() => {
-    if (!activeSection || !activeSection.sourceFiles) return [];
-    return activeSection.sourceFiles.map((name, idx) => ({
-      name,
-      id: `source-${idx}`
-    }));
-  }, [activeSection]);
+    if (!activeSection) return [];
+    return chapterFilesMap.get(activeSection.id) || [];
+  }, [activeSection, chapterFilesMap]);
 
   // Set initial active section
   useEffect(() => {
@@ -961,7 +976,7 @@ export default function ReportPreview() {
           content: data.section.content || "",
           findings: normalizedFindings,
           issues: normalizedIssues,
-          sourceFiles: Array.isArray(data.section.sourceFiles) ? data.section.sourceFiles : [],
+          // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
         };
         // Update section and persist to database
         let updatedSections: ReportSection[] = [];
@@ -1003,15 +1018,21 @@ export default function ReportPreview() {
         client: currentProject.client,
       };
 
+      // 为导出构建带映射文件的 sections
+      const sectionsWithMappings = sections.map(s => ({
+        ...s,
+        mappedFiles: chapterFilesMap.get(s.id) || [],
+      }));
+      
       if (exportFormat === "pdf") {
-        await exportToPDF(projectData, sections, metadata, definitions, files.length, currentStyle);
+        await exportToPDF(projectData, sectionsWithMappings, metadata, definitions, files.length, currentStyle);
         toast.success("PDF 报告已下载");
       } else if (exportFormat === "docx") {
-        await exportToWord(projectData, sections, metadata, definitions, files.length, currentStyle);
+        await exportToWord(projectData, sectionsWithMappings, metadata, definitions, files.length, currentStyle);
         toast.success("Word 报告已下载");
       } else if (exportFormat === "html") {
         // Generate HTML content with selected template style
-        const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length, currentStyle);
+        const html = generateReportHTML(currentProject, sections, metadata, definitions, files.length, currentStyle, chapterFilesMap);
         const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -1035,7 +1056,7 @@ export default function ReportPreview() {
   };
 
   // Loading state
-  const isDataLoading = isProjectLoading || isChaptersLoading || isFilesLoading || isReportLoading;
+  const isDataLoading = isProjectLoading || isChaptersLoading || isFilesLoading || isMappingsLoading || isReportLoading;
 
   if (isDataLoading) {
     return (
@@ -1262,9 +1283,9 @@ export default function ReportPreview() {
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                   <span className="text-[13px]">
-                    已引用{" "}
+                    已关联{" "}
                     <span className="font-semibold">
-                      {sections.reduce((sum, s) => sum + (s.sourceFiles?.length || 0), 0)}
+                      {mappings.length}
                     </span>
                   </span>
                 </div>
@@ -1281,9 +1302,9 @@ export default function ReportPreview() {
                 <div className="flex items-center gap-2">
                   <Percent className="w-4 h-4 text-emerald-500" />
                   <span className="text-[13px]">
-                    有内容章节{" "}
+                    有映射章节{" "}
                     <span className="font-semibold">
-                      {sections.filter(s => s.sourceFiles?.length > 0).length}/{sections.length}
+                      {sections.filter(s => (chapterFilesMap.get(s.id)?.length || 0) > 0).length}/{sections.length}
                     </span>
                   </span>
                 </div>
@@ -1328,12 +1349,14 @@ export default function ReportPreview() {
                 <div className="p-2 space-y-0.5">
                   {sections.map((section) => {
                     const isActive = activeSectionId === section.id;
-                    const hasNoData = section.sourceFiles.length === 0;
+                    // 基于 chapter_file_mappings 判断
+                    const sectionMappedFiles = chapterFilesMap.get(section.id) || [];
+                    const hasNoData = sectionMappedFiles.length === 0;
                     const hasIssues = section.issues && section.issues.length > 0;
                     const isSectionLocked = lockedSectionIds.has(section.id);
 
                     const isExpanded = expandedSectionIds.has(section.id);
-                    const hasFiles = section.sourceFiles.length > 0;
+                    const hasFiles = sectionMappedFiles.length > 0;
 
                     return (
                       <div key={section.id}>
@@ -1390,16 +1413,16 @@ export default function ReportPreview() {
                             <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
                           )}
                         </div>
-                        {/* 展开后显示子文件列表 */}
+                        {/* 展开后显示关联文件列表（来自 chapter_file_mappings） */}
                         {isExpanded && hasFiles && (
                           <div className="ml-6 border-l border-border/50 pl-2 py-1 space-y-1">
-                            {section.sourceFiles.map((fileName, idx) => (
+                            {sectionMappedFiles.map((file, idx) => (
                               <div
-                                key={idx}
+                                key={file.id || idx}
                                 className="text-[11px] text-muted-foreground truncate py-0.5 px-1"
-                                title={fileName}
+                                title={file.name}
                               >
-                                {fileName}
+                                {file.name}
                               </div>
                             ))}
                           </div>
@@ -1615,14 +1638,14 @@ export default function ReportPreview() {
                     <span className="font-medium">{totalIssues}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">有内容章节</span>
+                    <span className="text-muted-foreground">有映射章节</span>
                     <span className={cn(
                       "font-medium",
-                      sections.filter(s => s.sourceFiles?.length > 0).length === sections.length
+                      sections.filter(s => (chapterFilesMap.get(s.id)?.length || 0) > 0).length === sections.length
                         ? "text-emerald-600"
                         : "text-amber-600"
                     )}>
-                      {sections.filter(s => s.sourceFiles?.length > 0).length}/{sections.length}
+                      {sections.filter(s => (chapterFilesMap.get(s.id)?.length || 0) > 0).length}/{sections.length}
                     </span>
                   </div>
                 </div>
@@ -1715,7 +1738,8 @@ function generateReportHTML(
   metadata: ReportMetadata | null,
   definitions: Definition[],
   fileCount: number,
-  templateStyle?: TemplateStyle
+  templateStyle?: TemplateStyle,
+  chapterFilesMapArg?: Map<string, Array<{ name: string; id: string }>>
 ): string {
   const formatDate = () => {
     const date = new Date();
@@ -2055,7 +2079,9 @@ function generateReportHTML(
 
   // Add sections
   for (const section of sections) {
-    const hasNoData = section.sourceFiles.length === 0;
+    // 基于 chapter_file_mappings 判断
+    const sectionMappedFiles = chapterFilesMapArg?.get(section.id) || [];
+    const hasNoData = sectionMappedFiles.length === 0;
     const isIntroSection = section.title.includes("引言") || section.title === "引言";
     const isDefinitionSection = section.title.includes("定义") || section.title.includes("释义");
     const isEquitySection = section.title.includes("股权结构") || section.title.includes("股权架构");
@@ -2202,12 +2228,12 @@ function generateReportHTML(
 `;
     }
 
-    // Add source files
-    if (section.sourceFiles.length > 0) {
+    // Add source files (从 chapter_file_mappings 获取)
+    if (sectionMappedFiles.length > 0) {
       html += `
     <div class="sources">
       <div class="sources-title">证据来源</div>
-      <div class="sources-list">${section.sourceFiles.join("、")}</div>
+      <div class="sources-list">${sectionMappedFiles.map(f => f.name).join("、")}</div>
     </div>
 `;
     }

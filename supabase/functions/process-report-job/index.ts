@@ -385,18 +385,33 @@ serve(async (req) => {
               return acc + issues.length;
             }, 0);
 
-        const sectionsWithEvidence = sections.filter((section) => {
-          const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-          return sourceFiles.length > 0;
-        }).length;
+        // 证据统计改为基于 chapter_file_mappings 映射表计算
+        // 获取所有章节的映射文件数
+        const sectionIds = sections.map(s => String(s.id || "")).filter(Boolean);
+        let evidenceFileCount = 0;
+        let sectionsWithMapping = 0;
 
-        const evidenceFileCount = sections.reduce((acc, section) => {
-          const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-          return acc + sourceFiles.length;
-        }, 0);
+        if (sectionIds.length > 0) {
+          // 从映射表获取每个章节关联的文件数
+          const { data: mappingCounts, error: mappingError } = await admin
+            .from("chapter_file_mappings")
+            .select("chapter_id")
+            .in("chapter_id", sectionIds);
+
+          if (!mappingError && mappingCounts) {
+            // 按章节统计映射数量
+            const mappingCountMap = new Map<string, number>();
+            for (const row of mappingCounts) {
+              const chapterId = String(row.chapter_id);
+              mappingCountMap.set(chapterId, (mappingCountMap.get(chapterId) || 0) + 1);
+            }
+            evidenceFileCount = mappingCounts.length;
+            sectionsWithMapping = mappingCountMap.size;
+          }
+        }
 
         const citationCoverage = sections.length > 0
-          ? Number((sectionsWithEvidence / sections.length).toFixed(4))
+          ? Number((sectionsWithMapping / sections.length).toFixed(4))
           : 0;
 
         const { count: totalFiles } = await admin
@@ -447,7 +462,7 @@ serve(async (req) => {
         }
 
         if (reportError || !reportRow) {
-          throw new Error(reportError?.message || "报告保存失败");
+          throw new Error(reportError?.message || "报告保存���败");
         }
 
         await updateJob({

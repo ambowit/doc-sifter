@@ -40,7 +40,7 @@ interface ChapterContent {
     suggestion: string;
     severity: "high" | "medium" | "low";
   }>;
-  sourceFiles: string[];
+  // sourceFiles 已移除：证据来源由 chapter_file_mappings 表驱动
 }
 
 interface Shareholder {
@@ -151,7 +151,7 @@ function parseAIResponse(content: string): ChapterContent[] {
     content: s.content || "",
     findings: Array.isArray(s.findings) ? s.findings : [],
     issues: Array.isArray(s.issues) ? s.issues : [],
-    sourceFiles: Array.isArray(s.sourceFiles) ? s.sourceFiles : [],
+    // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
   }));
 }
 
@@ -542,8 +542,8 @@ ${allFilesContent}
         );
       }
 
-      // 查询该章节已关联的文件 ID（用 supabaseAdmin 绕过 RLS）
-      const { data: singleMappingRows, error: singleMappingError } = await supabaseAdmin
+      // 查询该章节已关联的文件 ID（用 service role key 绕过 RLS）
+      const { data: singleMappingRows, error: singleMappingError } = await supabase
         .from("chapter_file_mappings")
         .select("file_id")
         .eq("chapter_id", chapterId);
@@ -567,7 +567,6 @@ ${allFilesContent}
               suggestion: "建议稍后重新生成该章节",
               severity: "low",
             }],
-            sourceFiles: [],
           },
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -589,7 +588,6 @@ ${allFilesContent}
             content: `【${chapterTitle}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件后重新生成。`,
             findings: [],
             issues: [],
-            sourceFiles: [],
           },
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -624,7 +622,7 @@ ${allFilesContent}
 |------|----------|------|
 | 总资产 | 1,234.56 | 100% |
 
-3. **文件引用**：sourceFiles必须列出引用的数据室文件名称
+3. **文件引用**：证据来源由系统自动基于章节-文件映射关联
 
 ## 数据室文件
 ${allFilesContent}
@@ -653,8 +651,7 @@ ${allFilesContent}
       "suggestion": "建议在交割前完成工商变更登记",
       "severity": "low"
     }
-  ],
-  "sourceFiles": ["营业执照.pdf", "公司章程.pdf"]
+  ]
 }
 
 ## 重要提醒（必须遵守）
@@ -727,20 +724,8 @@ ${allFilesContent}
             content: parsed.content || `【${chapterTitle}】内容待生成`,
             findings: Array.isArray(parsed.findings) ? parsed.findings : [],
             issues: normalizedIssues,
-            sourceFiles: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles : [],
+            // sourceFiles 移除：证据来源由 chapter_file_mappings 驱动
           };
-
-          // Try to extract sourceFiles from content if empty
-          if (section.sourceFiles.length === 0) {
-            const fileMatches = allFilesContent.match(/=== 文件：(.+?) ===/g);
-            if (fileMatches) {
-              const availableFiles = fileMatches.map(m => m.replace(/=== 文件：(.+?) ===/, "$1"));
-              // Find files mentioned in content
-              section.sourceFiles = availableFiles.filter(f =>
-                section.content.toLowerCase().includes(f.toLowerCase().replace(/\.[^.]+$/, ""))
-              ).slice(0, 5);
-            }
-          }
         } catch (parseErr) {
           logStep("Failed to parse single chapter response", { parseErr, responsePreview: aiResponse.substring(0, 500) });
           // Return successfully parsed section even on parse error
@@ -756,7 +741,6 @@ ${allFilesContent}
               suggestion: "建议重新生成该章节",
               severity: "low"
             }],
-            sourceFiles: [],
           };
         }
 
@@ -783,7 +767,6 @@ ${allFilesContent}
             suggestion: "建议重新生成该章节",
             severity: "low"
           }],
-          sourceFiles: [],
         };
 
         return new Response(
@@ -835,8 +818,8 @@ ${allFilesContent}
       totalFiles: processedFiles.length,
     });
 
-    // 从数据库查询该章节已关联的文件 ID（用 supabaseAdmin 绕过 RLS）
-    const { data: mappingRows, error: mappingError } = await supabaseAdmin
+    // 从数据库查询该章节已关联的文件 ID（用 service role key 绕过 RLS）
+    const { data: mappingRows, error: mappingError } = await supabase
       .from("chapter_file_mappings")
       .select("file_id")
       .eq("chapter_id", currentChapter.id);
@@ -860,7 +843,6 @@ ${allFilesContent}
             suggestion: "建议稍后重新生成该章节",
             severity: "low",
           }],
-          sourceFiles: [],
         }],
         error: mappingError.message,
       }), { headers: { "Content-Type": "application/json" } });
@@ -881,10 +863,9 @@ ${allFilesContent}
           id: currentChapter.id,
           title: currentChapter.title,
           number: currentChapter.number || "",
-          content: `【${currentChapter.title}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页���为该章节关联相关文件后重新生成。`,
+          content: `【${currentChapter.title}】\n\n该章节暂无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件后重新生成。`,
           findings: [],
           issues: [],
-          sourceFiles: [],
         }],
       }), { headers: { "Content-Type": "application/json" } });
     }
@@ -951,8 +932,7 @@ ${hasContent ? `内容：\n${truncatedContent}${content.length > perFileLimit ? 
   "findings": ["发现1", "发现2"],
   "issues": [
     {"fact": "经核查，...", "risk": "存在...风险", "suggestion": "建议...", "severity": "medium"}
-  ],
-  "sourceFiles": ["文件名"]
+  ]
 }
 
 ## severity定义
@@ -1026,7 +1006,6 @@ ${chapterFilesContent}
           content: parsed.content || "",
           findings: Array.isArray(parsed.findings) ? parsed.findings : [],
           issues: normalizedIssues,
-          sourceFiles: Array.isArray(parsed.sourceFiles) ? parsed.sourceFiles : [],
         };
       } catch (parseErr) {
         logStep("Parse error", { error: String(parseErr), preview: aiContent.slice(0, 300) });
@@ -1042,7 +1021,6 @@ ${chapterFilesContent}
             suggestion: "建议重新生成",
             severity: "low"
           }],
-          sourceFiles: [],
         };
       }
 
@@ -1080,7 +1058,6 @@ ${chapterFilesContent}
           suggestion: "建议重新生成该章节",
           severity: "low"
         }],
-        sourceFiles: [],
       };
 
       return new Response(
