@@ -173,11 +173,12 @@ export default function FileUpload() {
   const { data: fileSections = [] } = useFileSections(currentProjectId || undefined);
   const { data: mappings = [] } = useMappings(currentProjectId || undefined);
 
-  // 基于 chapter_file_mappings 构建 fileId → chapterId 的映射表（唯一真源）
+  // 基于 chapter_file_mappings 构建 fileId → Set<chapterId> 的多对多映射表（唯一真源）
   const fileChapterMap = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, Set<string>>();
     for (const m of mappings) {
-      map.set(m.fileId, m.chapterId);
+      if (!map.has(m.fileId)) map.set(m.fileId, new Set());
+      map.get(m.fileId)!.add(m.chapterId);
     }
     return map;
   }, [mappings]);
@@ -253,7 +254,7 @@ export default function FileUpload() {
 
   // 检查文件是否已关联章节（基于 chapter_file_mappings）
   const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
-    return fileChapterMap.get(fileId) === chapterId;
+    return fileChapterMap.get(fileId)?.has(chapterId) ?? false;
   }, [fileChapterMap]);
 
   // Get files for the selected chapter（基于 chapter_file_mappings）
@@ -262,7 +263,7 @@ export default function FileUpload() {
     if (selectedChapterId === 'unassigned') {
       return existingFiles.filter(f => !fileChapterMap.has(f.id));
     }
-    return existingFiles.filter(f => fileChapterMap.get(f.id) === selectedChapterId);
+    return existingFiles.filter(f => fileChapterMap.get(f.id)?.has(selectedChapterId) ?? false);
   }, [selectedChapterId, existingFiles, fileChapterMap]);
 
   // Get selected chapter info
@@ -476,7 +477,7 @@ export default function FileUpload() {
   const getFileStats = () => {
     const stats: Record<FileType, number> = {
       "合同": 0,
-      "公司治理": 0,
+      "公司���理": 0,
       "财务": 0,
       "知识产权": 0,
       "人事": 0,
@@ -1281,7 +1282,7 @@ export default function FileUpload() {
   const handleContinueToDefinitions = () => {
     if (!hasTemplate) {
       toast.error("请先设置报告模板结构", {
-        description: "前往「模板指纹」页面上传或生成报告结构",
+        description: "前往「模板���纹」页面上传或生成报告结构",
       });
       navigate(`/project/${projectId}/template`);
       return;
@@ -1796,12 +1797,12 @@ export default function FileUpload() {
                           const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
                           const hasChildren = children.length > 0;
                           const isExpanded = expandedParentChapters.has(parentChapter.id);
-                          const parentFileCount = existingFiles.filter(f => fileChapterMap.get(f.id) === parentChapter.id).length;
+                          const parentFileCount = existingFiles.filter(f => fileChapterMap.get(f.id)?.has(parentChapter.id) ?? false).length;
                           const isParentSelected = selectedChapterId === parentChapter.id;
 
                           // Calculate total files for parent (including children)
                           const childFileCount = children.reduce((sum, child) =>
-                            sum + existingFiles.filter(f => fileChapterMap.get(f.id) === child.id).length, 0
+                            sum + existingFiles.filter(f => fileChapterMap.get(f.id)?.has(child.id) ?? false).length, 0
                           );
                           const totalFileCount = parentFileCount + childFileCount;
                           
@@ -1877,7 +1878,7 @@ export default function FileUpload() {
                               {hasChildren && isExpanded && (
                                 <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
                                   {children.map((child) => {
-                                    const childFileCount = existingFiles.filter(f => fileChapterMap.get(f.id) === child.id).length;
+                                    const childFileCount = existingFiles.filter(f => fileChapterMap.get(f.id)?.has(child.id) ?? false).length;
                                     const childSectionCnt = sectionCountByChapter.get(child.id) || 0;
                                     const isChildSelected = selectedChapterId === child.id;
                                     return (
@@ -1978,7 +1979,7 @@ export default function FileUpload() {
                                             value={file.name}
                                             onSelect={() => {
                                               if (file.id && selectedChapterId && selectedChapterId !== 'unassigned') {
-                                                updateFileChapterMutation.mutate({ fileId: file.id, chapterId: selectedChapterId });
+                                                updateFileChapterMutation.mutate({ fileId: file.id, chapterId: selectedChapterId, action: "add" });
                                               }
                                             }}
                                             className="flex items-center gap-2 cursor-pointer"
@@ -2204,7 +2205,8 @@ export default function FileUpload() {
                                                       if (!file.id) return;
                                                       updateFileChapterMutation.mutate({
                                                         fileId: file.id,
-                                                        chapterId: isMapped ? null : chapter.id,
+                                                        chapterId: chapter.id,
+                                                        action: isMapped ? "remove" : "add",
                                                       });
                                                     }}
                                                     className="flex items-center gap-2 cursor-pointer"
@@ -2230,7 +2232,7 @@ export default function FileUpload() {
                                   {/* Remove from current chapter */}
                                   {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
                                     <button
-                                      onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: null })}
+                                      onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: selectedChapterId!, action: "remove" })}
                                       className="p-1.5 hover:bg-destructive/10 rounded"
                                       title="从此章节移除"
                                     >

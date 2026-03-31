@@ -24,16 +24,14 @@ export interface UploadedFile {
   textSummary: string | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
-  extractionStatus: string | null;
+  // extraction_method 是数据库真实存在的字段
   extractionMethod: string | null;
-  extractionError: string | null;
-  extractionCompletedAt: string | null;
   // OCR 任务状态（PDF 异步处理）
   ocrTaskId: string | null;
   ocrTaskStatus: string | null; // pending | processing | completed | failed
   ocrTaskStartedAt: string | null;
   ocrTaskCompletedAt: string | null;
-  // AI 分类字段
+  // AI 分类字段（chapterId 已废弃，仅读取，章节关联请用 chapter_file_mappings）
   chapterId: string | null;
   aiSummary: string | null;
   aiClassifiedAt: string | null;
@@ -85,10 +83,7 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   textSummary: row.text_summary as string | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
-  extractionStatus: row.extraction_status as string | null,
   extractionMethod: row.extraction_method as string | null,
-  extractionError: row.extraction_error as string | null,
-  extractionCompletedAt: row.extraction_completed_at as string | null,
   // OCR 任务状态（PDF 异步处理）
   ocrTaskId: row.ocr_task_id as string | null,
   ocrTaskStatus: row.ocr_task_status as string | null,
@@ -473,7 +468,7 @@ async function invokeAuthedFunction<T>(functionName: string, body: Record<string
     throw new Error(
       (typeof data.error === "string" && data.error) ||
       (typeof data.message === "string" && data.message) ||
-      `调用 ${functionName} 失败 (${response.status})`
+      `调用 ${functionName} 失��� (${response.status})`
     );
   }
 
@@ -695,31 +690,47 @@ export function useUpdateFileChapter() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ fileId, chapterId, projectId }: { fileId: string; chapterId: string | null; projectId?: string }) => {
-      if (chapterId) {
-        // 先删除该文件在其他章节的旧映射（单文件单章节语义）
-        await supabase
+    mutationFn: async ({
+      fileId,
+      chapterId,
+      projectId,
+      action = "add",
+    }: {
+      fileId: string;
+      chapterId: string | null;
+      projectId?: string;
+      // action: "add" 添加映射，"remove" 删除特定映射，"clear" 清空所有映射
+      action?: "add" | "remove" | "clear";
+    }) => {
+      if (action === "clear" || chapterId === null) {
+        // 清空该文件的所有章节映射
+        const { error } = await supabase
           .from("chapter_file_mappings")
           .delete()
           .eq("file_id", fileId);
-
-        // 插入新映射
-        const { error } = await supabase
-          .from("chapter_file_mappings")
-          .insert({
-            chapter_id: chapterId,
-            file_id: fileId,
-            is_confirmed: true,
-            is_ai_suggested: false,
-            confidence: 100,
-          });
         if (error) throw error;
-      } else {
-        // chapterId 为 null：移除该文件的所有映射
+      } else if (action === "remove" && chapterId) {
+        // 删除特定章节的映射（多对多：不影响其他章节）
         const { error } = await supabase
           .from("chapter_file_mappings")
           .delete()
-          .eq("file_id", fileId);
+          .eq("file_id", fileId)
+          .eq("chapter_id", chapterId);
+        if (error) throw error;
+      } else if (action === "add" && chapterId) {
+        // 插入新映射（upsert 避免重复）
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .upsert(
+            {
+              chapter_id: chapterId,
+              file_id: fileId,
+              is_confirmed: true,
+              is_ai_suggested: false,
+              confidence: 100,
+            },
+            { onConflict: "chapter_id,file_id" }
+          );
         if (error) throw error;
       }
 
