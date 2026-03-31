@@ -690,21 +690,44 @@ export function useClassifyFilesWithProgress() {
 }
 
 // Hook to manually update a single file's chapter assignment
+// 改为写入 chapter_file_mappings，不再写 files.chapter_id
 export function useUpdateFileChapter() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ fileId, chapterId, projectId }: { fileId: string; chapterId: string | null; projectId?: string }) => {
-      const { data, error } = await supabase
-        .from("files")
-        .update({ chapter_id: chapterId })
-        .eq("id", fileId)
-        .select()
-        .single();
-      if (error) throw error;
-      return { file: transformFile(data), projectId };
+      if (chapterId) {
+        // 先删除该文件在其他章节的旧映射（单文件单章节语义）
+        await supabase
+          .from("chapter_file_mappings")
+          .delete()
+          .eq("file_id", fileId);
+
+        // 插入新映射
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .insert({
+            chapter_id: chapterId,
+            file_id: fileId,
+            is_confirmed: true,
+            is_ai_suggested: false,
+            confidence: 100,
+          });
+        if (error) throw error;
+      } else {
+        // chapterId 为 null：移除该文件的所有映射
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .delete()
+          .eq("file_id", fileId);
+        if (error) throw error;
+      }
+
+      return { projectId };
     },
     onSuccess: ({ projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ["mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
       queryClient.invalidateQueries({ queryKey: projectId ? ["files", projectId] : ["files"] });
     },
   });

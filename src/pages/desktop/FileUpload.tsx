@@ -24,6 +24,7 @@ import {
   detectArchiveType,
 } from "@/lib/archiveExtractor";
 import { useFlatChapters, type Chapter } from "@/hooks/useChapters";
+import { useMappings } from "@/hooks/useMappings";
 import {
   useFileSections,
   useChapterSections,
@@ -170,6 +171,16 @@ export default function FileUpload() {
   const { data: existingFiles = [], isLoading: filesLoading } = useFiles(currentProjectId || undefined);
   const { data: chapters = [] } = useFlatChapters(currentProjectId || undefined);
   const { data: fileSections = [] } = useFileSections(currentProjectId || undefined);
+  const { data: mappings = [] } = useMappings(currentProjectId || undefined);
+
+  // 基于 chapter_file_mappings 构建 fileId → chapterId 的映射表（唯一真源）
+  const fileChapterMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of mappings) {
+      map.set(m.fileId, m.chapterId);
+    }
+    return map;
+  }, [mappings]);
 
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
@@ -240,19 +251,19 @@ export default function FileUpload() {
     return chapters.find(c => c.id === chapterId);
   }, [chapters]);
 
-  // 检查文件是否已关联章节（基于 files.chapter_id）
+  // 检查文件是否已关联章节（基于 chapter_file_mappings）
   const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
-    return existingFiles.some(f => f.id === fileId && f.chapterId === chapterId);
-  }, [existingFiles]);
+    return fileChapterMap.get(fileId) === chapterId;
+  }, [fileChapterMap]);
 
-  // Get files for the selected chapter（基于 files.chapter_id）
+  // Get files for the selected chapter（基于 chapter_file_mappings）
   const selectedChapterFiles = useMemo(() => {
     if (!selectedChapterId) return [];
     if (selectedChapterId === 'unassigned') {
-      return existingFiles.filter(f => !f.chapterId);
+      return existingFiles.filter(f => !fileChapterMap.has(f.id));
     }
-    return existingFiles.filter(f => f.chapterId === selectedChapterId);
-  }, [selectedChapterId, existingFiles]);
+    return existingFiles.filter(f => fileChapterMap.get(f.id) === selectedChapterId);
+  }, [selectedChapterId, existingFiles, fileChapterMap]);
 
   // Get selected chapter info
   const selectedChapter = useMemo(() => {
@@ -383,12 +394,12 @@ export default function FileUpload() {
   // Auto-select first chapter on initial load
   useEffect(() => {
     if (!hasInitializedChapter && chapters.length > 0) {
-      // Check if there are unassigned files
-      const hasUnassigned = existingFiles.some(f => !f.chapterId);
+      // 基于 chapter_file_mappings 判断是否有未分配文件
+      const hasUnassigned = existingFiles.some(f => !fileChapterMap.has(f.id));
       setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
       setHasInitializedChapter(true);
     }
-  }, [chapters, existingFiles, hasInitializedChapter]);
+  }, [chapters, existingFiles, hasInitializedChapter, fileChapterMap]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -417,7 +428,7 @@ export default function FileUpload() {
 
     // Create a stable fingerprint to detect actual changes from OCR/classification callbacks
     const currentFingerprint = existingFiles
-      .map(f => `${f.id}:${f.updatedAt}:${f.ocrProcessed}:${f.ocrTaskStatus}:${f.chapterId ?? ""}`)
+      .map(f => `${f.id}:${f.updatedAt}:${f.ocrProcessed}:${f.ocrTaskStatus}`)
       .join(",");
     const fingerprintChanged = currentFingerprint !== prevFilesFingerprintRef.current;
 
@@ -993,9 +1004,9 @@ export default function FileUpload() {
       return;
     }
     
-    // 找出未分配章节且有文字内容的文件
+    // 找出未分配章节且有文字内容的文件（基于 chapter_file_mappings）
     const unassignedFiles = existingFiles.filter(f => 
-      !f.chapterId && (f.extractedText || f.textSummary)
+      !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)
     );
     
     if (unassignedFiles.length === 0) {
@@ -1031,7 +1042,7 @@ export default function FileUpload() {
         toast.warning(`${result.failed} 个文件匹配失败`);
       }
     }
-  }, [currentProjectId, existingFiles, chapters, startClassify]);
+  }, [currentProjectId, existingFiles, chapters, startClassify, fileChapterMap]);
 
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
@@ -1689,7 +1700,7 @@ export default function FileUpload() {
                   </div>
                   <div className="flex items-center gap-2">
                     {/* 自动匹配按钮 - 有未分配文件且有章节时显示 */}
-                    {chapters.length > 0 && existingFiles.some(f => !f.chapterId && (f.extractedText || f.textSummary)) && (
+                    {chapters.length > 0 && existingFiles.some(f => !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1757,7 +1768,7 @@ export default function FileUpload() {
                       <div className="p-1">
                         {/* Unassigned files section */}
                         {(() => {
-                          const unassignedCount = existingFiles.filter(f => !f.chapterId).length;
+                          const unassignedCount = existingFiles.filter(f => !fileChapterMap.has(f.id)).length;
                           if (unassignedCount > 0) {
                             return (
                               <button
@@ -1785,12 +1796,12 @@ export default function FileUpload() {
                           const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
                           const hasChildren = children.length > 0;
                           const isExpanded = expandedParentChapters.has(parentChapter.id);
-                          const parentFileCount = existingFiles.filter(f => f.chapterId === parentChapter.id).length;
+                          const parentFileCount = existingFiles.filter(f => fileChapterMap.get(f.id) === parentChapter.id).length;
                           const isParentSelected = selectedChapterId === parentChapter.id;
 
                           // Calculate total files for parent (including children)
                           const childFileCount = children.reduce((sum, child) =>
-                            sum + existingFiles.filter(f => f.chapterId === child.id).length, 0
+                            sum + existingFiles.filter(f => fileChapterMap.get(f.id) === child.id).length, 0
                           );
                           const totalFileCount = parentFileCount + childFileCount;
                           
@@ -1866,7 +1877,7 @@ export default function FileUpload() {
                               {hasChildren && isExpanded && (
                                 <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
                                   {children.map((child) => {
-                                    const childFileCount = existingFiles.filter(f => f.chapterId === child.id).length;
+                                    const childFileCount = existingFiles.filter(f => fileChapterMap.get(f.id) === child.id).length;
                                     const childSectionCnt = sectionCountByChapter.get(child.id) || 0;
                                     const isChildSelected = selectedChapterId === child.id;
                                     return (
@@ -2031,7 +2042,7 @@ export default function FileUpload() {
                           selectedChapterSections.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                               <FileSearch className="w-12 h-12 mb-2 opacity-30" />
-                              <p className="text-[13px]">该章节暂无解析内容</p>
+                              <p className="text-[13px]">该章节暂���解析内容</p>
                               <p className="text-[11px] mt-1">请先上传文件并点击"解析结构"</p>
                             </div>
                           ) : (
