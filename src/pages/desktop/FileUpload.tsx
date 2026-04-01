@@ -1703,7 +1703,7 @@ export default function FileUpload() {
                     {fileSections.length > 0 && (
                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200">
                         <Link2 className="w-3 h-3 mr-1" />
-                        {fileSections.length} 段解析内容
+                        {fileSections.length} 段解��内容
                       </Badge>
                     )}
                   </div>
@@ -1750,8 +1750,8 @@ export default function FileUpload() {
                     onDrop={handleDataRoomDrop}
                   >
                     {/* Left Panel: 章节目录 */}
-                    <div className="w-[280px] flex-shrink-0 border-r bg-muted/30 overflow-y-auto">
-                      <div className="p-2 border-b bg-muted/50 sticky top-0">
+                    <div className="w-[280px] flex-shrink-0 border-r bg-muted overflow-y-auto">
+                      <div className="p-2 border-b bg-muted sticky top-0 z-10">
                         <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                           章节目录
                         </div>
@@ -1923,7 +1923,7 @@ export default function FileUpload() {
                     {/* Right Panel: 文件列表 */}
                     <div className="flex-1 flex flex-col overflow-hidden">
                       {/* Right Panel Header */}
-                      <div className="p-2 border-b bg-muted/30 flex items-center justify-between sticky top-0">
+                      <div className="p-2 border-b bg-muted flex items-center justify-between sticky top-0 z-10">
                         <div className="flex items-center gap-2">
                           {selectedChapterId === 'unassigned' ? (
                             <>
@@ -2077,8 +2077,8 @@ export default function FileUpload() {
                           </div>
                         ) : (
                           <div className="divide-y">
-                            {/* Table Header */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0">
+                        {/* Table Header */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-muted text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0 z-10">
                               <span className="flex-1">文件名称</span>
                               <span className="w-16 text-center">类型</span>
                               <span className="w-20 text-right">大小</span>
