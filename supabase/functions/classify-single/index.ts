@@ -149,13 +149,21 @@ serve(async (req) => {
 
     log("Classifying", { fileId: file.id, fileName: file.name });
 
+    console.log(`[classify-single] Processing file: ${file.name} (${file.id})`);
+    console.log(`[classify-single] Total chapters provided for classification: ${chapters.length}`);
+
     const result = await classifySingleFile(file, chapters, token, gatewayBase);
 
-    // 写入 chapter_file_mappings（不再写 files.chapter_id）
-    const now = new Date().toISOString();
+    console.log(`[classify-single] AI Result for ${file.name}:`, JSON.stringify(result, null, 2));
 
+    if (!result.chapterId) {
+      console.warn(`[classify-single] Warning: No chapterId returned by AI for ${file.name}`);
+    }
+
+    // 写入 chapter_file_mappings
     if (result.chapterId) {
-      const { error: mappingError } = await db
+      console.log(`[classify-single] Attempting to upsert mapping: file ${file.id} -> chapter ${result.chapterId}`);
+      const { data: upsertData, error: mappingError } = await db
         .from("chapter_file_mappings")
         .upsert(
           {
@@ -166,17 +174,23 @@ serve(async (req) => {
             confidence: result.confidence,
           },
           { onConflict: "chapter_id,file_id" }
-        );
-      if (mappingError) log("Mapping error", { error: mappingError.message });
+        )
+        .select();
+      
+      if (mappingError) {
+        console.error(`[classify-single] DB Mapping error for file ${file.id}:`, mappingError.message, mappingError.details);
+      } else {
+        console.log(`[classify-single] Mapping successful! Result:`, JSON.stringify(upsertData, null, 2));
+      }
     }
 
-    // 更新文件分类统计信息（不写 chapter_id）
-    await db
+    // 更新文件分类统计信息
+    const { error: fileError } = await db
       .from("files")
       .update({
         ai_summary: result.summary || null,
         classification_confidence: result.confidence,
-        ai_classified_at: now,
+        ai_classified_at: new Date().toISOString(),
       })
       .eq("id", file.id)
       .eq("project_id", projectId);

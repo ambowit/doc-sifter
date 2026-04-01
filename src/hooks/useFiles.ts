@@ -618,6 +618,8 @@ export function useClassifyFilesWithProgress() {
           body: { projectId, file, chapters },
         });
 
+        console.log(`[useClassifyFiles] Edge Function response for ${file.name}:`, { data, error });
+
         if (error || data?.error) {
           results.push({ fileId: file.id, fileName: file.name, success: false, error: error?.message || data?.error });
           setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));

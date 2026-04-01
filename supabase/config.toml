@@ -62,3 +62,24 @@ verify_jwt = false
 
 [functions.ocr-callback]
 verify_jwt = false
+
+[functions.classify-single]
+verify_jwt = false
+
+[functions.classify-files]
+verify_jwt = false
+
+[functions.match-sections-to-chapters]
+verify_jwt = false
+
+[functions.parse-document-structure]
+verify_jwt = false
+
+[functions.get-report-job-status]
+verify_jwt = false
+
+[functions.run-report-job]
+verify_jwt = false
+
+[functions.cancel-report-job]
+verify_jwt = false
