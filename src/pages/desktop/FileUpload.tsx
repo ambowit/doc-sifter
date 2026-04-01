@@ -1668,10 +1668,6 @@ export default function FileUpload() {
                       </Button>
                     </motion.div>
                   )}
-                        全部重试
-                      </Button>
-                    </motion.div>
-                  )}
 
                   {/* Unextracted Files Banner (files never attempted, excluding failed ones) */}
                   {unextractedOcrFiles.length > 0 && failedOcrFiles.length < unextractedOcrFiles.length && (
