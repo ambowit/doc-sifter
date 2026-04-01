@@ -615,10 +615,13 @@ export default function TemplateFingerprint() {
     updateSelectedStyle,
   } = useTemplateFingerprint(currentProjectId || undefined);
   const {
-    data: templateStyles = [],
-    isLoading: stylesLoading,
-    updateStyle,
-    isUpdating: isStyleUpdating,
+  data: templateStyles = [],
+  isLoading: stylesLoading,
+  updateStyle,
+  isUpdating: isStyleUpdating,
+  customStyle,
+  upsertCustomStyle,
+  isUpsertingCustom,
   } = useTemplateStyles(currentProjectId || undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -643,6 +646,9 @@ export default function TemplateFingerprint() {
 
   const currentTemplate = draftTemplate;
 
+  // 自定义模板的特殊 ID 标识
+  const CUSTOM_STYLE_ID = "__custom__";
+  
   const fallbackStyle: TemplateStyle = useMemo(
     () => ({
       id: "fallback",
@@ -692,16 +698,41 @@ export default function TemplateFingerprint() {
   }, [isEditingStyle]);
 
   const saveCurrentStyle = useCallback(async () => {
-    if (!styleDraft || !isEditingStyle) return;
-    try {
-      await updateStyle(styleDraft);
-      setStyleDraftDirty(false);
-      toast.success("样式已保存", { description: "模板样式已更新" });
-    } catch (error) {
-      console.error("Failed to save styles:", error);
-      toast.error("保存失败", { description: "无法保存样式配置" });
-    }
-  }, [styleDraft, updateStyle, isEditingStyle]);
+  if (!styleDraft || !isEditingStyle || !currentProjectId) return;
+  try {
+  // 判断是否是自定义模板（ID 为特殊标识或有 projectId）
+  const isCustom = styleDraft.id === CUSTOM_STYLE_ID || styleDraft.projectId === currentProjectId;
+  
+  if (isCustom) {
+    // 保存为项目专属自定义模板
+    const savedStyle = await upsertCustomStyle({
+      projectId: currentProjectId,
+      style: {
+        name: styleDraft.name || "自定义模板",
+        description: styleDraft.description || "仅对当前项目生效的自定义样式",
+        preview: styleDraft.preview,
+        styles: styleDraft.styles,
+        tables: styleDraft.tables,
+        page: styleDraft.page,
+      },
+    });
+    // 更新本地选中的样式 ID 为实际保存后的 ID
+    setLocalSelectedStyleId(savedStyle.id);
+    setStyleDraft({ ...styleDraft, id: savedStyle.id, projectId: savedStyle.projectId });
+    // 同步更新 templateFingerprint 的 selectedStyleId
+    await updateSelectedStyle(savedStyle.id);
+    toast.success("自定义模板已保存", { description: "样式仅对当前项目生效" });
+  } else {
+    // 更新全局模板
+    await updateStyle(styleDraft);
+    toast.success("样式已保存", { description: "模板样式已更新" });
+  }
+  setStyleDraftDirty(false);
+  } catch (error) {
+  console.error("Failed to save styles:", error);
+  toast.error("保存失败", { description: "无法保存样式配置" });
+  }
+  }, [styleDraft, updateStyle, upsertCustomStyle, isEditingStyle, currentProjectId, updateSelectedStyle, CUSTOM_STYLE_ID]);
 
   const resetStyleToDefault = useCallback(() => {
     const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
@@ -1191,7 +1222,8 @@ export default function TemplateFingerprint() {
                   </div>
                   <ScrollArea className="h-0 grow">
                     <div className="p-3 space-y-2">
-                      {templateStyles.map((style) => {
+                      {/* 全局模板列表（排除项目专属的自定义模板） */}
+                      {templateStyles.filter(s => !s.projectId).map((style) => {
                         const displayStyle =
                           isEditingStyle && style.id === selectedStyleId && styleDraft?.id === style.id ? styleDraft : style;
                         return (
@@ -1233,6 +1265,80 @@ export default function TemplateFingerprint() {
                           </div>
                         );
                       })}
+                      
+                      {/* 分隔线 */}
+                      <div className="border-t border-border my-2" />
+                      
+                      {/* 自定义模板选项 */}
+                      {(() => {
+                        const isCustomSelected = selectedStyleId === CUSTOM_STYLE_ID || (customStyle && selectedStyleId === customStyle.id);
+                        const displayCustomStyle = isCustomSelected && styleDraft ? styleDraft : (customStyle || templateStyles[0]);
+                        return (
+                          <div
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-colors",
+                              isCustomSelected
+                                ? "border-primary bg-primary/5"
+                                : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50 bg-muted/10"
+                            )}
+                            onClick={() => {
+                              if (customStyle) {
+                                handleSelectStyle(customStyle.id);
+                              } else {
+                                // 没有自定义模板时，使用特殊 ID 并进入编辑模式
+                                setLocalSelectedStyleId(CUSTOM_STYLE_ID);
+                                const baseStyle = templateStyles[0] || fallbackStyle;
+                                setStyleDraft({
+                                  ...JSON.parse(JSON.stringify(baseStyle)),
+                                  id: CUSTOM_STYLE_ID,
+                                  name: "自定义模板",
+                                  description: "仅对当前项目生效的自定义样式",
+                                  projectId: currentProjectId,
+                                });
+                                setStyleDraftDirty(true);
+                                setIsEditingStyle(true);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-dashed border-muted-foreground/30 overflow-hidden flex items-center justify-center bg-muted/20">
+                                {customStyle ? (
+                                  <>
+                                    <div
+                                      className="absolute inset-0 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.primaryColor || "#111827" }}
+                                    />
+                                    <div
+                                      className="absolute inset-0 top-1/2 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.accentColor || "#374151" }}
+                                    />
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">+</span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">
+                                    {customStyle ? customStyle.name : "自定义模板"}
+                                  </h4>
+                                  {isCustomSelected && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline" className="text-[9px] px-1 text-muted-foreground">
+                                    仅本项目
+                                  </Badge>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {customStyle ? (displayCustomStyle?.preview?.fontFamily || "自定义") : "基于其他模板创建专属样式"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </ScrollArea>
                 </div>
@@ -1280,14 +1386,14 @@ export default function TemplateFingerprint() {
                         >
                           {isEditingStyle ? "停止编辑" : "编辑"}
                         </Button>
-                        <Button
-                          size="sm"
-                          className="h-7 text-[11px]"
-                          onClick={saveCurrentStyle}
-                          disabled={!isEditingStyle || !styleDraftDirty || isStyleUpdating}
-                        >
-                          保存
-                        </Button>
+  <Button
+  size="sm"
+  className="h-7 text-[11px]"
+  onClick={saveCurrentStyle}
+  disabled={!isEditingStyle || !styleDraftDirty || isStyleUpdating || isUpsertingCustom}
+  >
+  {isStyleUpdating || isUpsertingCustom ? "保存中..." : "保存"}
+  </Button>
                       </div>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
@@ -1926,7 +2032,7 @@ export default function TemplateFingerprint() {
                               textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
                             }}
                           >
-                            法律尽职调查报告
+                            法律尽职��查报告
                           </h1>
                           <p
                             style={{
