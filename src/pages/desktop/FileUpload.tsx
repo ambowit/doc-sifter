@@ -2121,12 +2121,22 @@ export default function FileUpload() {
                               <div
                                 key={file.storagePath}
                                 className={cn(
-                                  "flex items-center gap-2 px-3 py-2 text-[13px] group transition-colors",
+                                  "flex items-center gap-2 px-3 py-2 text-[13px] group transition-colors relative",
                                   isFailed 
                                     ? "bg-red-50/70 hover:bg-red-50" 
                                     : "hover:bg-muted/30"
                                 )}
                               >
+                                {/* Remove from current chapter - positioned at top-right of the entire row */}
+                                {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
+                                  <button
+                                    onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: selectedChapterId!, action: "remove" })}
+                                    className="absolute top-1 right-1 p-0.5 hover:bg-destructive/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="从此章节移除"
+                                  >
+                                    <X className="w-3.5 h-3.5 text-destructive" />
+                                  </button>
+                                )}
                                 {getFileIcon(file.name)}
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
                                 
@@ -2282,17 +2292,6 @@ export default function FileUpload() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
-                                  )}
-
-                                  {/* Remove from current chapter */}
-                                  {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
-                                    <button
-                                      onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: selectedChapterId!, action: "remove" })}
-                                      className="p-1.5 hover:bg-destructive/10 rounded"
-                                      title="从此章节移除"
-                                    >
-                                      <X className="w-3.5 h-3.5 text-destructive" />
-                                    </button>
                                   )}
 
                                   {/* Delete file */}
