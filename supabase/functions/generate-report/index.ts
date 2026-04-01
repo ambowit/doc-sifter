@@ -4,7 +4,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 const logStep = (step: string, details?: unknown) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : "";
@@ -179,6 +187,7 @@ function categorizeFile(fileName: string): string {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
+    logStep("CORS preflight", { method: req.method });
     return new Response(null, { headers: corsHeaders });
   }
 
@@ -198,10 +207,7 @@ serve(async (req) => {
     logStep("Starting report generation", { projectId, mode, batchIndex, totalBatches, chapterId });
 
     if (!projectId) {
-      return new Response(
-        JSON.stringify({ error: "Project ID is required" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
+      return jsonResponse({ error: "Project ID is required" }, 400);
     }
 
     // Initialize Supabase client
@@ -218,19 +224,13 @@ serve(async (req) => {
 
     if (projectError || !project) {
       logStep("Project not found", { projectError });
-      return new Response(
-        JSON.stringify({ error: "Project not found" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404 }
-      );
+      return jsonResponse({ error: "Project not found" }, 404);
     }
 
     // Get API key
     const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
+      return jsonResponse({ error: "OOOK_AI_GATEWAY_TOKEN not configured" }, 500);
     }
 
     // ============ FETCH ALL FILES (No mapping required!) ============
@@ -478,27 +478,21 @@ ${allFilesContent}
           };
         }
 
-        return new Response(
-          JSON.stringify({ success: true, mode: "metadata", metadata }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-        );
+        return jsonResponse({ success: true, mode: "metadata", metadata }, 200);
       } catch (error) {
         logStep("Metadata extraction error", { error: String(error) });
-        return new Response(
-          JSON.stringify({
-            success: true,
-            mode: "metadata",
-            metadata: {
-              equityStructure: {
-                companyName: project.target || project.name || "目标公司",
-                shareholders: [],
-                notes: ["股权信息待核实"]
-              },
-              definitions: []
-            }
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-        );
+        return jsonResponse({
+          success: true,
+          mode: "metadata",
+          metadata: {
+            equityStructure: {
+              companyName: project.target || project.name || "目标公司",
+              shareholders: [],
+              notes: ["股权信息待核实"]
+            },
+            definitions: []
+          }
+        }, 200);
       }
     }
 
@@ -514,21 +508,18 @@ ${allFilesContent}
       const lowRiskCount = previousSections.reduce((acc: number, s: ChapterContent) =>
         acc + (s.issues?.filter((i: { severity: string }) => i.severity === "low").length || 0), 0);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          mode: "analyze",
-          summary: {
-            totalIssues,
-            highRiskCount,
-            mediumRiskCount,
-            lowRiskCount,
-            keyFindings: [`共生成${previousSections.length}个章节`, `发现${totalIssues}个法律问题`]
-          },
-          sections: previousSections
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
+      return jsonResponse({
+        success: true,
+        mode: "analyze",
+        summary: {
+          totalIssues,
+          highRiskCount,
+          mediumRiskCount,
+          lowRiskCount,
+          keyFindings: [`共生成${previousSections.length}个章节`, `发现${totalIssues}个法律问题`]
+        },
+        sections: previousSections
+      }, 200);
     }
 
     // ============ SINGLE MODE - RETRY ONE CHAPTER ============
@@ -536,10 +527,7 @@ ${allFilesContent}
       logStep("Single mode: regenerating one chapter", { chapterId, chapterTitle });
 
       if (!chapterTitle) {
-        return new Response(
-          JSON.stringify({ error: "Chapter title is required for single mode" }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-        );
+        return jsonResponse({ error: "Chapter title is required for single mode" }, 400);
       }
 
       // 查询该章节已关联的文件 ID（用 service role key 绕过 RLS）
@@ -551,7 +539,7 @@ ${allFilesContent}
       // 数据库查询失败 → 生成失败，不走 AI
       if (singleMappingError) {
         logStep("Single mode: mapping query failed", { error: singleMappingError.message });
-        return new Response(JSON.stringify({
+        return jsonResponse({
           success: false,
           mode: "single",
           error: `无法获取章节关联文件：${singleMappingError.message}`,
@@ -568,7 +556,7 @@ ${allFilesContent}
               severity: "low",
             }],
           },
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        });
       }
 
       const singleMappedFileIds = new Set((singleMappingRows || []).map((r: { file_id: string }) => r.file_id));
@@ -576,7 +564,7 @@ ${allFilesContent}
       // 无关联文件 → 跳过，不走 AI
       if (singleMappedFileIds.size === 0) {
         logStep("Single mode: no mapped files, skipping", { chapter: chapterTitle });
-        return new Response(JSON.stringify({
+        return jsonResponse({
           success: true,
           mode: "single",
           skipped: true,
@@ -589,7 +577,7 @@ ${allFilesContent}
             findings: [],
             issues: [],
           },
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        });
       }
 
       // 只使用已关联的文件构建内容摘要
@@ -744,10 +732,7 @@ ${allFilesContent}
           };
         }
 
-        return new Response(
-          JSON.stringify({ success: true, mode: "single", section }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-        );
+        return jsonResponse({ success: true, mode: "single", section }, 200);
       } catch (aiError) {
         const errorMsg = aiError instanceof Error ? aiError.message : String(aiError);
         logStep("Single chapter AI error", { errorMsg });
@@ -769,15 +754,12 @@ ${allFilesContent}
           }],
         };
 
-        return new Response(
-          JSON.stringify({
-            success: true, // Return success so frontend can update UI
-            mode: "single",
-            section: errorSection,
-            warning: errorMsg.includes("AI_TIMEOUT") ? "生成超时" : errorMsg,
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-        );
+        return jsonResponse({
+          success: true, // Return success so frontend can update UI
+          mode: "single",
+          section: errorSection,
+          warning: errorMsg.includes("AI_TIMEOUT") ? "生成超时" : errorMsg,
+        }, 200);
       }
     }
 
@@ -794,18 +776,15 @@ ${allFilesContent}
     const targetChapters = processedChapters.slice(startIdx, endIdx);
 
     if (targetChapters.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          mode: "batch",
-          batchIndex,
-          sections: [],
-          totalChapters: processedChapters.length,
-          batchChapters: 0,
-          message: "No chapters in this batch"
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
+      return jsonResponse({
+        success: true,
+        mode: "batch",
+        batchIndex,
+        sections: [],
+        totalChapters: processedChapters.length,
+        batchChapters: 0,
+        message: "No chapters in this batch"
+      }, 200);
     }
 
     // 当前批次只有一个章节
@@ -827,7 +806,7 @@ ${allFilesContent}
     // 数据库查询失败 → 生成失败，不走 AI
     if (mappingError) {
       logStep("Chapter-file mapping query failed", { error: mappingError.message });
-      return new Response(JSON.stringify({
+      return jsonResponse({
         success: false,
         mode: "batch",
         batchIndex,
@@ -845,7 +824,7 @@ ${allFilesContent}
           }],
         }],
         error: mappingError.message,
-      }), { headers: { "Content-Type": "application/json" } });
+      });
     }
 
     const mappedFileIds = new Set((mappingRows || []).map((r: { file_id: string }) => r.file_id));
@@ -853,7 +832,7 @@ ${allFilesContent}
     // 无关联文件 → 跳过，不走 AI
     if (mappedFileIds.size === 0) {
       logStep("No mapped files for chapter, skipping", { chapter: currentChapter.title });
-      return new Response(JSON.stringify({
+      return jsonResponse({
         success: true,
         mode: "batch",
         batchIndex,
@@ -867,7 +846,7 @@ ${allFilesContent}
           findings: [],
           issues: [],
         }],
-      }), { headers: { "Content-Type": "application/json" } });
+      });
     }
 
     // 只使用已关联的文件
@@ -1026,19 +1005,16 @@ ${chapterFilesContent}
 
       logStep("Chapter generated", { id: section.id, title: section.title });
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          mode: "batch",
-          batchIndex,
-          totalBatches: actualTotalBatches,
-          sections: [section], // 返回数组保持兼容
-          totalChapters: processedChapters.length,
-          batchChapters: 1,
-          relevantFilesCount: relevantFiles.length,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
+      return jsonResponse({
+        success: true,
+        mode: "batch",
+        batchIndex,
+        totalBatches: actualTotalBatches,
+        sections: [section], // 返回数组保持兼容
+        totalChapters: processedChapters.length,
+        batchChapters: 1,
+        relevantFilesCount: relevantFiles.length,
+      }, 200);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1060,24 +1036,18 @@ ${chapterFilesContent}
         }],
       };
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          mode: "batch",
-          batchIndex,
-          sections: [fallbackSection],
-          warning: errorMsg.includes("AI_TIMEOUT") ? "AI生成超时" : errorMsg,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-      );
+      return jsonResponse({
+        success: true,
+        mode: "batch",
+        batchIndex,
+        sections: [fallbackSection],
+        warning: errorMsg.includes("AI_TIMEOUT") ? "AI生成超时" : errorMsg,
+      }, 200);
     }
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logStep("ERROR", { message: errorMessage });
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+    return jsonResponse({ error: errorMessage }, 500);
   }
 });

@@ -621,13 +621,13 @@ export default function Definitions() {
           </Button>
         </div>
       </div>
-
+      {/* 
       <div className="mx-6 mt-4 p-4 bg-card border border-border rounded-lg grid grid-cols-4 gap-4">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-primary" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">最终定义</div><div className="text-[16px] font-semibold">{definitionStats.total}</div></div></div>
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center"><WandSparkles className="w-5 h-5 text-amber-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">待复核候选</div><div className="text-[16px] font-semibold">{actionableCandidateCount}</div></div></div>
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-rose-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">冲突候选</div><div className="text-[16px] font-semibold">{candidateStats.conflicts}</div></div></div>
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><Lock className="w-5 h-5 text-slate-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">锁定定义</div><div className="text-[16px] font-semibold">{definitionStats.locked}</div></div></div>
-      </div>
+      </div> */}
 
       <div className="flex-1 px-6 pb-6 pt-4 overflow-hidden">
         <Tabs defaultValue="final" className="h-full flex flex-col min-h-0">

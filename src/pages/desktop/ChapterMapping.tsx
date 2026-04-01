@@ -36,17 +36,14 @@ interface DragState {
   sourceChapterId: string | null;
 }
 
-function collectChapterAndDescendantIds(chapter: Chapter): Set<string> {
-  const ids = new Set<string>();
-  const stack: Chapter[] = [chapter];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    ids.add(current.id);
-    if (current.children?.length) {
-      stack.push(...current.children);
-    }
+type NumberedChapter = Chapter & { number: string };
+
+function collectLeafChapters(chapter: Chapter): Chapter[] {
+  if (!chapter.children || chapter.children.length === 0) {
+    return [chapter];
   }
-  return ids;
+
+  return chapter.children.flatMap((child) => collectLeafChapters(child));
 }
 
 export default function ChapterMapping() {
@@ -151,49 +148,75 @@ export default function ChapterMapping() {
     return map;
   }, [mappings]);
 
-  const level1Chapters = useMemo(() => {
+  const rootChapters = useMemo(() => {
     const roots = chaptersTree.filter((c) => c.level === 1);
     if (roots.length > 0) return roots;
     return chaptersTree;
   }, [chaptersTree]);
 
-  const level1DescendantIds = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    level1Chapters.forEach((chapter) => {
-      map.set(chapter.id, collectChapterAndDescendantIds(chapter));
+  const chapterNumberById = useMemo(() => {
+    const map = new Map<string, string>();
+    flatChapters.forEach((chapter) => {
+      map.set(chapter.id, chapter.number || "");
     });
     return map;
-  }, [level1Chapters]);
+  }, [flatChapters]);
 
-  const level1FileCountMap = useMemo(() => {
+  const leafGroups = useMemo(() => {
+    return rootChapters
+      .map((root) => {
+        const leaves = collectLeafChapters(root).map((leaf) => ({
+          ...leaf,
+          number: chapterNumberById.get(leaf.id) || "",
+        }));
+        return {
+          root: {
+            ...root,
+            number: chapterNumberById.get(root.id) || "",
+          } as NumberedChapter,
+          leaves: leaves as NumberedChapter[],
+        };
+      })
+      .filter((group) => group.leaves.length > 0);
+  }, [chapterNumberById, rootChapters]);
+
+  const leafFileCountMap = useMemo(() => {
     const map = new Map<string, number>();
-    level1Chapters.forEach((chapter) => {
-      const subtreeIds = level1DescendantIds.get(chapter.id) ?? new Set([chapter.id]);
+    leafGroups.forEach((group) => {
+      group.leaves.forEach((leaf) => {
+        const count = files.filter((file) => fileToChapters.get(file.id)?.has(leaf.id)).length;
+        map.set(leaf.id, count);
+      });
+    });
+    return map;
+  }, [fileToChapters, files, leafGroups]);
+
+  const filesByLeaf = useMemo(() => {
+    const map = new Map<string, UploadedFile[]>();
+    leafGroups.forEach((group) => {
+      group.leaves.forEach((leaf) => {
+        const leafFiles = files.filter((file) => fileToChapters.get(file.id)?.has(leaf.id));
+        map.set(leaf.id, leafFiles);
+      });
+    });
+    return map;
+  }, [fileToChapters, files, leafGroups]);
+
+  const rootGroupFileCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    leafGroups.forEach((group) => {
       const count = files.filter((file) => {
         const mapped = fileToChapters.get(file.id);
         if (!mapped || mapped.size === 0) return false;
-        for (const chapterId of mapped) {
-          if (subtreeIds.has(chapterId)) return true;
+        for (const leaf of group.leaves) {
+          if (mapped.has(leaf.id)) return true;
         }
         return false;
       }).length;
-      map.set(chapter.id, count);
+      map.set(group.root.id, count);
     });
     return map;
-  }, [files, fileToChapters, level1Chapters, level1DescendantIds]);
-
-  const filesByChapter = level1Chapters.map((chapter) => ({
-    chapter,
-    files: files.filter((file) => {
-      const mapped = fileToChapters.get(file.id);
-      if (!mapped || mapped.size === 0) return false;
-      const subtreeIds = level1DescendantIds.get(chapter.id) ?? new Set([chapter.id]);
-      for (const chapterId of mapped) {
-        if (subtreeIds.has(chapterId)) return true;
-      }
-      return false;
-    }),
-  }));
+  }, [fileToChapters, files, leafGroups]);
 
   const unassignedFiles = files.filter((f) => !fileToChapters.has(f.id));
   const classifiedCount = files.filter((f) => fileToChapters.has(f.id)).length;
@@ -287,26 +310,35 @@ export default function ChapterMapping() {
                 />
               )}
 
-              {/* 各章节桶 */}
-              {filesByChapter.map(({ chapter, files: chapterFiles }) => (
-                <ChapterBucket
-                  key={chapter.id}
-                  chapterId={chapter.id}
-                  label={
-                    chapter.number && chapter.number !== chapter.title
-                      ? `${chapter.number}、${chapter.title}`
-                      : chapter.title
-                  }
-                  files={chapterFiles}
-                  isDragOver={dragOverChapterId === chapter.id}
-                  isDragging={!!dragState}
-                  onDragOver={() => setDragOverChapterId(chapter.id)}
-                  onDragLeave={() => setDragOverChapterId(null)}
-                  onDrop={() => handleDrop(chapter.id)}
-                  onFileDragStart={(fileId) => handleDragStart(fileId, chapter.id)}
-                  onFileDragEnd={handleDragEnd}
-                  projectId={projectId!}
-                />
+              {/* 父章节分组 + 叶子章节桶 */}
+              {leafGroups.map((group) => (
+                <div key={group.root.id} className="space-y-1.5">
+                  <div className="px-2 py-1 rounded bg-muted/30 border border-border/40 flex items-center justify-between">
+                    <span className="text-[10px] font-medium text-muted-foreground truncate">
+                      {group.root.number && group.root.number !== group.root.title
+                        ? `${group.root.number}、${group.root.title}`
+                        : group.root.title}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{rootGroupFileCountMap.get(group.root.id) ?? 0}</span>
+                  </div>
+
+                  {group.leaves.map((leaf) => (
+                    <ChapterBucket
+                      key={leaf.id}
+                      chapterId={leaf.id}
+                      label={leaf.number && leaf.number !== leaf.title ? `${leaf.number}、${leaf.title}` : leaf.title}
+                      files={filesByLeaf.get(leaf.id) || []}
+                      isDragOver={dragOverChapterId === leaf.id}
+                      isDragging={!!dragState}
+                      onDragOver={() => setDragOverChapterId(leaf.id)}
+                      onDragLeave={() => setDragOverChapterId(null)}
+                      onDrop={() => handleDrop(leaf.id)}
+                      onFileDragStart={(fileId) => handleDragStart(fileId, leaf.id)}
+                      onFileDragEnd={handleDragEnd}
+                      projectId={projectId!}
+                    />
+                  ))}
+                </div>
               ))}
 
               {!filesLoading && files.length === 0 && (
@@ -334,87 +366,74 @@ export default function ChapterMapping() {
           {/* 章节结构 */}
           <div className="px-3 py-2 border-b border-border bg-muted/20 flex items-center justify-between">
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">章节结构</span>
-            <span className="text-[11px] text-muted-foreground">{level1Chapters.length} 章</span>
-          </div>
-          <ScrollArea className="flex-1">
-            <div className="p-2 space-y-0.5">
-              {flatChapters.map((chapter) => {
-                // 只显示一级章节，或者在父章节展开时显示二级章节
-                const isLevel1 = chapter.level === 1;
-                const isLevel2 = chapter.level === 2;
-                
-                // 找到二级章节的父章节ID
-                const parentChapter = isLevel2 
-                  ? flatChapters.find(c => c.level === 1 && flatChapters.indexOf(c) < flatChapters.indexOf(chapter) && 
-                      !flatChapters.slice(flatChapters.indexOf(c) + 1, flatChapters.indexOf(chapter)).some(x => x.level === 1))
-                  : null;
-                
-                // 如果是二级章节，检查父章节是否展开
-                if (isLevel2 && parentChapter && !expandedChapterIds.has(parentChapter.id)) {
-                  return null;
-                }
-                
-                // 三级及以下章节暂不显示
-                if (chapter.level > 2) return null;
-                
-                const isExpanded = expandedChapterIds.has(chapter.id);
-                const hasChildren = isLevel1 && flatChapters.some(c => c.level === 2 && 
-                  flatChapters.indexOf(c) > flatChapters.indexOf(chapter) &&
-                  !flatChapters.slice(flatChapters.indexOf(chapter) + 1, flatChapters.indexOf(c)).some(x => x.level === 1)
-                );
-                
+	            <span className="text-[11px] text-muted-foreground">{leafGroups.reduce((sum, g) => sum + g.leaves.length, 0)} 叶子章节</span>
+	          </div>
+	          <ScrollArea className="flex-1">
+	            <div className="p-2 space-y-0.5">
+              {leafGroups.map((group) => {
+                const isExpanded = expandedChapterIds.has(group.root.id);
                 return (
-                  <div
-                    key={chapter.id}
-                    className={cn(
-                      "flex items-center gap-1.5 py-1 px-2 rounded text-[11px] hover:bg-muted/40",
-                      isLevel1 && "font-medium",
-                      isLevel2 && "ml-5 text-muted-foreground"
-                    )}
-                  >
-                    {isLevel1 && hasChildren ? (
+                  <div key={group.root.id} className="mb-1">
+                    <div className="flex items-center gap-1.5 py-1 px-2 rounded text-[11px] hover:bg-muted/40 font-medium">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          setExpandedChapterIds(prev => {
+                          setExpandedChapterIds((prev) => {
                             const next = new Set(prev);
-                            if (next.has(chapter.id)) {
-                              next.delete(chapter.id);
+                            if (next.has(group.root.id)) {
+                              next.delete(group.root.id);
                             } else {
-                              next.add(chapter.id);
+                              next.add(group.root.id);
                             }
                             return next;
                           });
                         }}
                         className="p-0.5 hover:bg-muted rounded"
                       >
-                        <ChevronRight 
+                        <ChevronRight
                           className={cn(
                             "w-3 h-3 flex-shrink-0 text-muted-foreground/50 transition-transform",
                             isExpanded && "rotate-90"
-                          )} 
+                          )}
                         />
                       </button>
-                    ) : (
-                      <span className="w-4 h-4 flex-shrink-0" />
-                    )}
-                    <span className="truncate">{chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}</span>
-                    {isLevel1 && (
-                      <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
-                        {level1FileCountMap.get(chapter.id) ?? 0}
+                      <span className="truncate">
+                        {group.root.number && group.root.number !== group.root.title ? `${group.root.number}、${group.root.title}` : group.root.title}
                       </span>
+                      <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
+                        {rootGroupFileCountMap.get(group.root.id) ?? 0}
+                      </span>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="ml-5 space-y-0.5">
+                        {group.leaves.map((leaf) => (
+                          <div
+                            key={leaf.id}
+                            className="flex items-center gap-1.5 py-1 px-2 rounded text-[11px] text-muted-foreground hover:bg-muted/40"
+                          >
+                            <span className="w-4 h-4 flex-shrink-0" />
+                            <span className="truncate">
+                              {leaf.number && leaf.number !== leaf.title ? `${leaf.number}、${leaf.title}` : leaf.title}
+                            </span>
+                            <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
+                              {leafFileCountMap.get(leaf.id) ?? 0}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 );
               })}
-              {flatChapters.length === 0 && (
-                <div className="text-center py-8">
-                  <FileQuestion className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-[11px] text-muted-foreground">暂无章节</p>
-                </div>
-              )}
+	              {leafGroups.length === 0 && (
+	                <div className="text-center py-8">
+	                  <FileQuestion className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+	                  <p className="text-[11px] text-muted-foreground">暂无章节</p>
+	                </div>
+	              )}
             </div>
           </ScrollArea>
         </div>

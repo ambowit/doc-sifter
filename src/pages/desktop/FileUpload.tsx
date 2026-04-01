@@ -285,6 +285,48 @@ export default function FileUpload() {
     return map;
   }, [mappings]);
 
+  // AI 自动匹配
+  const {
+    progress: classifyProgress,
+    start: startClassify,
+    cancel: cancelClassify,
+  } = useClassifyFilesWithProgress();
+
+  const classifySuccessMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    if (!classifyProgress.isRunning) return map;
+
+    const dedup = new Set<string>();
+
+    for (const result of classifyProgress.results) {
+      if (!result.success || !result.chapterId) continue;
+      const key = `${result.fileId}::${result.chapterId}`;
+      if (dedup.has(key)) continue;
+      dedup.add(key);
+
+      if (!map.has(result.fileId)) map.set(result.fileId, new Set());
+      map.get(result.fileId)!.add(result.chapterId);
+    }
+
+    return map;
+  }, [classifyProgress.isRunning, classifyProgress.results]);
+
+  const effectiveFileChapterMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+
+    for (const [fileId, chapterIds] of fileChapterMap.entries()) {
+      map.set(fileId, new Set(chapterIds));
+    }
+
+    for (const [fileId, chapterIds] of classifySuccessMap.entries()) {
+      if (!map.has(fileId)) map.set(fileId, new Set());
+      const target = map.get(fileId)!;
+      chapterIds.forEach((chapterId) => target.add(chapterId));
+    }
+
+    return map;
+  }, [fileChapterMap, classifySuccessMap]);
+
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
@@ -298,13 +340,6 @@ export default function FileUpload() {
     reset: resetParse,
   } = useBatchParseDocumentStructure();
   const matchSectionsMutation = useMatchSectionsToChapters();
-  
-  // AI 自动匹配
-  const {
-    progress: classifyProgress,
-    start: startClassify,
-    cancel: cancelClassify,
-  } = useClassifyFilesWithProgress();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -361,8 +396,8 @@ export default function FileUpload() {
 
   // 检查文件是否已关联章节（基于 chapter_file_mappings）
   const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
-    return fileChapterMap.get(fileId)?.has(chapterId) ?? false;
-  }, [fileChapterMap]);
+    return effectiveFileChapterMap.get(fileId)?.has(chapterId) ?? false;
+  }, [effectiveFileChapterMap]);
 
   const chaptersHierarchy = useMemo(() => buildChapterHierarchy(chapters), [chapters]);
 
@@ -375,19 +410,19 @@ export default function FileUpload() {
   const selectedChapterFiles = useMemo(() => {
     if (!selectedChapterId) return [];
     if (selectedChapterId === 'unassigned') {
-      return existingFiles.filter(f => !fileChapterMap.has(f.id));
+      return existingFiles.filter(f => !effectiveFileChapterMap.has(f.id));
     }
 
     const scopeIds = selectedChapterScopeIds || new Set([selectedChapterId]);
     return existingFiles.filter((file) => {
-      const mapped = fileChapterMap.get(file.id);
+      const mapped = effectiveFileChapterMap.get(file.id);
       if (!mapped || mapped.size === 0) return false;
       for (const chapterId of mapped) {
         if (scopeIds.has(chapterId)) return true;
       }
       return false;
     });
-  }, [selectedChapterId, selectedChapterScopeIds, existingFiles, fileChapterMap]);
+  }, [selectedChapterId, selectedChapterScopeIds, existingFiles, effectiveFileChapterMap]);
 
   // Get selected chapter info
   const selectedChapter = useMemo(() => {
@@ -425,7 +460,7 @@ export default function FileUpload() {
     chapters.forEach((chapter) => {
       const scopeIds = chaptersHierarchy.descendantIdsByChapter.get(chapter.id) || new Set([chapter.id]);
       const total = existingFiles.filter((file) => {
-        const mapped = fileChapterMap.get(file.id);
+        const mapped = effectiveFileChapterMap.get(file.id);
         if (!mapped || mapped.size === 0) return false;
         for (const id of mapped) {
           if (scopeIds.has(id)) return true;
@@ -435,7 +470,7 @@ export default function FileUpload() {
       countMap.set(chapter.id, total);
     });
     return countMap;
-  }, [chapters, chaptersHierarchy.descendantIdsByChapter, existingFiles, fileChapterMap]);
+  }, [chapters, chaptersHierarchy.descendantIdsByChapter, existingFiles, effectiveFileChapterMap]);
 
   // 当前选中章节的解析内容
   const selectedChapterSections = useMemo(() => {
@@ -461,11 +496,11 @@ export default function FileUpload() {
   useEffect(() => {
     if (!hasInitializedChapter && chapters.length > 0) {
       // 基于 chapter_file_mappings 判断是否有未分配文件
-      const hasUnassigned = existingFiles.some(f => !fileChapterMap.has(f.id));
+      const hasUnassigned = existingFiles.some(f => !effectiveFileChapterMap.has(f.id));
       setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
       setHasInitializedChapter(true);
     }
-  }, [chapters, existingFiles, hasInitializedChapter, fileChapterMap]);
+  }, [chapters, existingFiles, hasInitializedChapter, effectiveFileChapterMap]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -1073,7 +1108,7 @@ export default function FileUpload() {
     
     // 找出未分配章节且有文字内容的文件（基于 chapter_file_mappings）
     const unassignedFiles = existingFiles.filter(f => 
-      !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)
+      !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)
     );
     
     if (unassignedFiles.length === 0) {
@@ -1110,13 +1145,13 @@ export default function FileUpload() {
         toast.warning(`${result.failed} 个文件匹配失败`);
       }
     }
-  }, [currentProjectId, existingFiles, chapters, startClassify, fileChapterMap]);
+  }, [currentProjectId, existingFiles, chapters, startClassify, effectiveFileChapterMap]);
 
   const handleRemoveFromSelectedScope = useCallback(async (fileId: string) => {
     if (!selectedChapterId || selectedChapterId === "unassigned") return;
 
     const scopeIds = selectedChapterScopeIds || new Set([selectedChapterId]);
-    const mappedIds = fileChapterMap.get(fileId);
+    const mappedIds = effectiveFileChapterMap.get(fileId);
     if (!mappedIds || mappedIds.size === 0) return;
 
     const targetChapterIds = Array.from(mappedIds).filter((chapterId) => scopeIds.has(chapterId));
@@ -1136,7 +1171,7 @@ export default function FileUpload() {
       console.error("[FileUpload] Failed to remove mappings in selected scope:", error);
       toast.error("移除失败，请重试");
     }
-  }, [selectedChapterId, selectedChapterScopeIds, fileChapterMap, updateFileChapterMutation]);
+  }, [selectedChapterId, selectedChapterScopeIds, effectiveFileChapterMap, updateFileChapterMutation]);
 
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
@@ -1790,7 +1825,7 @@ export default function FileUpload() {
                   </div>
                   <div className="flex items-center gap-2">
                     {/* 自动匹配按钮 - 有未分配文件且有章节时显示 */}
-                    {chapters.length > 0 && existingFiles.some(f => !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
+                    {chapters.length > 0 && existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1840,7 +1875,7 @@ export default function FileUpload() {
                       <div className="p-1">
                         {/* Unassigned files section */}
                         {(() => {
-                          const unassignedCount = existingFiles.filter(f => !fileChapterMap.has(f.id)).length;
+                          const unassignedCount = existingFiles.filter(f => !effectiveFileChapterMap.has(f.id)).length;
                           if (unassignedCount > 0) {
                             return (
                               <button
