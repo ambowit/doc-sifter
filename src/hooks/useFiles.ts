@@ -31,8 +31,8 @@ export interface UploadedFile {
   ocrTaskStatus: string | null; // pending | processing | completed | failed
   ocrTaskStartedAt: string | null;
   ocrTaskCompletedAt: string | null;
-  // AI 分类字段（chapterId 已废弃，仅读取，章节关联请用 chapter_file_mappings）
-  chapterId: string | null;
+  // chapterId 已废弃，不再使用，章节关联请用 chapter_file_mappings
+  chapterId?: string | null;
   aiSummary: string | null;
   aiClassifiedAt: string | null;
   classificationConfidence: number | null;
@@ -89,7 +89,7 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   ocrTaskStatus: row.ocr_task_status as string | null,
   ocrTaskStartedAt: row.ocr_task_started_at as string | null,
   ocrTaskCompletedAt: row.ocr_task_completed_at as string | null,
-  chapterId: row.chapter_id as string | null,
+  // chapterId 不再从数据库读取，章节关联由 chapter_file_mappings 驱动
   aiSummary: row.ai_summary as string | null,
   aiClassifiedAt: row.ai_classified_at as string | null,
   classificationConfidence: row.classification_confidence as number | null,
@@ -531,6 +531,9 @@ export function useClassifyFiles() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["files", variables.projectId] });
+      // classify-files 现在写入 chapter_file_mappings，需要同步刷新映射缓存
+      queryClient.invalidateQueries({ queryKey: ["mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
     },
   });
 }
@@ -544,7 +547,7 @@ export interface ClassifyProgressState {
   currentFileName: string;
   completed: number;
   failed: number;
-  results: Array<{ fileId: string; fileName: string; success: boolean; chapterId?: string | null; error?: string }>;
+  results: Array<{ fileId: string; fileName: string; success: boolean; error?: string }>;
 }
 
 // Hook 用于带进度的 AI 分类（逐文件处理，支持暂停/取消）
@@ -622,7 +625,7 @@ export function useClassifyFilesWithProgress() {
           results.push({ fileId: file.id, fileName: file.name, success: false, error: error?.message || data?.error });
           setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
         } else {
-          results.push({ fileId: file.id, fileName: file.name, success: true, chapterId: data?.result?.chapterId });
+          results.push({ fileId: file.id, fileName: file.name, success: true });
           setProgress((prev) => ({ ...prev, completed: prev.completed + 1, results: [...results] }));
         }
       } catch (err) {
@@ -644,6 +647,9 @@ export function useClassifyFilesWithProgress() {
     }));
 
     queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+    // classify-single 现在写入 chapter_file_mappings，需要同步刷新映射缓存
+    queryClient.invalidateQueries({ queryKey: ["mappings"] });
+    queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
 
     return { completed: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length };
   };
@@ -703,7 +709,7 @@ export function useUpdateFileChapter() {
       action?: "add" | "remove" | "clear";
     }) => {
       if (action === "clear" || chapterId === null) {
-        // 清空该文件的所有章节映射
+        // 清空该文件的所有章节映���
         const { error } = await supabase
           .from("chapter_file_mappings")
           .delete()

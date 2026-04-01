@@ -179,13 +179,30 @@ serve(async (req) => {
 
     log("AI done", { total: allResults.length });
 
+    // 写入 chapter_file_mappings（不再写 files.chapter_id）
     const now = new Date().toISOString();
+    const mappings = allResults.filter(r => r.chapterId).map(r => ({
+      chapter_id: r.chapterId!,
+      file_id: r.fileId,
+      is_confirmed: false,
+      is_ai_suggested: true,
+      confidence: r.confidence,
+    }));
+
+    if (mappings.length > 0) {
+      const { error: mappingError } = await db
+        .from("chapter_file_mappings")
+        .upsert(mappings, { onConflict: "chapter_id,file_id" });
+      
+      if (mappingError) log("Mapping error", { error: mappingError.message });
+    }
+
+    // 更新文件的分类统计信息（summary, confidence, classified_at）
     await Promise.all(
       allResults.map((r) =>
         db
           .from("files")
           .update({
-            chapter_id: r.chapterId,
             ai_summary: r.summary || null,
             classification_confidence: r.confidence,
             ai_classified_at: now,

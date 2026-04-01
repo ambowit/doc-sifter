@@ -28,12 +28,23 @@ async function triggerAutoClassification(
   supabaseUrl: string,
   serviceRoleKey: string,
   db: ReturnType<typeof createClient>,
-  fileRow: { id: string; project_id: string; chapter_id: string | null; original_name: string | null; name: string },
+  fileRow: { id: string; project_id: string; original_name: string | null; name: string },
   extractedText: string,
   textSummary: string,
 ) {
-  if (fileRow.chapter_id) return;
   if (!extractedText && !textSummary) return;
+
+  // 查询 chapter_file_mappings 判断是否已关联章节（唯一真源）
+  const { data: existingMappings } = await db
+    .from("chapter_file_mappings")
+    .select("file_id")
+    .eq("file_id", fileRow.id)
+    .limit(1);
+
+  if (existingMappings && existingMappings.length > 0) {
+    log("File already mapped, skipping auto classification", { fileId: fileRow.id });
+    return;
+  }
 
   const { data: chapters, error: chaptersError } = await db
     .from("chapters")
@@ -123,7 +134,7 @@ serve(async (req) => {
 
     const { data: currentFile, error: fileLookupError } = await supabaseAdmin
       .from("files")
-      .select("id, project_id, chapter_id, original_name, name")
+      .select("id, project_id, original_name, name")
       .eq("id", fileId)
       .maybeSingle();
 

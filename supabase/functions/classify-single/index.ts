@@ -151,12 +151,29 @@ serve(async (req) => {
 
     const result = await classifySingleFile(file, chapters, token, gatewayBase);
 
-    // 更新数据库
+    // 写入 chapter_file_mappings（不再写 files.chapter_id）
     const now = new Date().toISOString();
+
+    if (result.chapterId) {
+      const { error: mappingError } = await db
+        .from("chapter_file_mappings")
+        .upsert(
+          {
+            chapter_id: result.chapterId,
+            file_id: file.id,
+            is_confirmed: false,
+            is_ai_suggested: true,
+            confidence: result.confidence,
+          },
+          { onConflict: "chapter_id,file_id" }
+        );
+      if (mappingError) log("Mapping error", { error: mappingError.message });
+    }
+
+    // 更新文件分类统计信息（不写 chapter_id）
     await db
       .from("files")
       .update({
-        chapter_id: result.chapterId,
         ai_summary: result.summary || null,
         classification_confidence: result.confidence,
         ai_classified_at: now,
