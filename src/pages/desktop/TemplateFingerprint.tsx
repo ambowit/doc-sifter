@@ -743,13 +743,6 @@ export default function TemplateFingerprint() {
   const currentStyle = currentTemplate || DEFAULT_TEMPLATE_FINGERPRINT;
   const selectedStyleId = "current";
 
-  const updateStyleProperty = useCallback(
-    (_styleId: string, path: string[], value: unknown) => {
-      updateTemplateProperty(path, value);
-    },
-    [updateTemplateProperty]
-  );
-
   const updateTemplateProperty = useCallback((path: string[], value: unknown) => {
     setDraftTemplate((prev) => {
       if (!prev) return prev;
@@ -765,6 +758,13 @@ export default function TemplateFingerprint() {
       return next;
     });
   }, []);
+
+  const updateStyleProperty = useCallback(
+    (_styleId: string, path: string[], value: unknown) => {
+      updateTemplateProperty(path, value);
+    },
+    [updateTemplateProperty]
+  );
 
   const saveCurrentStyle = useCallback(async () => {
     if (!currentProjectId || !currentTemplate) return;
