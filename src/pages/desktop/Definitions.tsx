@@ -46,14 +46,12 @@ import {
   FileText,
   Landmark,
   Loader2,
-  Lock,
   MoreVertical,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
   Trash2,
-  Unlock,
   User,
   WandSparkles,
 } from "lucide-react";
@@ -74,7 +72,6 @@ import {
   useDeleteDefinition,
   useExtractDefinitions,
   useRejectDefinitionCandidates,
-  useToggleDefinitionLock,
   useUpdateDefinition,
 } from "@/hooks/useDefinitions";
 
@@ -285,7 +282,7 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{definition ? "编辑最终定义" : "新增最终定义"}</DialogTitle>
-          <DialogDescription>人工维护的定义��自动锁定，后续 AI 抽取不会自动覆盖。</DialogDescription>
+          <DialogDescription>维护最终定义表中的实体定义信息。</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-4">
@@ -328,7 +325,7 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>取消</Button>
-          <Button onClick={handleSave} disabled={isSaving}>{isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />保存中...</> : "保存并锁定"}</Button>
+          <Button onClick={handleSave} disabled={isSaving}>{isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />保存中...</> : "保存"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -349,7 +346,6 @@ export default function Definitions() {
   const extractMutation = useExtractDefinitions();
   const approveMutation = useApproveDefinitionCandidates();
   const rejectMutation = useRejectDefinitionCandidates();
-  const toggleLockMutation = useToggleDefinitionLock();
 
   const [finalSearch, setFinalSearch] = useState("");
   const [finalViewFilter, setFinalViewFilter] = useState<"all" | "conflicts">("all");
@@ -458,10 +454,10 @@ export default function Definitions() {
     try {
       if (editingDefinition) {
         await updateMutation.mutateAsync({ id: editingDefinition.id, ...payload });
-        toast.success("最终定义已更新并锁定");
+        toast.success("最终定义已更新");
       } else {
         await createMutation.mutateAsync({ projectId, ...payload });
-        toast.success("最终定义已新增并锁定");
+        toast.success("最终定义已新增");
       }
       setEditDialogOpen(false);
     } catch (error) {
@@ -479,15 +475,7 @@ export default function Definitions() {
     }
   };
 
-  const handleToggleLock = async (definition: Definition) => {
-    if (!projectId) return;
-    try {
-      await toggleLockMutation.mutateAsync({ id: definition.id, projectId, isLocked: !definition.isLocked });
-      toast.success(definition.isLocked ? "已解除锁定" : "已锁定定义");
-    } catch (error) {
-      toast.error("更新锁定状态失败", { description: error instanceof Error ? error.message : "请稍后重试" });
-    }
-  };
+
 
   const handleExtractConfirm = async () => {
     if (!projectId) return;
@@ -688,13 +676,12 @@ export default function Definitions() {
                           <TableCell className="text-[13px]">{definition.fullName}</TableCell>
                           <TableCell><Badge variant="secondary" className={cn("text-[10px]", typeConfig[definition.entityType].color)}><TypeIcon className="w-3 h-3 mr-1" />{typeConfig[definition.entityType].label}</Badge></TableCell>
                           <TableCell><SourceEvidence fileName={definition.sourceFileName} pageRef={definition.sourcePageRef} excerpt={definition.sourceExcerpt} confidence={definition.sourceTrace[0]?.confidence ?? null} /></TableCell>
-                          <TableCell><div className="flex flex-wrap gap-2"><Badge variant="secondary" className={originConfig[definition.origin].className}>{originConfig[definition.origin].label}</Badge>{definition.isLocked ? <Badge variant="secondary" className="bg-slate-900 text-white">已锁定</Badge> : <Badge variant="outline">未锁定</Badge>}{definition.hasConflict && definition.conflictWith ? <Badge variant="secondary" className="bg-amber-100 text-amber-700">与 {definition.conflictWith} 冲突</Badge> : null}</div></TableCell>
+                          <TableCell><div className="flex flex-wrap gap-2"><Badge variant="secondary" className={originConfig[definition.origin].className}>{originConfig[definition.origin].label}</Badge>{definition.hasConflict && definition.conflictWith ? <Badge variant="secondary" className="bg-amber-100 text-amber-700">与 {definition.conflictWith} 冲突</Badge> : null}</div></TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreVertical className="w-4 h-4" /></Button></DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => handleEdit(definition)}><Edit2 className="w-4 h-4 mr-2" />编辑</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleToggleLock(definition)}>{definition.isLocked ? <Unlock className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}{definition.isLocked ? "解除锁定" : "锁定"}</DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleDelete(definition.id)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />删除</DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
