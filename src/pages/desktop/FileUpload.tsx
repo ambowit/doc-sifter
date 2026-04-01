@@ -85,7 +85,14 @@ import {
   FileSearch,
   Link2,
   Brain,
+  Info,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -233,6 +240,11 @@ export default function FileUpload() {
   // 已成功提交给 Worker 正在处理中的文件 id（用于防止横幅重复显示）
   const [submittedToWorkerIds, setSubmittedToWorkerIds] = useState<Set<string>>(new Set());
   const [isPreparingOcr, setIsPreparingOcr] = useState(false);
+  // 用户关闭失败提示 banner（仅隐藏横幅，文件行仍保留失败状态）
+  const [dismissedFailedBanner, setDismissedFailedBanner] = useState(false);
+  // 上一次失败文件数量，用于检测新失败时重新显示 banner
+  const prevFailedCountRef = useRef(0);
+  
   const [extractionStatus, setExtractionStatus] = useState<{
     isExtracting: boolean;
     archiveName: string;
@@ -923,7 +935,16 @@ export default function FileUpload() {
       !ocrProcessingIds.has(f.id)
   );
   const failedOcrFiles = unextractedOcrFiles.filter(f => f.ocrTaskStatus === "failed");
-
+  
+  // 当有新的失败文件时，重新显示 banner
+  useEffect(() => {
+    const currentFailedCount = failedOcrFiles.length + stuckOcrFiles.length;
+    if (currentFailedCount > prevFailedCountRef.current && currentFailedCount > 0) {
+      setDismissedFailedBanner(false);
+    }
+    prevFailedCountRef.current = currentFailedCount;
+  }, [failedOcrFiles.length, stuckOcrFiles.length]);
+  
   // Handle extracting all unextracted files
   const handleExtractAllUnextracted = async () => {
     if (unextractedOcrFiles.length === 0) return;
@@ -1601,12 +1622,21 @@ export default function FileUpload() {
                   )}
 
                   {/* Failed / Stuck Extraction Banner */}
-                  {(failedOcrFiles.length > 0 || stuckOcrFiles.length > 0) && (
+                  {(failedOcrFiles.length > 0 || stuckOcrFiles.length > 0) && !dismissedFailedBanner && (
                     <motion.div
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="mb-4 p-3 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3"
+                      exit={{ opacity: 0, y: -5 }}
+                      className="mb-4 p-3 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3 relative"
                     >
+                      {/* 关闭按钮 */}
+                      <button
+                        onClick={() => setDismissedFailedBanner(true)}
+                        className="absolute top-2 right-2 p-1 hover:bg-destructive/10 rounded-full transition-colors"
+                        title="关闭提示（文件行仍会显示失败状态）"
+                      >
+                        <X className="w-3.5 h-3.5 text-destructive/60" />
+                      </button>
                       <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center flex-shrink-0">
                         <AlertTriangle className="w-4 h-4 text-destructive" />
                       </div>
@@ -1617,15 +1647,7 @@ export default function FileUpload() {
                           {stuckOcrFiles.length > 0 && `${stuckOcrFiles.length} 个任务未被处理`}
                         </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
-                          点击"全部重试"强制重新提交，或在文件后方单独重试
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium text-destructive">
-                          {failedOcrFiles.length} 个文件提取失败
-                        </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">
-                          点击“全部重试”或在文件后方单独重试每个文件
+                          点击"全部重试"强制重新提交，或在文件行单独重试
                         </div>
                       </div>
                       <Button
@@ -2092,42 +2114,77 @@ export default function FileUpload() {
                               <span className="w-20 text-right">大小</span>
                               <span className="w-32 text-center">操作</span>
                             </div>
-                            {selectedChapterFiles.map((file) => (
+                            {selectedChapterFiles.map((file) => {
+                              const isFailed = file.ocrTaskStatus === "failed" && !ocrProcessingIds.has(file.id!);
+                              const isUnsupported = isLegacyOfficeFormat(file.name);
+                              return (
                               <div
                                 key={file.storagePath}
-                                className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 text-[13px] group"
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2 text-[13px] group transition-colors",
+                                  isFailed 
+                                    ? "bg-red-50/70 hover:bg-red-50" 
+                                    : "hover:bg-muted/30"
+                                )}
                               >
                                 {getFileIcon(file.name)}
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
                                 
                                 {/* OCR Task Status Indicator */}
-                                {isLegacyOfficeFormat(file.name) ? (
-                                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground" title="老版本 Office 格式，请转换为 .docx/.xlsx/.pptx">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>不支持提取</span>
-                                  </span>
+                                {isUnsupported ? (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-help">
+                                          <Info className="w-3 h-3" />
+                                          <span>不支持</span>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-[200px] text-[11px]">
+                                        <p>老版本 Office 格式（.doc/.xls/.ppt）不支持提取</p>
+                                        <p className="text-muted-foreground mt-1">请转换为 .docx/.xlsx/.pptx 后重新上传</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                 ) : file.ocrTaskStatus === "pending" || file.ocrTaskStatus === "processing" ? (
                                   <span className="flex items-center gap-1 text-[10px] text-blue-600" title="正在后台处理中">
                                     <Loader2 className="w-3 h-3 animate-spin" />
                                     <span>处理中</span>
                                   </span>
-                                ) : file.ocrTaskStatus === "failed" && !ocrProcessingIds.has(file.id!) ? (
-                                  <button
-                                    onClick={() => {
-                                      const fileToRetry = {
-                                        fileId: file.id!,
-                                        fileName: file.name,
-                                        mimeType: file.mimeType || "application/octet-stream",
-                                      };
-                                      handleBatchOcr([fileToRetry], { force: true });
-                                    }}
-                                    className="flex items-center gap-1 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-0.5 rounded transition-colors"
-                                    title="点击重新提取"
-                                    disabled={ocrProcessingIds.has(file.id!)}
-                                  >
-                                    <RefreshCw className="w-3 h-3" />
-                                    <span>重试</span>
-                                  </button>
+                                ) : isFailed ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="flex items-center gap-1 text-[10px] text-red-500 cursor-help">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            <span>提取失败</span>
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-[240px] text-[11px]">
+                                          <p className="font-medium text-red-600">文件内容提取失败</p>
+                                          <p className="text-muted-foreground mt-1">可能原因：文件损坏、格式不兼容或服务器繁忙</p>
+                                          <p className="text-muted-foreground mt-1">点击"重试"按钮重新提取</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                    <button
+                                      onClick={() => {
+                                        const fileToRetry = {
+                                          fileId: file.id!,
+                                          fileName: file.name,
+                                          mimeType: file.mimeType || "application/octet-stream",
+                                        };
+                                        handleBatchOcr([fileToRetry], { force: true });
+                                      }}
+                                      className="flex items-center gap-0.5 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-100 px-1.5 py-0.5 rounded transition-colors"
+                                      title="点击重新提取"
+                                      disabled={ocrProcessingIds.has(file.id!)}
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                      <span>重试</span>
+                                    </button>
+                                  </div>
                                 ) : file.ocrProcessed ? (
                                   <span className="flex items-center gap-1 text-[10px] text-green-600" title="已完成文字提取">
                                     <CheckCircle className="w-3 h-3" />
@@ -2249,7 +2306,8 @@ export default function FileUpload() {
                                   </button>
                                 </div>
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
                         )}
                       </div>

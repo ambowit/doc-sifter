@@ -1080,10 +1080,12 @@ export default function TemplateFingerprint() {
                 <Edit3 className="w-4 h-4" />
                 引言编辑
               </TabsTrigger>
-              <TabsTrigger value="json" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <FileCode className="w-4 h-4" />
-                JSON
-              </TabsTrigger>
+{/* JSON Tab 暂时隐藏
+                        <TabsTrigger value="json" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                          <FileCode className="w-4 h-4" />
+                          JSON
+                        </TabsTrigger>
+*/}
             </TabsList>
           </div>
 
@@ -1483,7 +1485,7 @@ export default function TemplateFingerprint() {
 
                           {/* Quote Style */}
                           <div>
-                            <Label className="text-[11px]">引用块样式</Label>
+                            <Label className="text-[11px]">引用块��式</Label>
                             <Select
                               value={currentStyle.preview.quoteStyle || "border-left"}
                               onValueChange={(v) => updateStyleProperty(selectedStyleId, ['preview', 'quoteStyle'], v)}
@@ -2141,7 +2143,7 @@ export default function TemplateFingerprint() {
               </div>
             </TabsContent>
 
-            {/* JSON Tab */}
+{/* JSON Tab 暂时隐藏
             <TabsContent value="json" className="absolute inset-0 m-0">
               <div className="absolute inset-0 overflow-y-auto">
                 <div className="max-w-5xl mx-auto p-8">
@@ -2180,6 +2182,7 @@ export default function TemplateFingerprint() {
                 </div>
               </div>
             </TabsContent>
+*/}
           </div>
         </Tabs>
       )}
