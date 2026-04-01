@@ -15,6 +15,7 @@ import {
   convertInchesToTwip,
 } from "docx";
 import { saveAs } from "file-saver";
+import type { TemplateFingerprint } from "@/lib/templateDefaults";
 
 // Types
 interface ReportSection {
@@ -65,24 +66,21 @@ interface Project {
   client?: string;
 }
 
-interface TemplateStyle {
-  id: string;
-  name: string;
-  description: string;
-  preview: {
-    primaryColor: string;
-    accentColor: string;
-    fontFamily: string;
-    headerStyle: string;
-  };
-  styles: {
-    h1: { font: string; sizePt: number; bold: boolean; color?: string; lineSpacing?: number };
-    h2: { font: string; sizePt: number; bold: boolean; color?: string; lineSpacing?: number };
-    body: { font: string; sizePt: number; lineSpacing?: number; firstLineIndentCm?: number };
-  };
-  tables: {
-    default: { headerFill: string; borderColor: string; font: string; sizePt: number };
-  };
+type TemplateStyle = TemplateFingerprint;
+
+function resolveTemplateColors(templateStyle?: TemplateStyle) {
+  const primaryColor =
+    templateStyle?.preview?.primaryColor ||
+    templateStyle?.styles?.h1?.color ||
+    "#111827";
+  const accentColor =
+    templateStyle?.preview?.accentColor ||
+    templateStyle?.styles?.h2?.color ||
+    "#374151";
+  const fontFamily = templateStyle?.styles?.body?.font || "宋体";
+  const headerFill = templateStyle?.tables?.default?.headerFill || "#f3f4f6";
+  const borderColor = templateStyle?.tables?.default?.borderColor || "#d1d5db";
+  return { primaryColor, accentColor, fontFamily, headerFill, borderColor };
 }
 
 // Helper to convert severity to Chinese
@@ -185,11 +183,8 @@ function generatePDFHTML(
   const targetName = project.target || project.name;
   
   // Get style values from template or use defaults
-  const primaryColor = templateStyle?.preview?.primaryColor || "#111827";
-  const accentColor = templateStyle?.preview?.accentColor || "#374151";
-  const fontFamily = templateStyle?.preview?.fontFamily || "宋体";
-  const headerFill = templateStyle?.tables?.default?.headerFill || "#f3f4f6";
-  const borderColor = templateStyle?.tables?.default?.borderColor || "#d1d5db";
+  const { primaryColor, accentColor, fontFamily, headerFill, borderColor } =
+    resolveTemplateColors(templateStyle);
   
   // Font family mapping
   const fontFamilyMap: Record<string, string> = {
@@ -594,13 +589,14 @@ export async function exportToWord(
   
   // Get style values from template
   const templateName = templateStyle?.name || "标准模板";
-  const primaryColor = templateStyle?.preview?.primaryColor?.replace("#", "") || "111827";
-  const accentColor = templateStyle?.preview?.accentColor?.replace("#", "") || "374151";
-  const fontFamily = templateStyle?.preview?.fontFamily || "宋体";
+  const { primaryColor, accentColor, fontFamily, headerFill } =
+    resolveTemplateColors(templateStyle);
+  const primaryColorHex = primaryColor.replace("#", "");
+  const accentColorHex = accentColor.replace("#", "");
   const h1Size = (templateStyle?.styles?.h1?.sizePt || 18) * 2; // Convert pt to half-pt
   const h2Size = (templateStyle?.styles?.h2?.sizePt || 14) * 2;
   const bodySize = (templateStyle?.styles?.body?.sizePt || 11) * 2;
-  const headerFillColor = templateStyle?.tables?.default?.headerFill?.replace("#", "") || "f3f4f6";
+  const headerFillColor = headerFill.replace("#", "") || "f3f4f6";
 
   // Create document sections
   const docChildren: (Paragraph | Table)[] = [];
@@ -613,7 +609,7 @@ export async function exportToWord(
           text: "法律尽职调查报告",
           bold: true,
           size: 56, // 28pt
-          color: primaryColor,
+          color: primaryColorHex,
           font: fontFamily,
         }),
       ],
@@ -630,7 +626,7 @@ export async function exportToWord(
         new TextRun({
           text: `目标公司：${targetName}`,
           size: 32, // 16pt
-          color: primaryColor,
+          color: primaryColorHex,
           font: fontFamily,
         }),
       ],
@@ -645,7 +641,7 @@ export async function exportToWord(
         new TextRun({
           text: `报告日期：${today}`,
           size: 24,
-          color: accentColor,
+          color: accentColorHex,
           font: fontFamily,
         }),
       ],
@@ -660,7 +656,7 @@ export async function exportToWord(
         new TextRun({
           text: `审阅文件数量：${fileCount} 份`,
           size: 24,
-          color: accentColor,
+          color: accentColorHex,
           font: fontFamily,
         }),
       ],
@@ -676,7 +672,7 @@ export async function exportToWord(
         new TextRun({
           text: `【 报告模板：${templateName} 】`,
           size: 22,
-          color: primaryColor,
+          color: primaryColorHex,
           font: fontFamily,
           bold: true,
         }),
@@ -684,8 +680,8 @@ export async function exportToWord(
       alignment: AlignmentType.CENTER,
       spacing: { after: 600 },
       border: {
-        top: { style: BorderStyle.SINGLE, size: 1, color: primaryColor },
-        bottom: { style: BorderStyle.SINGLE, size: 1, color: primaryColor },
+        top: { style: BorderStyle.SINGLE, size: 1, color: primaryColorHex },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: primaryColorHex },
       },
     })
   );
@@ -706,7 +702,7 @@ export async function exportToWord(
           text: "目 录",
           bold: true,
           size: h1Size,
-          color: primaryColor,
+          color: primaryColorHex,
           font: fontFamily,
         }),
       ],
@@ -714,7 +710,7 @@ export async function exportToWord(
       alignment: AlignmentType.CENTER,
       spacing: { after: 400 },
       border: {
-        bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColor },
+        bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColorHex },
       },
     })
   );
@@ -886,14 +882,14 @@ export async function exportToWord(
             text: sectionLabel(section.number, section.title),
             bold: true,
             size: h1Size,
-            color: primaryColor,
+            color: primaryColorHex,
             font: fontFamily,
           }),
         ],
         heading: HeadingLevel.HEADING_1,
         spacing: { after: 300 },
         border: {
-          bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColor },
+          bottom: { style: BorderStyle.SINGLE, size: 6, color: primaryColorHex },
         },
       })
     );
@@ -929,7 +925,7 @@ export async function exportToWord(
               text: "核查发现：",
               bold: true,
               size: h2Size,
-              color: primaryColor,
+              color: primaryColorHex,
               font: fontFamily,
             }),
           ],
@@ -963,7 +959,7 @@ export async function exportToWord(
               text: "发现的问题与风险：",
               bold: true,
               size: h2Size,
-              color: primaryColor,
+              color: primaryColorHex,
               font: fontFamily,
             }),
           ],

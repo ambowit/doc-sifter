@@ -62,7 +62,8 @@ import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIPa
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
 import mammoth from "mammoth";
-import { mockTemplateFingerprint, templateStyles, type TemplateStyle } from "@/lib/reportMockData";
+import { useTemplateFingerprint } from "@/hooks/useTemplateFingerprint";
+import { DEFAULT_TEMPLATE_FINGERPRINT, type TemplateFingerprint } from "@/lib/templateDefaults";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
 import {
   Select,
@@ -73,6 +74,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 
 // =============================================================================
 // COMPONENTS
@@ -265,7 +267,13 @@ function StyleTokenCard({
 }
 
 /** 页面设置面板 */
-function PageSettingsPanel({ page }: { page: TFType["page"] }) {
+function PageSettingsPanel({
+  page,
+  onChange,
+}: {
+  page: TFType["page"];
+  onChange: (path: string[], value: unknown) => void;
+}) {
   return (
     <div className="space-y-6">
       <div>
@@ -275,16 +283,51 @@ function PageSettingsPanel({ page }: { page: TFType["page"] }) {
         </h3>
         <div className="grid grid-cols-3 gap-4">
           <div className="p-4 border border-border rounded bg-muted/30">
-            <div className="text-[11px] text-muted-foreground mb-1">纸张</div>
-            <div className="font-medium">{page.size}</div>
+            <div className="text-[11px] text-muted-foreground mb-2">纸张</div>
+            <Select value={page.size} onValueChange={(v) => onChange(["page", "size"], v)}>
+              <SelectTrigger className="h-8 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="A4">A4</SelectItem>
+                <SelectItem value="Letter">Letter</SelectItem>
+                <SelectItem value="Legal">Legal</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="p-4 border border-border rounded bg-muted/30">
-            <div className="text-[11px] text-muted-foreground mb-1">方向</div>
-            <div className="font-medium">{page.orientation === "portrait" ? "纵向" : "横向"}</div>
+            <div className="text-[11px] text-muted-foreground mb-2">方向</div>
+            <RadioGroup
+              value={page.orientation}
+              onValueChange={(v) => onChange(["page", "orientation"], v)}
+              className="flex gap-4"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="portrait" id="page-orientation-portrait" />
+                <Label htmlFor="page-orientation-portrait" className="text-[12px]">
+                  纵向
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="landscape" id="page-orientation-landscape" />
+                <Label htmlFor="page-orientation-landscape" className="text-[12px]">
+                  横向
+                </Label>
+              </div>
+            </RadioGroup>
           </div>
           <div className="p-4 border border-border rounded bg-muted/30">
-            <div className="text-[11px] text-muted-foreground mb-1">单位</div>
-            <div className="font-medium">{page.margin.unit}</div>
+            <div className="text-[11px] text-muted-foreground mb-2">单位</div>
+            <Select value={page.margin.unit} onValueChange={(v) => onChange(["page", "margin", "unit"], v)}>
+              <SelectTrigger className="h-8 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cm">cm</SelectItem>
+                <SelectItem value="pt">pt</SelectItem>
+                <SelectItem value="in">in</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -299,10 +342,15 @@ function PageSettingsPanel({ page }: { page: TFType["page"] }) {
         <div className="grid grid-cols-4 gap-4">
           {(["top", "bottom", "left", "right"] as const).map((side) => (
             <div key={side} className="p-4 border border-border rounded bg-muted/30">
-              <div className="text-[11px] text-muted-foreground mb-1">
+              <div className="text-[11px] text-muted-foreground mb-2">
                 {side === "top" ? "上" : side === "bottom" ? "下" : side === "left" ? "左" : "右"}
               </div>
-              <div className="font-medium font-mono">{page.margin[side]} {page.margin.unit}</div>
+              <Input
+                type="number"
+                value={page.margin[side]}
+                onChange={(e) => onChange(["page", "margin", side], Number(e.target.value))}
+                className="h-8 text-[12px]"
+              />
             </div>
           ))}
         </div>
@@ -316,32 +364,81 @@ function PageSettingsPanel({ page }: { page: TFType["page"] }) {
           页眉页脚
         </h3>
         <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 border border-border rounded bg-muted/30">
-            <div className="flex items-center gap-2 mb-3">
-              <Badge variant={page.headerFooter.hasHeader ? "default" : "secondary"} className="text-[10px]">
-                {page.headerFooter.hasHeader ? "启用" : "禁用"}
-              </Badge>
+          <div className="p-4 border border-border rounded bg-muted/30 space-y-3">
+            <div className="flex items-center justify-between">
               <span className="text-[13px]">页眉</span>
+              <Switch
+                checked={page.headerFooter.hasHeader}
+                onCheckedChange={(checked) => onChange(["page", "headerFooter", "hasHeader"], checked)}
+              />
             </div>
-            {page.headerFooter.headerLogo?.enabled && (
-              <div className="text-[12px] text-muted-foreground">
-                Logo位置：{page.headerFooter.headerLogo.position === "right" ? "右侧" : page.headerFooter.headerLogo.position === "left" ? "左侧" : "居中"}
-                ，最大高度：{page.headerFooter.headerLogo.maxHeightCm}cm
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Logo启用</Label>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[12px]">显示Logo</span>
+                <Switch
+                  checked={page.headerFooter.headerLogo?.enabled ?? false}
+                  onCheckedChange={(checked) => onChange(["page", "headerFooter", "headerLogo", "enabled"], checked)}
+                />
               </div>
-            )}
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Logo位置</Label>
+              <Select
+                value={page.headerFooter.headerLogo?.position || "left"}
+                onValueChange={(v) => onChange(["page", "headerFooter", "headerLogo", "position"], v)}
+              >
+                <SelectTrigger className="h-8 text-[12px] mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="left">左侧</SelectItem>
+                  <SelectItem value="center">居中</SelectItem>
+                  <SelectItem value="right">右侧</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Logo最大高度 (cm)</Label>
+              <Input
+                type="number"
+                value={page.headerFooter.headerLogo?.maxHeightCm ?? 1.5}
+                onChange={(e) => onChange(["page", "headerFooter", "headerLogo", "maxHeightCm"], Number(e.target.value))}
+                className="h-8 text-[12px] mt-2"
+              />
+            </div>
           </div>
-          <div className="p-4 border border-border rounded bg-muted/30">
-            <div className="flex items-center gap-2 mb-3">
-              <Badge variant={page.headerFooter.hasFooter ? "default" : "secondary"} className="text-[10px]">
-                {page.headerFooter.hasFooter ? "启用" : "禁用"}
-              </Badge>
+          <div className="p-4 border border-border rounded bg-muted/30 space-y-3">
+            <div className="flex items-center justify-between">
               <span className="text-[13px]">页脚</span>
+              <Switch
+                checked={page.headerFooter.hasFooter}
+                onCheckedChange={(checked) => onChange(["page", "headerFooter", "hasFooter"], checked)}
+              />
             </div>
-            {page.headerFooter.footerHasPageNumber && (
-              <div className="text-[12px] text-muted-foreground">
-                页码位置：{page.headerFooter.pageNumberStyle === "center" ? "居中" : page.headerFooter.pageNumberStyle === "right" ? "右侧" : "左侧"}
-              </div>
-            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[12px]">页码</span>
+              <Switch
+                checked={page.headerFooter.footerHasPageNumber}
+                onCheckedChange={(checked) => onChange(["page", "headerFooter", "footerHasPageNumber"], checked)}
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">页码位置</Label>
+              <Select
+                value={page.headerFooter.pageNumberStyle}
+                onValueChange={(v) => onChange(["page", "headerFooter", "pageNumberStyle"], v)}
+              >
+                <SelectTrigger className="h-8 text-[12px] mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="left">左侧</SelectItem>
+                  <SelectItem value="center">居中</SelectItem>
+                  <SelectItem value="right">右侧</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>
@@ -350,7 +447,13 @@ function PageSettingsPanel({ page }: { page: TFType["page"] }) {
 }
 
 /** 编号配置面板 */
-function NumberingPanel({ numbering }: { numbering: TFType["numbering"] }) {
+function NumberingPanel({
+  numbering,
+  onChange,
+}: {
+  numbering: TFType["numbering"];
+  onChange: (path: string[], value: unknown) => void;
+}) {
   return (
     <div className="space-y-6">
       <div>
@@ -358,19 +461,31 @@ function NumberingPanel({ numbering }: { numbering: TFType["numbering"] }) {
           <Hash className="w-4 h-4" />
           编号方案
         </h3>
-        <div className="p-4 border border-border rounded bg-muted/30">
-          <div className="text-[11px] text-muted-foreground mb-2">层级格式</div>
-          <div className="flex items-center gap-2">
-            {numbering.scheme.split("|").map((level, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <Badge variant="outline" className="font-mono text-[12px] px-3">
-                  {level}
-                </Badge>
-                {idx < numbering.scheme.split("|").length - 1 && (
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                )}
-              </div>
-            ))}
+        <div className="p-4 border border-border rounded bg-muted/30 space-y-3">
+          <div>
+            <Label className="text-[11px] text-muted-foreground">层级格式</Label>
+            <Input
+              value={numbering.scheme}
+              onChange={(e) => onChange(["numbering", "scheme"], e.target.value)}
+              className="h-8 text-[12px] mt-2"
+            />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">层级数量</Label>
+            <Select
+              value={String(numbering.headingLevels)}
+              onValueChange={(v) => onChange(["numbering", "headingLevels"], Number(v))}
+            >
+              <SelectTrigger className="h-8 text-[12px] mt-2">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1</SelectItem>
+                <SelectItem value="2">2</SelectItem>
+                <SelectItem value="3">3</SelectItem>
+                <SelectItem value="4">4</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -380,23 +495,19 @@ function NumberingPanel({ numbering }: { numbering: TFType["numbering"] }) {
       <div>
         <h3 className="text-[14px] font-semibold mb-4 flex items-center gap-2">
           <ListOrdered className="w-4 h-4" />
-          层级数量
+          编号前缀
         </h3>
-        <div className="p-4 border border-border rounded bg-muted/30">
-          <div className="flex items-center gap-4">
-            <div>
-              <div className="text-[11px] text-muted-foreground mb-1">标题层级</div>
-              <div className="text-2xl font-bold">{numbering.headingLevels}</div>
+        <div className="grid grid-cols-2 gap-4">
+          {(["h1", "h2", "h3", "h4"] as const).map((key) => (
+            <div key={key} className="p-4 border border-border rounded bg-muted/30">
+              <div className="text-[11px] text-muted-foreground mb-2">{key.toUpperCase()}</div>
+              <Input
+                value={numbering.prefixRules[key] || ""}
+                onChange={(e) => onChange(["numbering", "prefixRules", key], e.target.value)}
+                className="h-8 text-[12px]"
+              />
             </div>
-            <div className="flex-1 grid grid-cols-3 gap-2">
-              {Object.entries(numbering.prefixRules).map(([key, value]) => (
-                <div key={key} className="p-2 bg-muted rounded text-center">
-                  <div className="text-[10px] text-muted-foreground uppercase">{key}</div>
-                  <div className="text-[12px] font-mono">{value || "(无)"}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     </div>
@@ -604,13 +715,21 @@ export default function TemplateFingerprint() {
 
   const parseTemplateMutation = useParseTemplate();
   const deleteChaptersMutation = useDeleteProjectChapters();
+  const {
+    templateFingerprint,
+    isLoading: templateLoading,
+    initializeTemplate,
+    saveTemplate,
+    isSaving,
+  } = useTemplateFingerprint(currentProjectId || undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
+  const [draftTemplate, setDraftTemplate] = useState<TemplateFingerprint | null>(null);
+  const [variables, setVariables] = useState<TemplateFingerprint["introVariables"]>(
+    DEFAULT_TEMPLATE_FINGERPRINT.introVariables
+  );
   const [activeTab, setActiveTab] = useState("styles");
-  const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
-  const [isEditingStyle, setIsEditingStyle] = useState(false);
   
   // 上传的模板文件预览状态
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
@@ -620,108 +739,92 @@ export default function TemplateFingerprint() {
   const [isConvertingFile, setIsConvertingFile] = useState(false);
   const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
 
-  // Editable styles - each template can be edited independently
-  // Load from localStorage if available, otherwise use defaults
-  const [editableStyles, setEditableStyles] = useState<Record<string, typeof templateStyles[0]>>(() => {
-    // Try to load saved styles from localStorage
-    try {
-      const saved = localStorage.getItem('templateStyles');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Verify all template styles exist in saved data
-        const hasAllStyles = templateStyles.every(style => parsed[style.id]);
-        if (hasAllStyles) {
-          return parsed;
-        }
-      }
-    } catch (error) {
-      console.error("Failed to load saved styles:", error);
-    }
+  const currentTemplate = draftTemplate;
+  const currentStyle = currentTemplate || DEFAULT_TEMPLATE_FINGERPRINT;
+  const selectedStyleId = "current";
 
-    // Fall back to default styles
-    const initial: Record<string, typeof templateStyles[0]> = {};
-    templateStyles.forEach(style => {
-      initial[style.id] = JSON.parse(JSON.stringify(style));
-    });
-    return initial;
-  });
+  const updateStyleProperty = useCallback(
+    (_styleId: string, path: string[], value: unknown) => {
+      updateTemplateProperty(path, value);
+    },
+    [updateTemplateProperty]
+  );
 
-  // Get current selected style (from editable state)
-  const currentStyle = useMemo(() => {
-    return editableStyles[selectedStyleId] || templateStyles[0];
-  }, [selectedStyleId, editableStyles]);
-
-  // Update a specific style's property
-  const updateStyleProperty = useCallback((styleId: string, path: string[], value: unknown) => {
-    setEditableStyles(prev => {
-      const newStyles = { ...prev };
-      if (!newStyles[styleId]) {
-        return prev;
-      }
-      const style = JSON.parse(JSON.stringify(newStyles[styleId]));
-
-      // Navigate to the nested property and update it
-      let current: Record<string, unknown> = style;
+  const updateTemplateProperty = useCallback((path: string[], value: unknown) => {
+    setDraftTemplate((prev) => {
+      if (!prev) return prev;
+      const next = JSON.parse(JSON.stringify(prev)) as TemplateFingerprint;
+      let current: Record<string, unknown> = next as Record<string, unknown>;
       for (let i = 0; i < path.length - 1; i++) {
         if (!current[path[i]]) {
-          return prev;
+          current[path[i]] = {};
         }
         current = current[path[i]] as Record<string, unknown>;
       }
       current[path[path.length - 1]] = value;
-
-      newStyles[styleId] = style;
-      return newStyles;
+      return next;
     });
   }, []);
 
-  // Save current style to localStorage for persistence
-  const saveCurrentStyle = useCallback(() => {
+  const saveCurrentStyle = useCallback(async () => {
+    if (!currentProjectId || !currentTemplate) return;
     try {
-      // Save all edited styles to localStorage
-      localStorage.setItem('templateStyles', JSON.stringify(editableStyles));
-      toast.success("样式已保存", {
-        description: `「${currentStyle.name}」的样式配置已保存到本地`,
-      });
-      setIsEditingStyle(false);
+      await saveTemplate({ projectId: currentProjectId, ...currentTemplate });
+      toast.success("样式已保存", { description: "模板样式已更新" });
     } catch (error) {
       console.error("Failed to save styles:", error);
-      toast.error("保存失败", {
-        description: "无法保存样式配置",
-      });
+      toast.error("保存失败", { description: "无法保存样式配置" });
     }
-  }, [currentStyle.name, editableStyles]);
+  }, [currentProjectId, currentTemplate, saveTemplate]);
 
-  // Reset style to default with undo support
-  const resetStyleToDefault = useCallback((styleId: string) => {
-    const defaultStyle = templateStyles.find(s => s.id === styleId);
-    if (defaultStyle) {
-      // Save current state for undo
-      const previousStyle = editableStyles[styleId];
+  const resetStyleToDefault = useCallback(() => {
+    if (!currentTemplate) return;
+    setDraftTemplate({
+      ...currentTemplate,
+      styles: DEFAULT_TEMPLATE_FINGERPRINT.styles,
+      tables: DEFAULT_TEMPLATE_FINGERPRINT.tables,
+      page: DEFAULT_TEMPLATE_FINGERPRINT.page,
+      preview: DEFAULT_TEMPLATE_FINGERPRINT.preview,
+    });
+    toast.success("已重置为默认样式", { description: "样式已恢复为初始设置" });
+  }, [currentTemplate]);
 
-      setEditableStyles(prev => ({
-        ...prev,
-        [styleId]: JSON.parse(JSON.stringify(defaultStyle)),
-      }));
-
-      toast.success("已重置为默认样式", {
-        description: "样式已恢复为初始设置",
-        action: {
-          label: "撤销",
-          onClick: () => {
-            setEditableStyles(prev => ({
-              ...prev,
-              [styleId]: previousStyle,
-            }));
-            toast.info("已撤销重置操作");
-          },
-        },
-      });
+  const saveTemplateDraft = useCallback(async () => {
+    if (!currentProjectId || !currentTemplate) return;
+    try {
+      await saveTemplate({ projectId: currentProjectId, ...currentTemplate });
+      toast.success("模板已保存", { description: "设置已更新" });
+    } catch (error) {
+      console.error("[TemplateFingerprint] Save template error:", error);
+      toast.error("保存失败");
     }
-  }, [editableStyles]);
+  }, [currentProjectId, currentTemplate, saveTemplate]);
 
   const hasTemplate = chapters.length > 0;
-  const isLoading = projectLoading || chaptersLoading;
+  const isLoading = projectLoading || chaptersLoading || templateLoading;
+  const hasInitializedRef = useRef(false);
+
+  useEffect(() => {
+    if (templateFingerprint) {
+      setDraftTemplate(templateFingerprint);
+    }
+  }, [templateFingerprint]);
+
+  useEffect(() => {
+    if (draftTemplate?.introVariables) {
+      setVariables(draftTemplate.introVariables);
+    }
+  }, [draftTemplate?.introVariables]);
+
+  useEffect(() => {
+    if (!templateFingerprint && !templateLoading && currentProjectId && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      initializeTemplate().catch((error) => {
+        console.error("[TemplateFingerprint] Initialize template failed:", error);
+        toast.error("初始化模板失败，请稍后重试");
+      });
+    }
+  }, [templateFingerprint, templateLoading, currentProjectId, initializeTemplate]);
   
   // 清理上传的文件 URL（组件卸载或项目切换时）
   useEffect(() => {
@@ -903,13 +1006,25 @@ export default function TemplateFingerprint() {
     setVariables((prev) => prev.map((v) => (v.id === id ? { ...v, value } : v)));
   };
 
-  const handleSaveVariables = () => {
-    toast.success("变量已保存", { description: "引言变量已更新" });
+  const handleSaveVariables = async () => {
+    if (!currentProjectId || !currentTemplate) return;
+    const updatedTemplate = {
+      ...currentTemplate,
+      introVariables: variables,
+    };
+    setDraftTemplate(updatedTemplate);
+    try {
+      await saveTemplate({ projectId: currentProjectId, ...updatedTemplate });
+      toast.success("变量已保存", { description: "引言变量已更新" });
+    } catch (error) {
+      console.error("[TemplateFingerprint] Save variables error:", error);
+      toast.error("保存失败");
+    }
   };
 
   // Replace variables in intro content
   const processedIntro = useMemo(() => {
-    const content = { ...mockTemplateFingerprint.introContent };
+    const content = { ...(currentTemplate?.introContent || DEFAULT_TEMPLATE_FINGERPRINT.introContent) };
     variables.forEach((v) => {
       const placeholder = `{${v.name}}`;
       const value = v.value || `[${v.placeholder}]`;
@@ -1094,7 +1209,7 @@ export default function TemplateFingerprint() {
             {/* Styles Tab - Template Style Selection and Editing */}
             <TabsContent value="styles" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-                {/* Left: Style list */}
+                {/* Left: Style overview */}
                 <div className="w-72 border-r border-border flex flex-col min-h-0">
                   <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
                     <div className="flex items-center gap-2">
@@ -1102,60 +1217,36 @@ export default function TemplateFingerprint() {
                       <span className="text-[13px] font-medium">模板样式</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      选择并编辑样式配置
+                      当前模板样式概览
                     </p>
                   </div>
-                  <ScrollArea className="h-0 grow">
-                    <div className="p-3 space-y-2">
-                      {templateStyles.map((style) => {
-                        const editedStyle = editableStyles[style.id];
-                        return (
-                          <motion.div
-                            key={style.id}
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className={cn(
-                              "p-3 rounded-lg border-2 cursor-pointer transition-all",
-                              selectedStyleId === style.id
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-muted-foreground/50 bg-card"
-                            )}
-                            onClick={() => {
-                              setSelectedStyleId(style.id);
-                              setIsEditingStyle(false);
-                            }}
-                          >
-                            <div className="flex items-center gap-3">
-                              {/* Color preview */}
-                              <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
-                                <div
-                                  className="h-1/2"
-                                  style={{ backgroundColor: editedStyle?.preview.primaryColor || style.preview.primaryColor }}
-                                />
-                                <div
-                                  className="h-1/2"
-                                  style={{ backgroundColor: editedStyle?.preview.accentColor || style.preview.accentColor }}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-[12px] font-semibold truncate">{editedStyle?.name || style.name}</h4>
-                                  {selectedStyleId === style.id && (
-                                    <Badge variant="default" className="text-[9px] px-1">
-                                      当前
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-[10px] text-muted-foreground truncate">
-                                  {editedStyle?.preview.fontFamily || style.preview.fontFamily}
-                                </p>
-                              </div>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
+                  <div className="p-4">
+                    <div className="p-3 rounded-lg border border-border bg-card">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
+                          <div
+                            className="h-1/2"
+                            style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                          />
+                          <div
+                            className="h-1/2"
+                            style={{ backgroundColor: currentStyle.preview.accentColor }}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-[12px] font-semibold truncate">{currentStyle.name}</h4>
+                            <Badge variant="default" className="text-[9px] px-1">
+                              当前
+                            </Badge>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {currentStyle.styles.body.font}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                  </ScrollArea>
+                  </div>
                 </div>
 
                 {/* Middle: Style Editor */}
@@ -1171,7 +1262,7 @@ export default function TemplateFingerprint() {
                           variant="ghost"
                           size="sm"
                           className="h-7 text-[11px]"
-                          onClick={() => resetStyleToDefault(selectedStyleId)}
+                          onClick={() => resetStyleToDefault()}
                         >
                           重置
                         </Button>
@@ -1185,7 +1276,7 @@ export default function TemplateFingerprint() {
                       </div>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      {currentStyle.name} - {currentStyle.description}
+                      {currentStyle.name}
                     </p>
                   </div>
                   <ScrollArea className="h-0 grow">
@@ -2030,8 +2121,14 @@ export default function TemplateFingerprint() {
                         以下设置从样本报告中提取，将应用于生成的DOCX文档。
                       </div>
                     </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={saveTemplateDraft} disabled={isSaving} className="gap-2">
+                        <Save className="w-4 h-4" />
+                        保存设置
+                      </Button>
+                    </div>
                   </motion.div>
-                  <PageSettingsPanel page={mockTemplateFingerprint.page} />
+                  <PageSettingsPanel page={currentStyle.page} onChange={updateTemplateProperty} />
                 </div>
               </div>
             </TabsContent>
@@ -2052,8 +2149,14 @@ export default function TemplateFingerprint() {
                         定义报告章节的多级编号规则，确保与样本报告一致。
                       </div>
                     </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={saveTemplateDraft} disabled={isSaving} className="gap-2">
+                        <Save className="w-4 h-4" />
+                        保存设置
+                      </Button>
+                    </div>
                   </motion.div>
-                  <NumberingPanel numbering={mockTemplateFingerprint.numbering} />
+                  <NumberingPanel numbering={currentStyle.numbering} onChange={updateTemplateProperty} />
                 </div>
               </div>
             </TabsContent>

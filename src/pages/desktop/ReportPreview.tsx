@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,17 +52,10 @@ import { EquityChart } from "@/components/desktop/EquityChart";
 import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { MarkdownRenderer } from "@/components/desktop/MarkdownRenderer";
 import { supabase } from "@/integrations/supabase/client";
-import { templateStyles, type TemplateStyle } from "@/lib/reportMockData";
+import { useTemplateFingerprint } from "@/hooks/useTemplateFingerprint";
+import { DEFAULT_TEMPLATE_FINGERPRINT, type TemplateFingerprint } from "@/lib/templateDefaults";
 import { normalizeSupabaseError } from "@/lib/errorUtils";
 import { exportToPDF, exportToWord } from "@/lib/exportUtils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Palette } from "lucide-react";
 
 // Types for AI-generated content
 interface ReportSection {
@@ -265,7 +258,7 @@ function SectionRenderer({
   definitions?: Definition[];
   onRetry?: (sectionId: string, sectionTitle: string) => void;
   isRetrying?: boolean;
-  templateStyle?: TemplateStyle;
+  templateStyle?: TemplateFingerprint;
   onUploadClick?: (sectionTitle: string) => void;
   isLocked?: boolean;
   onToggleLock?: (sectionId: string) => void;
@@ -513,7 +506,25 @@ export default function ReportPreview() {
   const { data: mappings = [], isLoading: isMappingsLoading } = useMappings(projectId);
   const { data: definitions = [] } = useDefinitions(projectId);
   const { data: latestReport, isLoading: isReportLoading } = useLatestGeneratedReport(projectId);
+  const {
+    templateFingerprint,
+    isLoading: isTemplateLoading,
+    initializeTemplate,
+  } = useTemplateFingerprint(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
+
+  const hasInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!templateFingerprint && !isTemplateLoading && projectId && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      initializeTemplate().catch((error) => {
+        console.error("[ReportPreview] Initialize template failed:", error);
+        toast.error("初始化模板失败，请稍后重试");
+      });
+    }
+  }, [templateFingerprint, isTemplateLoading, projectId, initializeTemplate]);
+
+  const currentTemplate = templateFingerprint || null;
 
   // 基于 chapter_file_mappings 构建章节-文件映射表
   const chapterFilesMap = useMemo(() => {
@@ -723,11 +734,10 @@ export default function ReportPreview() {
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
 
-  // Template style state
-  const [selectedStyleId, setSelectedStyleId] = useState<string>(templateStyles[0].id);
-  const currentStyle = useMemo(() => {
-    return templateStyles.find(s => s.id === selectedStyleId) || templateStyles[0];
-  }, [selectedStyleId]);
+  // Template style state (single template fingerprint)
+  const currentStyle = useMemo<TemplateFingerprint>(() => {
+    return currentTemplate || DEFAULT_TEMPLATE_FINGERPRINT;
+  }, [currentTemplate]);
 
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
@@ -1056,7 +1066,13 @@ export default function ReportPreview() {
   };
 
   // Loading state
-  const isDataLoading = isProjectLoading || isChaptersLoading || isFilesLoading || isMappingsLoading || isReportLoading;
+  const isDataLoading =
+    isProjectLoading ||
+    isChaptersLoading ||
+    isFilesLoading ||
+    isMappingsLoading ||
+    isReportLoading ||
+    isTemplateLoading;
 
   if (isDataLoading) {
     return (
@@ -1112,30 +1128,6 @@ export default function ReportPreview() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Style Switcher */}
-          {hasGenerated && (
-            <div className="flex items-center gap-2 mr-2">
-              <Palette className="w-4 h-4 text-muted-foreground" />
-              <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
-                <SelectTrigger className="w-32 h-8 text-[12px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {templateStyles.map(style => (
-                    <SelectItem key={style.id} value={style.id} className="text-[12px]">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-3 h-3 rounded-full border"
-                          style={{ backgroundColor: style.preview.primaryColor }}
-                        />
-                        {style.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           <Button
             variant="outline"
             size="sm"
@@ -1738,7 +1730,7 @@ function generateReportHTML(
   metadata: ReportMetadata | null,
   definitions: Definition[],
   fileCount: number,
-  templateStyle?: TemplateStyle,
+  templateStyle?: TemplateFingerprint,
   chapterFilesMapArg?: Map<string, Array<{ name: string; id: string }>>
 ): string {
   const formatDate = () => {
