@@ -794,13 +794,6 @@ export default function FileUpload() {
         toast.info(`${result.skipped} 个文件无需重复提取`, { duration: 4000 });
       }
 
-      if (options?.autoRedirect && hasTemplate && result.failed === 0) {
-        toast.info("正在跳转到定义管理...", { duration: 2000 });
-        setTimeout(() => {
-          navigate(`/project/${projectId}/definitions`);
-        }, 1500);
-      }
-
       if (result.failed > 0) {
         const uniqueErrors = [...new Set(result.errors || [])];
         const errorSummary = uniqueErrors.length > 0
@@ -1266,13 +1259,8 @@ export default function FileUpload() {
       if (ocrCandidates.length > 0) {
         console.log(`[FileUpload] Auto-triggering OCR for ${ocrCandidates.length} files`);
         setTimeout(() => {
-          handleBatchOcr(ocrCandidates, { autoRedirect: true });
+          handleBatchOcr(ocrCandidates);
         }, 500);
-      } else if (hasTemplate) {
-        toast.info("正在跳转到定义管理...", { duration: 2000 });
-        setTimeout(() => {
-          navigate(`/project/${projectId}/definitions`);
-        }, 1500);
       }
     }
     if (failCount > 0) {
