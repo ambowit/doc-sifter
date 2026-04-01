@@ -1725,7 +1725,7 @@ export default function FileUpload() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 text-[11px] text-primary border-primary/30 hover:bg-primary/10"
+                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
                         onClick={handleAutoMatch}
                         disabled={classifyProgress.isRunning}
                       >
@@ -1739,25 +1739,7 @@ export default function FileUpload() {
                           : "自动匹配"}
                       </Button>
                     )}
-                    {/* 解析结构按钮 */}
-                    {existingFiles.some(f => f.extractedText && f.extractedText.length > 100) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
-                        onClick={handleParseStructure}
-                        disabled={parseProgress.isRunning}
-                      >
-                        {parseProgress.isRunning ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <FileSearch className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        {parseProgress.isRunning 
-                          ? `解析中 ${parseProgress.completed}/${parseProgress.total}` 
-                          : "解析结构"}
-                      </Button>
-                    )}
+                    {/* 解析结构按钮 - 已隐藏 */}
                     <Button
                       variant="ghost"
                       size="sm"
