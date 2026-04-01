@@ -653,7 +653,7 @@ export default function ReportPreview() {
 
       if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
         fact = str;
-        if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
+        if (str.includes("未能提供") || str.includes("未提供") || str.includes("���失")) {
           risk = "由于相关资料缺失，无法全面核实相关合规情况，存在潜在的法律风险";
           suggestion = "建议补充提供相关资料以便进一步核查";
         } else if (str.includes("无法") || str.includes("不能")) {
@@ -1193,7 +1193,7 @@ export default function ReportPreview() {
             <h1 className="text-lg font-semibold text-foreground">尽职调查报告预览</h1>
             {hasGenerated && (
               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                已生成
+                已��成
               </Badge>
             )}
           </div>
@@ -1207,21 +1207,40 @@ export default function ReportPreview() {
             <div className="flex items-center gap-2 mr-2">
               <Palette className="w-4 h-4 text-muted-foreground" />
               <Select value={selectedStyleId || templateStyles[0].id} onValueChange={handleSelectStyle}>
-                <SelectTrigger className="w-32 h-8 text-[12px]">
+                <SelectTrigger className="w-36 h-8 text-[12px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {templateStyles.map(style => (
+                  {/* 全局模板 */}
+                  {templateStyles.filter(s => !s.projectId).map(style => (
                     <SelectItem key={style.id} value={style.id} className="text-[12px]">
                       <div className="flex items-center gap-2">
                         <span
                           className="w-3 h-3 rounded-full border"
-                          style={{ backgroundColor: style.preview.primaryColor }}
+                          style={{ backgroundColor: style.preview?.primaryColor || "#111827" }}
                         />
                         {style.name}
                       </div>
                     </SelectItem>
                   ))}
+                  {/* 自定义模板（项目专属） */}
+                  {templateStyles.filter(s => s.projectId).length > 0 && (
+                    <>
+                      <div className="border-t my-1" />
+                      {templateStyles.filter(s => s.projectId).map(style => (
+                        <SelectItem key={style.id} value={style.id} className="text-[12px]">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-3 h-3 rounded-full border border-dashed"
+                              style={{ backgroundColor: style.preview?.primaryColor || "#111827" }}
+                            />
+                            <span>{style.name}</span>
+                            <span className="text-[9px] text-muted-foreground">(本项目)</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
