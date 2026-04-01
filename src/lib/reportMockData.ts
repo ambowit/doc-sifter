@@ -684,7 +684,7 @@ const createEquityBlocks = (): ContentBlock[] => {
       blockId: "blk_equity_text",
       type: "paragraph",
       style: "body",
-      text: "根据我们审阅的股东会决议及公司章程，截至2025年12月31日，目标公司的股权结构如下：张明持股35%，为公司实际控制人；李华持股25%；深圳创新投资有限合伙企业持股20%，为A轮投资人；员工持股平台持股20%。以上股权均无质押、冻结情况。",
+      text: "根据我们审阅的股东会决议及公司章程，截至2025年12��31日，目标公司的股权结构如下：张明持股35%，为公司实际控制人；李华持股25%；深圳创新投资有限合伙企业持股20%，为A轮投资人；员工持股平台持股20%。以上股权均无质押、冻结情况。",
       evidenceRefs: [
         { fid: "F001", docId: "d03", loc: "p1" },
         { fid: "F002", docId: "d03", loc: "p1" },
@@ -728,7 +728,7 @@ const createTaxBlocks = (): ContentBlock[] => {
       blockId: "blk_tax_note",
       type: "paragraph",
       style: "body",
-      text: "建议委托人在交割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
+      text: "建议委托人在��割前要求目标公司补充提供上述税务资料，或考虑在交易文件中设置相应的陈述保证及赔偿条款。",
     },
   ];
 };
@@ -953,7 +953,8 @@ export function getDefinitionsFromKG() {
     shortName: e.aliases?.[0] || e.name,
     fullName: e.name,
     type: e.type,
-    sourceFiles: e.refs.map(r => ({
+    // 实体引用来源文件（与报告章节 sourceFiles 无关，改名避免混淆）
+    refs: e.refs.map(r => ({
       id: r.docId,
       name: getDocumentById(r.docId)?.filename || r.docId,
       pageRef: r.loc,

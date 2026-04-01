@@ -92,7 +92,7 @@ export interface ExtractDefinitionsResult {
   archived: number;
   skipped: number;
   conflicts: number;
-  sourceFiles?: number;
+  processedFiles?: number; // 原 sourceFiles，改名避免与报告章节证据语义混淆
   snippets?: number;
   rawItems?: number;
   message?: string;

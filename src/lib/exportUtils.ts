@@ -257,10 +257,10 @@ function generatePDFHTML(
       `;
     }
 
-    let sourceFilesHTML = "";
-    // 证据来源改为从 mappedFiles 获取（由外部传入）
+    // 证据来源：从 mappedFiles 获取（由 chapter_file_mappings 驱动，外部传入）
+    let mappedFilesHTML = "";
     if (section.mappedFiles && section.mappedFiles.length > 0) {
-      sourceFilesHTML = `
+      mappedFilesHTML = `
         <div style="margin-top: 16px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 12px; color: #6b7280;">
           <strong>证据来源：</strong>${section.mappedFiles.map(f => f.name).join("、")}
         </div>
@@ -277,7 +277,7 @@ function generatePDFHTML(
         </div>
         ${findingsHTML}
         ${issuesHTML}
-        ${sourceFilesHTML}
+        ${mappedFilesHTML}
       </div>
     `;
   }
