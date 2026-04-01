@@ -665,10 +665,10 @@ export default function TemplateFingerprint() {
   const selectedStyleId =
     localSelectedStyleId || templateFingerprint?.selectedStyleId || (templateStyles.length > 0 ? templateStyles[0].id : null);
   const rawStyle =
-    (isEditingStyle && styleDraft && styleDraft.id === selectedStyleId)
-    || templateStyles.find((style) => style.id === selectedStyleId)
-    || templateStyles[0]
-    || fallbackStyle;
+  (isEditingStyle && styleDraft && styleDraft.id === selectedStyleId ? styleDraft : null)
+  || templateStyles.find((style) => style.id === selectedStyleId)
+  || templateStyles[0]
+  || fallbackStyle;
   const currentStyle = useMemo(() => normalizeTemplateStyle(rawStyle), [rawStyle]);
   const currentPage = currentTemplate?.page || DEFAULT_TEMPLATE_FINGERPRINT.page;
   const currentNumbering = currentTemplate?.numbering || DEFAULT_TEMPLATE_FINGERPRINT.numbering;
