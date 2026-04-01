@@ -536,19 +536,14 @@ export function useGenerateAIReport() {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
 
-          console.log("[v0] generate-report invoke result", { batchIndex, data, error });
-
           if (error) {
             const errStr = JSON.stringify(error);
-            console.log("[v0] generate-report error detail", { errStr, errorObj: error });
             if (errStr.includes("504") || errStr.includes("timeout")) {
               console.warn(`[useGenerateAIReport] Chapter ${batchIndex + 1} timeout, skipping`);
               continue;
             }
             throw new Error(error.message || "报告生成失败");
           }
-
-          console.log("[v0] generate-report data", { data });
 
           if (data?.sections && Array.isArray(data.sections)) {
             allSections.push(...data.sections);
