@@ -593,7 +593,7 @@ export default function Definitions() {
           <DialogHeader>
             <DialogTitle>确认重新提取</DialogTitle>
             <DialogDescription>
-              重新提取将清除当前所有待处理的 AI 候选数据，并重新从数据室文件中提取。已接受的最终定义不会受到影响。
+              此操作将清除当前所有 AI 候选数据（包括待处理、已接受、已拒绝的候选），并重新从数据室文件中提取。已添加到最终定义表的数据不会受到影响。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">

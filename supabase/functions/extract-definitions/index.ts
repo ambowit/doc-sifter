@@ -101,12 +101,12 @@ serve(async (req) => {
 
     let archived = 0;
     if (mode === "refresh") {
+      // 清除所有非归档的候选数据（包括 pending_review, approved, rejected）
       const { data: archivedRows, error: archiveError } = await admin
         .from("definition_candidates")
         .update({ status: "archived", updated_at: new Date().toISOString() })
         .eq("project_id", projectId)
-        .eq("status", "pending_review")
-        .eq("origin", "ai")
+        .neq("status", "archived")
         .select("id");
 
       if (archiveError) {
