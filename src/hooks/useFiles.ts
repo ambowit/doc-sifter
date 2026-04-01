@@ -31,8 +31,6 @@ export interface UploadedFile {
   ocrTaskStatus: string | null; // pending | processing | completed | failed
   ocrTaskStartedAt: string | null;
   ocrTaskCompletedAt: string | null;
-  // chapterId 已废弃，不再使用，章节关联请用 chapter_file_mappings
-  chapterId?: string | null;
   aiSummary: string | null;
   aiClassifiedAt: string | null;
   classificationConfidence: number | null;
@@ -89,7 +87,6 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   ocrTaskStatus: row.ocr_task_status as string | null,
   ocrTaskStartedAt: row.ocr_task_started_at as string | null,
   ocrTaskCompletedAt: row.ocr_task_completed_at as string | null,
-  // chapterId 不再从数据库读取，章节关联由 chapter_file_mappings 驱动
   aiSummary: row.ai_summary as string | null,
   aiClassifiedAt: row.ai_classified_at as string | null,
   classificationConfidence: row.classification_confidence as number | null,

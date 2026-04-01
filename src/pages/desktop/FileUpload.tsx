@@ -112,7 +112,6 @@ interface UploadedRoomFile {
   mimeType?: string;
   ocrProcessed?: boolean;
   ocrTaskStatus?: string | null;
-  chapterId?: string | null;
 }
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
@@ -443,19 +442,18 @@ export default function FileUpload() {
       const localFileMap = new Map(uploadedFiles.map(f => [f.storagePath, f]));
       const updatedFiles = existingFiles.map(f => {
         const localFile = localFileMap.get(f.storagePath);
-        return {
-          id: f.id,
-          name: f.originalName,
-          sizeBytes: f.sizeBytes,
-          type: f.fileType,
-          storagePath: f.storagePath,
-          mimeType: f.mimeType,
-          ocrProcessed: f.ocrProcessed,
-          ocrTaskStatus: f.ocrTaskStatus,
-          chapterId: f.chapterId ?? null,
-          downloadUrl: localFile?.downloadUrl,
-        };
-      });
+          return {
+            id: f.id,
+            name: f.originalName,
+            sizeBytes: f.sizeBytes,
+            type: f.fileType,
+            storagePath: f.storagePath,
+            mimeType: f.mimeType,
+            ocrProcessed: f.ocrProcessed,
+            ocrTaskStatus: f.ocrTaskStatus,
+            downloadUrl: localFile?.downloadUrl,
+          };
+        });
       setUploadedFiles(updatedFiles);
       // 将已到达终态（completed/failed/null）的文件从 submittedToWorkerIds 移除
       setSubmittedToWorkerIds(prev => {
