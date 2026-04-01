@@ -1301,20 +1301,20 @@ export default function TemplateFingerprint() {
                             }}
                           >
                             <div className="flex items-center gap-3">
-                              <div className="flex-shrink-0 w-8 h-8 rounded border border-dashed border-muted-foreground/30 overflow-hidden flex items-center justify-center bg-muted/20">
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-dashed border-muted-foreground/30 overflow-hidden relative bg-muted/20">
                                 {customStyle ? (
                                   <>
                                     <div
-                                      className="absolute inset-0 h-1/2"
+                                      className="absolute inset-x-0 top-0 h-1/2"
                                       style={{ backgroundColor: displayCustomStyle?.preview?.primaryColor || "#111827" }}
                                     />
                                     <div
-                                      className="absolute inset-0 top-1/2 h-1/2"
+                                      className="absolute inset-x-0 bottom-0 h-1/2"
                                       style={{ backgroundColor: displayCustomStyle?.preview?.accentColor || "#374151" }}
                                     />
                                   </>
                                 ) : (
-                                  <span className="text-[10px] text-muted-foreground">+</span>
+                                  <span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground">+</span>
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -1564,7 +1564,7 @@ export default function TemplateFingerprint() {
                                   <SelectItem value="黑体">黑体</SelectItem>
                                   <SelectItem value="楷体">楷体</SelectItem>
                                   <SelectItem value="仿宋">仿宋</SelectItem>
-                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="微软雅黑">微软��黑</SelectItem>
                                   <SelectItem value="Times New Roman">Times New Roman</SelectItem>
                                 </SelectContent>
                               </Select>
@@ -1842,7 +1842,7 @@ export default function TemplateFingerprint() {
                     </div>
                   </div>
                   
-                  {/* 文件预览模式 */}
+                  {/* ��件预览模式 */}
                   {previewMode === "file" && uploadedFileUrl && (
                     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                       {/* PDF 预览 */}
