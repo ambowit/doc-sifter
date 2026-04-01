@@ -797,40 +797,21 @@ ${allFilesContent}
       totalFiles: processedFiles.length,
     });
 
-    // 从数据库查询该章节已关联的文件 ID（用 service role key 绕过 RLS）
+    // 从数据库查询该章节已关联的文件 ID（supabase 已用 service role key 初始化，绕过 RLS）
     const { data: mappingRows, error: mappingError } = await supabase
       .from("chapter_file_mappings")
       .select("file_id")
       .eq("chapter_id", currentChapter.id);
 
-    // 数据库查询失败 → 生成失败，不走 AI
+    // 数据库查询失败 → 降级：使用全量文件继续生成，不中断流程
     if (mappingError) {
-      logStep("Chapter-file mapping query failed", { error: mappingError.message });
-      return jsonResponse({
-        success: false,
-        mode: "batch",
-        batchIndex,
-        sections: [{
-          id: currentChapter.id,
-          title: currentChapter.title,
-          number: currentChapter.number || "",
-          content: `【${currentChapter.title}】\n\n生成失败：无法获取章节关联文件（${mappingError.message}）。`,
-          findings: [],
-          issues: [{
-            fact: `经核查，章节「${currentChapter.title}」关联文件查询失败`,
-            risk: "报告生成异常",
-            suggestion: "建议稍后重新生成该章节",
-            severity: "low",
-          }],
-        }],
-        error: mappingError.message,
-      });
+      logStep("Chapter-file mapping query failed, falling back to all files", { error: mappingError.message });
     }
 
     const mappedFileIds = new Set((mappingRows || []).map((r: { file_id: string }) => r.file_id));
 
-    // 无关联文件 → 跳过，不走 AI
-    if (mappedFileIds.size === 0) {
+    // 无关联文件且查询成功（非降级） → 跳过，不走 AI
+    if (mappedFileIds.size === 0 && !mappingError) {
       logStep("No mapped files for chapter, skipping", { chapter: currentChapter.title });
       return jsonResponse({
         success: true,
@@ -849,8 +830,10 @@ ${allFilesContent}
       });
     }
 
-    // 只使用已关联的文件
-    const relevantFiles = processedFiles.filter(f => f.id && mappedFileIds.has(f.id));
+    // 只使用已关联的文件；若查询失败则降级使用全量文件
+    const relevantFiles = (mappingError || mappedFileIds.size === 0)
+      ? processedFiles
+      : processedFiles.filter(f => f.id && mappedFileIds.has(f.id));
 
     logStep("Chapter-file matching via DB", {
       chapter: currentChapter.title,
