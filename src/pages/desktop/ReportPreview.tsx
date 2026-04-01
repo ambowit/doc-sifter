@@ -41,11 +41,12 @@ import {
   Lock,
   Unlock,
   Palette,
+  Upload,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
-import { useFiles } from "@/hooks/useFiles";
-import { useMappings } from "@/hooks/useMappings";
+import { useFiles, useCreateFile, uploadFile, detectFileType } from "@/hooks/useFiles";
+import { useMappings, useCreateMapping } from "@/hooks/useMappings";
 import { useDefinitions, Definition } from "@/hooks/useDefinitions";
 import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/useGeneratedReports";
 import { EquityChart } from "@/components/desktop/EquityChart";
@@ -525,6 +526,15 @@ export default function ReportPreview() {
     isLoading: isStylesLoading,
   } = useTemplateStyles(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
+  const createFileMutation = useCreateFile();
+  const createMappingMutation = useCreateMapping();
+
+  // 上传对话框状态
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadingSectionId, setUploadingSectionId] = useState<string | null>(null);
+  const [uploadingSectionTitle, setUploadingSectionTitle] = useState<string>("");
+  const [uploadingStatus, setUploadingStatus] = useState<"idle" | "uploading" | "extracting" | "done">("idle");
+  const [uploadingFiles, setUploadingFiles] = useState<Array<{ name: string; progress: number; status: "uploading" | "extracting" | "done" | "error" }>>([]);
 
   const hasInitializedRef = useRef(false);
   useEffect(() => {
@@ -858,10 +868,98 @@ export default function ReportPreview() {
         newSet.add(sectionId);
         toast.success("章节已锁定，重新生成时将跳过此章节");
       }
-      return newSet;
+    return newSet;
     });
   };
 
+  // 打开上传对话框
+  const handleOpenUploadDialog = (sectionId: string, sectionTitle: string) => {
+    setUploadingSectionId(sectionId);
+    setUploadingSectionTitle(sectionTitle);
+    setUploadingFiles([]);
+    setUploadingStatus("idle");
+    setUploadDialogOpen(true);
+  };
+
+  // 处理文件上传 + OCR 提取 + 章节关联
+  const handleSupplementUpload = async (acceptedFiles: File[]) => {
+    if (!uploadingSectionId || !projectId || acceptedFiles.length === 0) return;
+
+    setUploadingStatus("uploading");
+    const fileStatuses = acceptedFiles.map(f => ({
+      name: f.name,
+      progress: 0,
+      status: "uploading" as const,
+    }));
+    setUploadingFiles(fileStatuses);
+
+    for (let i = 0; i < acceptedFiles.length; i++) {
+      const file = acceptedFiles[i];
+      try {
+        // 1. 上传文件到 S3
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 10, status: "uploading" } : f));
+        const { storagePath } = await uploadFile(file, projectId, (progress) => {
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: Math.min(progress * 0.4, 40) } : f));
+        });
+
+        // 2. 创建文件记录
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 45 } : f));
+        const fileType = detectFileType(file.name);
+        const createdFile = await createFileMutation.mutateAsync({
+          projectId,
+          name: file.name,
+          originalName: file.name,
+          fileType,
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+          storagePath,
+        });
+
+        // 3. 创建章节-文件映射（直接关联，不走 AI 匹配）
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 50 } : f));
+        await createMappingMutation.mutateAsync({
+          chapterId: uploadingSectionId,
+          fileId: createdFile.id,
+          confidence: 100,
+          isAiSuggested: false,
+          isConfirmed: true,
+        });
+
+        // 4. 调用 OCR 文字提取
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 55, status: "extracting" } : f));
+        setUploadingStatus("extracting");
+        
+        const { error: parseError } = await supabase.functions.invoke("parse", {
+          body: { fileId: createdFile.id, projectId, mode: "ocr" },
+        });
+
+        if (parseError) {
+          console.warn("[ReportPreview] OCR parse failed:", parseError);
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "error" } : f));
+        } else {
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "done" } : f));
+        }
+      } catch (error) {
+        console.error("[ReportPreview] Upload failed:", error);
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "error" } : f));
+        toast.error(`上传失败: ${file.name}`, {
+          description: error instanceof Error ? error.message : "请稍后重试",
+        });
+      }
+    }
+
+    // 检查是否所有文件都处理完成
+    setUploadingStatus("done");
+    const successCount = acceptedFiles.filter((_, i) => {
+      const fileStatus = uploadingFiles[i];
+      return fileStatus?.status === "done";
+    }).length;
+    
+    if (successCount > 0) {
+      toast.success(`已上传 ${successCount} 个文件并关联到「${uploadingSectionTitle}」`);
+    }
+  };
+  
   // Calculate file statistics
   const fileStats = useMemo(() => {
     if (!files.length) return null;
@@ -994,7 +1092,7 @@ export default function ReportPreview() {
                 suggestion = "建议进一步核实并补充相关证明文件";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
-                suggestion = "建议关注并进行进一步核查";
+                suggestion = "建���关注并进行进一步核查";
               }
             } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
               fact = "经核查，发现以下情况";
@@ -1521,8 +1619,10 @@ export default function ReportPreview() {
                         isLocked={lockedSectionIds.has(activeSection.id)}
                         onToggleLock={handleToggleLock}
                         onUploadClick={(sectionTitle) => {
-                          // Navigate to upload page with section context
-                          navigate(`/project/${projectId}/upload?section=${encodeURIComponent(sectionTitle)}`);
+                          // 打开上传对话框
+                          if (activeSection) {
+                            handleOpenUploadDialog(activeSection.id, sectionTitle);
+                          }
                         }}
                       />
                     )}
@@ -1741,6 +1841,137 @@ export default function ReportPreview() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Upload Dialog - 补充资料 */}
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              补充资料
+            </DialogTitle>
+            <DialogDescription>
+              上传的文件将自动关联到「{uploadingSectionTitle}」章节并提取文字
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {uploadingFiles.length === 0 ? (
+              <SupplementUploadDropzone onDrop={handleSupplementUpload} />
+            ) : (
+              <div className="space-y-3">
+                {uploadingFiles.map((file, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="flex-shrink-0">
+                      {file.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+                      {file.status === "extracting" && <Brain className="w-4 h-4 animate-pulse text-amber-500" />}
+                      {file.status === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                      {file.status === "error" && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium truncate">{file.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {file.status === "uploading" && "上传中..."}
+                        {file.status === "extracting" && "文字提取中..."}
+                        {file.status === "done" && "已提取完成"}
+                        {file.status === "error" && "处理失败"}
+                      </div>
+                    </div>
+                    {file.status !== "done" && file.status !== "error" && (
+                      <div className="w-16">
+                        <Progress value={file.progress} className="h-1.5" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {uploadingStatus === "done" && (
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setUploadingFiles([]);
+                        setUploadingStatus("idle");
+                      }}
+                    >
+                      继续上传
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => setUploadDialogOpen(false)}
+                    >
+                      完成
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Upload Dropzone Component for Supplement Files
+function SupplementUploadDropzone({ onDrop }: { onDrop: (files: File[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragActive(false);
+  };
+
+  const handleDropEvent = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragActive(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      onDrop(files);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      onDrop(files);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
+        isDragActive
+          ? "border-primary bg-primary/5"
+          : "border-muted-foreground/30 hover:border-muted-foreground/50"
+      )}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDropEvent}
+      onClick={() => inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar,.7z"
+        onChange={handleFileChange}
+      />
+      <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+      <div className="text-[13px] font-medium mb-1">
+        拖拽文件到此处，或点击上传
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        支持 PDF、Word、Excel、图片、压缩包等格式
+      </div>
     </div>
   );
 }
