@@ -180,7 +180,7 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{definition ? "编辑最终定义" : "新增最终定义"}</DialogTitle>
-          <DialogDescription>人工维护的定义会自动锁定，后续 AI 抽取不会自动覆盖。</DialogDescription>
+          <DialogDescription>人工维护的定义��自动锁定，后续 AI 抽取不会自动覆盖。</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-4">
@@ -253,6 +253,7 @@ export default function Definitions() {
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingDefinition, setEditingDefinition] = useState<Definition | null>(null);
+  const [reExtractConfirmOpen, setReExtractConfirmOpen] = useState(false);
 
   const definitionStats = useMemo(() => calculateDefinitionStats(definitions), [definitions]);
   const candidateStats = useMemo(() => calculateCandidateStats(candidates), [candidates]);
@@ -318,15 +319,16 @@ export default function Definitions() {
     }
   };
 
-  const handleExtract = async () => {
-    if (!projectId) return;
-    try {
-      const result = await extractMutation.mutateAsync({ projectId, mode: "refresh" });
-      toast.success("AI 候选已刷新", { description: `新增 ${result.inserted} 条候选，冲突 ${result.conflicts} 条，归档旧候选 ${result.archived} 条` });
-      setSelectedCandidateIds([]);
-    } catch (error) {
-      toast.error("AI 提取失败", { description: error instanceof Error ? error.message : "请稍后重试" });
-    }
+  const handleExtractConfirm = async () => {
+  if (!projectId) return;
+  setReExtractConfirmOpen(false);
+  try {
+  const result = await extractMutation.mutateAsync({ projectId, mode: "refresh" });
+  toast.success("AI 候选已刷新", { description: `新增 ${result.inserted} 条候选，冲突 ${result.conflicts} 条，归档旧候选 ${result.archived} 条` });
+  setSelectedCandidateIds([]);
+  } catch (error) {
+  toast.error("AI 提取失败", { description: error instanceof Error ? error.message : "请稍后重试" });
+  }
   };
 
   const handleApprove = async (candidateIds: string[]) => {
@@ -408,10 +410,10 @@ export default function Definitions() {
           <p className="text-[13px] text-muted-foreground">先抽取 AI 候选，再人工确认进入最终定义，报告仅使用最终定义。</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={handleExtract} disabled={extractMutation.isPending} className="gap-2">
-            {extractMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-            AI 重新提取
-          </Button>
+  <Button variant="outline" size="sm" onClick={() => setReExtractConfirmOpen(true)} disabled={extractMutation.isPending} className="gap-2">
+  {extractMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+  AI 重新提取
+  </Button>
           <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
             <Download className="w-4 h-4" />导出最终定义
           </Button>
@@ -584,6 +586,22 @@ export default function Definitions() {
         onSave={handleSave}
         isSaving={createMutation.isPending || updateMutation.isPending}
       />
+
+      {/* AI 重新提取确认弹窗 */}
+      <Dialog open={reExtractConfirmOpen} onOpenChange={setReExtractConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>确认重新提取</DialogTitle>
+            <DialogDescription>
+              重新提取将清除当前所有待处理的 AI 候选数据，并重新从数据室文件中提取。已接受的最终定义不会受到影响。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setReExtractConfirmOpen(false)}>取消</Button>
+            <Button variant="destructive" onClick={handleExtractConfirm}>确认重新提取</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
