@@ -1259,19 +1259,24 @@ export default function TemplateFingerprint() {
                           variant="outline"
                           size="sm"
                           className="h-7 text-[11px]"
-                          onClick={() => {
-                            const next = !isEditingStyle;
-                            setIsEditingStyle(next);
-                            if (next) {
-                              const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
-                              if (baseStyle) {
-                                setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
-                                setStyleDraftDirty(false);
-                              }
-                            } else {
-                              setStyleDraftDirty(false);
-                            }
-                          }}
+  onClick={() => {
+  const next = !isEditingStyle;
+  setIsEditingStyle(next);
+  if (next) {
+  // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
+  // 否则从 templateStyles 获取基础样式
+  if (!styleDraft || styleDraft.id !== selectedStyleId) {
+  const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+  if (baseStyle) {
+  setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+  setStyleDraftDirty(false);
+  }
+  }
+  // 如果已有匹配的 styleDraft，保持不变，继续编辑
+  } else {
+  // 停止编辑时不重置 dirty 状态，保留修改
+  }
+  }}
                         >
                           {isEditingStyle ? "停止编辑" : "编辑"}
                         </Button>
@@ -1789,7 +1794,7 @@ export default function TemplateFingerprint() {
                               size="sm"
                               onClick={() => setPreviewMode("style")}
                             >
-                              查看样式效果
+                              查看样式��果
                             </Button>
                           </div>
                         </div>
