@@ -1627,15 +1627,15 @@ export default function FileUpload() {
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -5 }}
-                      className="mb-4 p-3 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3 relative"
+                      className="mb-4 p-3 pr-8 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3 relative"
                     >
-                      {/* 关闭按钮 */}
+                      {/* 关闭按钮 - 放在整个横幅的右上角 */}
                       <button
                         onClick={() => setDismissedFailedBanner(true)}
-                        className="absolute top-2 right-2 p-1 hover:bg-destructive/10 rounded-full transition-colors"
+                        className="absolute -top-2 -right-2 p-1 bg-background border border-destructive/30 hover:bg-destructive/10 rounded-full transition-colors shadow-sm z-10"
                         title="关闭提示（文件行仍会显示失败状态）"
                       >
-                        <X className="w-3.5 h-3.5 text-destructive/60" />
+                        <X className="w-3 h-3 text-destructive" />
                       </button>
                       <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center flex-shrink-0">
                         <AlertTriangle className="w-4 h-4 text-destructive" />
