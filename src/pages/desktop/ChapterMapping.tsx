@@ -185,8 +185,8 @@ export default function ChapterMapping() {
       <div className="flex-1 grid grid-cols-[1fr_280px] overflow-hidden">
 
         {/* 左侧：文件分类区 */}
-        <div className="flex flex-col border-r border-border overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-border bg-muted/20 flex items-center justify-between">
+        <div className="flex flex-col border-r border-border overflow-hidden h-full">
+          <div className="px-4 py-2 border-b border-border bg-muted/20 flex items-center justify-between flex-shrink-0">
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
               资料分类
             </span>
@@ -195,8 +195,8 @@ export default function ChapterMapping() {
             </span>
           </div>
 
-          <ScrollArea className="flex-1">
-            <div className="p-3 space-y-3">
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-2 space-y-2">
               {filesLoading && (
                 <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -204,21 +204,23 @@ export default function ChapterMapping() {
                 </div>
               )}
 
-              {/* 未分类文件桶 */}
-              <ChapterBucket
-                chapterId={null}
-                label="未分类文件"
-                files={unassignedFiles}
-                isDragOver={dragOverChapterId === "unassigned"}
-                isDragging={!!dragState}
-                onDragOver={() => setDragOverChapterId("unassigned")}
-                onDragLeave={() => setDragOverChapterId(null)}
-                onDrop={() => handleDrop(null)}
-                onFileDragStart={(fileId) => handleDragStart(fileId, null)}
-                onFileDragEnd={handleDragEnd}
-                projectId={projectId!}
-                variant="unassigned"
-              />
+              {/* 未分类文件桶 - 只在有未分类文件时显示 */}
+              {unassignedFiles.length > 0 && (
+                <ChapterBucket
+                  chapterId={null}
+                  label="未分类文件"
+                  files={unassignedFiles}
+                  isDragOver={dragOverChapterId === "unassigned"}
+                  isDragging={!!dragState}
+                  onDragOver={() => setDragOverChapterId("unassigned")}
+                  onDragLeave={() => setDragOverChapterId(null)}
+                  onDrop={() => handleDrop(null)}
+                  onFileDragStart={(fileId) => handleDragStart(fileId, null)}
+                  onFileDragEnd={handleDragEnd}
+                  projectId={projectId!}
+                  variant="unassigned"
+                />
+              )}
 
               {/* 各章节桶 */}
               {filesByChapter.map(({ chapter, files: chapterFiles }) => (
@@ -413,7 +415,7 @@ function ChapterBucket({
     <div
       className={cn(
         "rounded-lg border transition-colors",
-        variant === "unassigned" ? "border-dashed border-muted-foreground/30 bg-muted/10" : "border-border bg-card",
+        variant === "unassigned" ? "border-dashed border-muted-foreground/30 bg-muted/5" : "border-border bg-card",
         isDragOver && "border-primary/60 bg-primary/5",
         isDragging && !isDragOver && "border-dashed"
       )}
@@ -423,13 +425,13 @@ function ChapterBucket({
     >
       {/* 桶头部 */}
       <div className={cn(
-        "flex items-center justify-between px-3 py-2 border-b",
+        "flex items-center justify-between px-2.5 py-1.5 border-b",
         variant === "unassigned" ? "border-muted-foreground/10" : "border-border/60"
       )}>
-        <div className="flex items-center gap-2 min-w-0">
-          <FolderOpen className={cn("w-3.5 h-3.5 flex-shrink-0", variant === "unassigned" ? "text-muted-foreground/50" : "text-muted-foreground")} />
+        <div className="flex items-center gap-1.5 min-w-0">
+          <FolderOpen className={cn("w-3 h-3 flex-shrink-0", variant === "unassigned" ? "text-muted-foreground/50" : "text-muted-foreground")} />
           <span className={cn(
-            "text-[11px] font-medium truncate",
+            "text-[10px] font-medium truncate",
             variant === "unassigned" && "text-muted-foreground"
           )}>
             {label}
@@ -439,9 +441,9 @@ function ChapterBucket({
       </div>
 
       {/* 文件列表 */}
-      <div className={cn("p-1.5 space-y-0.5 min-h-[36px]", files.length === 0 && isDragging && "min-h-[52px]")}>
+      <div className={cn("p-1 space-y-0.5", variant === "unassigned" ? "min-h-[28px]" : "min-h-[32px]", files.length === 0 && isDragging && "min-h-[40px]")}>
         {files.length === 0 && isDragging && (
-          <div className="flex items-center justify-center h-10 rounded text-[11px] text-muted-foreground/50 border border-dashed border-muted-foreground/20">
+          <div className="flex items-center justify-center h-8 rounded text-[10px] text-muted-foreground/50 border border-dashed border-muted-foreground/20">
             拖入此处
           </div>
         )}
@@ -451,28 +453,23 @@ function ChapterBucket({
             draggable
             onDragStart={() => onFileDragStart(file.id)}
             onDragEnd={onFileDragEnd}
-            className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-muted/40 cursor-grab active:cursor-grabbing group"
+            className="flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-muted/40 cursor-grab active:cursor-grabbing group"
           >
-            <GripVertical className="w-3 h-3 text-muted-foreground/40 flex-shrink-0 mt-0.5" />
-            <FileText className="w-3 h-3 text-muted-foreground/60 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-medium truncate leading-tight">{file.name}</div>
-              {file.aiSummary && (
-                <div className="text-[10px] text-muted-foreground truncate mt-0.5">{file.aiSummary}</div>
+            <GripVertical className="w-2.5 h-2.5 text-muted-foreground/40 flex-shrink-0" />
+            <FileText className="w-2.5 h-2.5 text-muted-foreground/60 flex-shrink-0" />
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <span className="text-[10px] font-medium truncate leading-tight">{file.name}</span>
+              <span className="text-[9px] text-muted-foreground/60 flex-shrink-0">{formatFileSize(file.sizeBytes)}</span>
+              {file.classificationConfidence !== null && file.classificationConfidence > 0 && (
+                <span className={cn(
+                  "text-[9px] px-1 rounded flex-shrink-0",
+                  file.classificationConfidence >= 80 ? "text-emerald-600 bg-emerald-50" :
+                  file.classificationConfidence >= 50 ? "text-amber-600 bg-amber-50" :
+                  "text-red-600 bg-red-50"
+                )}>
+                  {file.classificationConfidence}%
+                </span>
               )}
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[10px] text-muted-foreground/60">{formatFileSize(file.sizeBytes)}</span>
-                {file.classificationConfidence !== null && file.classificationConfidence > 0 && (
-                  <span className={cn(
-                    "text-[10px] px-1 rounded",
-                    file.classificationConfidence >= 80 ? "text-emerald-600 bg-emerald-50" :
-                    file.classificationConfidence >= 50 ? "text-amber-600 bg-amber-50" :
-                    "text-red-600 bg-red-50"
-                  )}>
-                    {file.classificationConfidence}%
-                  </span>
-                )}
-              </div>
             </div>
             {chapterId !== null && (
               <button
@@ -480,7 +477,7 @@ function ChapterBucket({
                 onClick={() => handleRemoveFile(file.id)}
                 title="移出章节"
               >
-                <X className="w-3 h-3 text-muted-foreground/60" />
+                <X className="w-2.5 h-2.5 text-muted-foreground/60" />
               </button>
             )}
           </div>
