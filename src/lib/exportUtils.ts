@@ -15,7 +15,7 @@ import {
   convertInchesToTwip,
 } from "docx";
 import { saveAs } from "file-saver";
-import type { TemplateFingerprint } from "@/lib/templateDefaults";
+import type { TemplateStyle } from "@/lib/templateStyles";
 
 // Types
 interface ReportSection {
@@ -65,8 +65,6 @@ interface Project {
   target?: string;
   client?: string;
 }
-
-type TemplateStyle = TemplateFingerprint;
 
 function resolveTemplateColors(templateStyle?: TemplateStyle) {
   const primaryColor =

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ import {
   ArrowLeft,
   Lock,
   Unlock,
+  Palette,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
@@ -52,9 +53,17 @@ import { DefinitionsTable } from "@/components/desktop/DefinitionsTable";
 import { MarkdownRenderer } from "@/components/desktop/MarkdownRenderer";
 import { supabase } from "@/integrations/supabase/client";
 import { useTemplateFingerprint } from "@/hooks/useTemplateFingerprint";
-import { DEFAULT_TEMPLATE_FINGERPRINT, type TemplateFingerprint } from "@/lib/templateDefaults";
+import { useTemplateStyles } from "@/hooks/useTemplateStyles";
+import { normalizeTemplateStyle, type TemplateStyle } from "@/lib/templateStyles";
 import { normalizeSupabaseError } from "@/lib/errorUtils";
 import { exportToPDF, exportToWord } from "@/lib/exportUtils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Types for AI-generated content
 interface ReportSection {
@@ -257,7 +266,7 @@ function SectionRenderer({
   definitions?: Definition[];
   onRetry?: (sectionId: string, sectionTitle: string) => void;
   isRetrying?: boolean;
-  templateStyle?: TemplateFingerprint;
+  templateStyle?: TemplateStyle;
   onUploadClick?: (sectionTitle: string) => void;
   isLocked?: boolean;
   onToggleLock?: (sectionId: string) => void;
@@ -509,7 +518,12 @@ export default function ReportPreview() {
     templateFingerprint,
     isLoading: isTemplateLoading,
     initializeTemplate,
+    updateSelectedStyle,
   } = useTemplateFingerprint(projectId);
+  const {
+    data: templateStyles = [],
+    isLoading: isStylesLoading,
+  } = useTemplateStyles(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
 
   const hasInitializedRef = useRef(false);
@@ -524,6 +538,72 @@ export default function ReportPreview() {
   }, [templateFingerprint, isTemplateLoading, projectId, initializeTemplate]);
 
   const currentTemplate = templateFingerprint || null;
+  const [localSelectedStyleId, setLocalSelectedStyleId] = useState<string | null>(null);
+  const selectedStyleId =
+    localSelectedStyleId || currentTemplate?.selectedStyleId || (templateStyles.length > 0 ? templateStyles[0].id : null);
+
+  const fallbackStyle: TemplateStyle = useMemo(
+    () => ({
+      id: "fallback",
+      projectId: projectId || "",
+      name: "标准模板",
+      description: null,
+      preview: {
+        primaryColor: "#111827",
+        accentColor: "#374151",
+        fontFamily: "宋体",
+        headerStyle: "classic",
+      },
+      styles: {},
+      tables: {},
+      page: {},
+    }),
+    [projectId]
+  );
+
+  const currentStyle = useMemo<TemplateStyle>(() => {
+    const rawStyle =
+      templateStyles.find((style) => style.id === selectedStyleId)
+      || templateStyles[0]
+      || fallbackStyle;
+    return normalizeTemplateStyle(rawStyle);
+  }, [templateStyles, selectedStyleId, fallbackStyle]);
+
+  useEffect(() => {
+    if (localSelectedStyleId) return;
+    if (currentTemplate?.selectedStyleId) {
+      setLocalSelectedStyleId(currentTemplate.selectedStyleId);
+      return;
+    }
+    if (templateStyles.length > 0) {
+      setLocalSelectedStyleId(templateStyles[0].id);
+    }
+  }, [currentTemplate?.selectedStyleId, templateStyles, localSelectedStyleId]);
+
+  useEffect(() => {
+    if (!currentTemplate || currentTemplate.selectedStyleId || templateStyles.length === 0) return;
+    updateSelectedStyle(templateStyles[0].id).catch(() => {});
+  }, [currentTemplate, templateStyles, updateSelectedStyle]);
+
+  const handleSelectStyle = useCallback(
+    (styleId: string) => {
+      if (selectedStyleId === styleId) return;
+      const previous = selectedStyleId;
+      setLocalSelectedStyleId(styleId);
+      updateSelectedStyle(styleId)
+        .then((data) => {
+          setLocalSelectedStyleId(null);
+          console.info("[ReportPreview] style selection saved", { styleId, projectId });
+          toast.success("已切换模板样式", { description: "样式选择已保存" });
+        })
+        .catch((error) => {
+          console.warn("[ReportPreview] style selection failed", error);
+          setLocalSelectedStyleId(previous || null);
+          toast.error("保存失败，已回滚", { description: "无法保存模板样式选择" });
+        });
+    },
+    [selectedStyleId, updateSelectedStyle, projectId]
+  );
 
   // 基于 chapter_file_mappings 构建章节-文件映射表
   const chapterFilesMap = useMemo(() => {
@@ -732,11 +812,6 @@ export default function ReportPreview() {
   const [exportFormat, setExportFormat] = useState<"docx" | "pdf" | "html">("docx");
   const [includeAppendix, setIncludeAppendix] = useState(true);
   const [includeToc, setIncludeToc] = useState(true);
-
-  // Template style state (single template fingerprint)
-  const currentStyle = useMemo<TemplateFingerprint>(() => {
-    return currentTemplate || DEFAULT_TEMPLATE_FINGERPRINT;
-  }, [currentTemplate]);
 
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
@@ -1070,7 +1145,8 @@ export default function ReportPreview() {
     isFilesLoading ||
     isMappingsLoading ||
     isReportLoading ||
-    isTemplateLoading;
+    isTemplateLoading ||
+    isStylesLoading;
 
   if (isDataLoading) {
     return (
@@ -1126,6 +1202,30 @@ export default function ReportPreview() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Style Switcher */}
+          {hasGenerated && templateStyles.length > 0 && (
+            <div className="flex items-center gap-2 mr-2">
+              <Palette className="w-4 h-4 text-muted-foreground" />
+              <Select value={selectedStyleId || templateStyles[0].id} onValueChange={handleSelectStyle}>
+                <SelectTrigger className="w-32 h-8 text-[12px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {templateStyles.map(style => (
+                    <SelectItem key={style.id} value={style.id} className="text-[12px]">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full border"
+                          style={{ backgroundColor: style.preview.primaryColor }}
+                        />
+                        {style.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -1681,7 +1781,7 @@ function generateReportHTML(
   metadata: ReportMetadata | null,
   definitions: Definition[],
   fileCount: number,
-  templateStyle?: TemplateFingerprint,
+  templateStyle?: TemplateStyle,
   chapterFilesMapArg?: Map<string, Array<{ name: string; id: string }>>
 ): string {
   const formatDate = () => {

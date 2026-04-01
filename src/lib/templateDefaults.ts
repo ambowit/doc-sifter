@@ -24,6 +24,7 @@ export type TemplateFingerprint = BaseTemplateFingerprint & {
   projectId?: string;
   createdAt?: string;
   updatedAt?: string;
+  selectedStyleId?: string | null;
 };
 
 const DEFAULT_NUMBERING: NumberingConfig = {

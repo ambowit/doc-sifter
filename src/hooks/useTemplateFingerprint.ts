@@ -5,7 +5,6 @@ import {
   DEFAULT_TEMPLATE_FINGERPRINT,
   createDefaultTemplateFingerprint,
   type TemplateFingerprint,
-  type TemplatePreview,
 } from "@/lib/templateDefaults";
 
 interface DbTemplateFingerprint {
@@ -26,28 +25,13 @@ interface DbTemplateFingerprint {
   section_blueprints: Record<string, unknown> | null;
   intro_variables: unknown[] | null;
   intro_content: Record<string, unknown> | null;
+  selected_style_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-function splitPreviewFromStyles(styles: Record<string, unknown> | null): {
-  preview: TemplatePreview;
-  styles: Record<string, unknown> | null;
-} {
-  if (!styles) {
-    return { preview: DEFAULT_TEMPLATE_FINGERPRINT.preview, styles: null };
-  }
-  const preview = (styles as Record<string, unknown>).preview as TemplatePreview | undefined;
-  const { preview: _preview, ...rest } = styles;
-  return {
-    preview: preview || DEFAULT_TEMPLATE_FINGERPRINT.preview,
-    styles: rest,
-  };
-}
-
 // Transform DB record to frontend format, merging with defaults
 function transformTemplateFingerprint(db: DbTemplateFingerprint): TemplateFingerprint {
-  const { preview, styles } = splitPreviewFromStyles(db.styles);
   return {
     ...DEFAULT_TEMPLATE_FINGERPRINT,
     id: db.id,
@@ -59,7 +43,7 @@ function transformTemplateFingerprint(db: DbTemplateFingerprint): TemplateFinger
     status: (db.status as TemplateFingerprint["status"]) || DEFAULT_TEMPLATE_FINGERPRINT.status,
     numbering: (db.numbering as TemplateFingerprint["numbering"]) || DEFAULT_TEMPLATE_FINGERPRINT.numbering,
     page: (db.page as TemplateFingerprint["page"]) || DEFAULT_TEMPLATE_FINGERPRINT.page,
-    styles: (styles as TemplateFingerprint["styles"]) || DEFAULT_TEMPLATE_FINGERPRINT.styles,
+    styles: (db.styles as TemplateFingerprint["styles"]) || DEFAULT_TEMPLATE_FINGERPRINT.styles,
     lists: (db.lists as TemplateFingerprint["lists"]) || DEFAULT_TEMPLATE_FINGERPRINT.lists,
     tables: (db.tables as TemplateFingerprint["tables"]) || DEFAULT_TEMPLATE_FINGERPRINT.tables,
     figures: (db.figures as TemplateFingerprint["figures"]) || DEFAULT_TEMPLATE_FINGERPRINT.figures,
@@ -72,7 +56,7 @@ function transformTemplateFingerprint(db: DbTemplateFingerprint): TemplateFinger
       DEFAULT_TEMPLATE_FINGERPRINT.introVariables,
     introContent:
       (db.intro_content as TemplateFingerprint["introContent"]) || DEFAULT_TEMPLATE_FINGERPRINT.introContent,
-    preview,
+    selectedStyleId: db.selected_style_id || null,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   };
@@ -117,7 +101,6 @@ export function useTemplateFingerprint(projectId: string | undefined) {
       const { projectId: pid, ...rest } = template;
 
       const stylesPayload = rest.styles || DEFAULT_TEMPLATE.styles;
-      const previewPayload = rest.preview || DEFAULT_TEMPLATE.preview;
 
       const payload = {
         project_id: pid,
@@ -128,7 +111,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         status: rest.status || DEFAULT_TEMPLATE.status,
         numbering: rest.numbering || DEFAULT_TEMPLATE.numbering,
         page: rest.page || DEFAULT_TEMPLATE.page,
-        styles: { ...stylesPayload, preview: previewPayload },
+        styles: stylesPayload,
         lists: rest.lists || DEFAULT_TEMPLATE.lists,
         tables: rest.tables || DEFAULT_TEMPLATE.tables,
         figures: rest.figures || DEFAULT_TEMPLATE.figures,
@@ -136,6 +119,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         section_blueprints: rest.sectionBlueprints || DEFAULT_TEMPLATE.sectionBlueprints,
         intro_variables: rest.introVariables || DEFAULT_TEMPLATE.introVariables,
         intro_content: rest.introContent || DEFAULT_TEMPLATE.introContent,
+        selected_style_id: rest.selectedStyleId || null,
       };
 
       // Check if template exists
@@ -173,6 +157,45 @@ export function useTemplateFingerprint(projectId: string | undefined) {
     },
   });
 
+  const updateSelectedStyleMutation = useMutation({
+    mutationFn: async (selectedStyleId: string | null) => {
+      if (!projectId) return null;
+      const { data, error } = await supabase
+        .from("template_fingerprints")
+        .update({ selected_style_id: selectedStyleId })
+        .eq("project_id", projectId)
+        .select()
+        .single();
+
+      if (error) throw new Error(normalizeSupabaseError(error, "更新模板样式失败"));
+      return transformTemplateFingerprint(data as DbTemplateFingerprint);
+    },
+    onMutate: async (selectedStyleId) => {
+      if (!projectId) return;
+      await queryClient.cancelQueries({ queryKey: ["templateFingerprint", projectId] });
+      const previous = queryClient.getQueryData<TemplateFingerprint | null>([
+        "templateFingerprint",
+        projectId,
+      ]);
+      if (previous) {
+        queryClient.setQueryData(["templateFingerprint", projectId], {
+          ...previous,
+          selectedStyleId,
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["templateFingerprint", projectId], context.previous);
+      }
+    },
+    onSuccess: (data) => {
+      if (!data) return;
+      queryClient.setQueryData(["templateFingerprint", data.projectId], data);
+    },
+  });
+
   // Delete template fingerprint
   const deleteMutation = useMutation({
     mutationFn: async (templateId: string) => {
@@ -204,9 +227,11 @@ export function useTemplateFingerprint(projectId: string | undefined) {
     error,
     refetch,
     saveTemplate: saveMutation.mutateAsync,
+    updateSelectedStyle: updateSelectedStyleMutation.mutateAsync,
     deleteTemplate: deleteMutation.mutateAsync,
     initializeTemplate,
     isSaving: saveMutation.isPending,
+    isUpdatingSelectedStyle: updateSelectedStyleMutation.isPending,
     isDeleting: deleteMutation.isPending,
   };
 }
