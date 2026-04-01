@@ -264,12 +264,14 @@ export default function Definitions() {
   }), [definitions, finalSearch, filterType]);
 
   const filteredCandidates = useMemo(() => candidates.filter((candidate) => {
+    // 已接受的候选不再显示
+    if (candidate.status === "approved") return false;
     const haystack = [candidate.shortName, candidate.fullName, candidate.sourceFileName, candidate.sourceExcerpt].filter(Boolean).join(" ").toLowerCase();
     const matchesSearch = !candidateSearch || haystack.includes(candidateSearch.toLowerCase());
     if (!matchesSearch) return false;
     if (candidateFilter === "pending") return candidate.status === "pending_review";
-    if (candidateFilter === "conflicts") return candidate.hasConflict;
-    if (candidateFilter === "risky") return !candidate.sourceFileId || !candidate.sourceExcerpt || ((candidate.confidence ?? 0) > 0 && (candidate.confidence ?? 0) < 0.6);
+    if (candidateFilter === "conflicts") return candidate.hasConflict && candidate.status === "pending_review";
+    if (candidateFilter === "risky") return candidate.status === "pending_review" && (!candidate.sourceFileId || !candidate.sourceExcerpt || ((candidate.confidence ?? 0) > 0 && (candidate.confidence ?? 0) < 0.6));
     return true;
   }), [candidateFilter, candidateSearch, candidates]);
 
