@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLatestGeneratedReport } from "@/hooks/useGeneratedReports";
@@ -9,7 +9,9 @@ import {
   useClassifyFilesWithProgress,
   useUpdateFileChapter,
   formatFileSize,
+  type UploadedFile,
 } from "@/hooks/useFiles";
+import { useMappings } from "@/hooks/useMappings";
 import { AIClassifyDialog } from "@/components/AIClassifyDialog";
 import { useGenerateAIReport } from "@/hooks/useReportGeneration";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ export default function ChapterMapping() {
   const { data: chaptersTree = [] } = useChapters(projectId);
   const flatChapters = flattenChaptersWithNumbers(chaptersTree);
   const { data: files = [], isLoading: filesLoading } = useFiles(projectId);
+  const { data: mappings = [] } = useMappings(projectId);
   const { data: latestReport } = useLatestGeneratedReport(projectId);
 
   const { progress: classifyProgress, start: startClassify, pause: pauseClassify, resume: resumeClassify, cancel: cancelClassify, reset: resetClassify } = useClassifyFilesWithProgress();
@@ -124,14 +127,25 @@ export default function ChapterMapping() {
   };
 
   // ── 按章节分组文件 ──────────────────────────────────────
+  // 建立快速查找 Map：fileId -> Set of chapterIds
+  const fileToChapters = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    mappings.forEach((m) => {
+      if (!map.has(m.fileId)) map.set(m.fileId, new Set());
+      map.get(m.fileId)?.add(m.chapterId);
+    });
+    return map;
+  }, [mappings]);
+
   const level1Chapters = flatChapters.filter((c) => c.level === 1);
 
   const filesByChapter = level1Chapters.map((chapter) => ({
     chapter,
-    files: files.filter((f) => f.chapterId === chapter.id),
+    files: files.filter((f) => fileToChapters.get(f.id)?.has(chapter.id)),
   }));
 
-  const unassignedFiles = files.filter((f) => !f.chapterId);
+  const unassignedFiles = files.filter((f) => !fileToChapters.has(f.id));
+  const classifiedCount = files.filter((f) => fileToChapters.has(f.id)).length;
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -191,7 +205,7 @@ export default function ChapterMapping() {
               资料分类
             </span>
             <span className="text-[11px] text-muted-foreground">
-              {files.filter((f) => f.chapterId).length}/{files.length} 已分类
+              {classifiedCount}/{files.length} 已分类
             </span>
           </div>
 
@@ -336,7 +350,7 @@ export default function ChapterMapping() {
                     <span className="truncate">{chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}</span>
                     {isLevel1 && (
                       <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
-                        {files.filter((f) => f.chapterId === chapter.id).length}
+                        {files.filter((f) => fileToChapters.get(f.id)?.has(chapter.id)).length}
                       </span>
                     )}
                   </div>
@@ -373,7 +387,7 @@ export default function ChapterMapping() {
 interface ChapterBucketProps {
   chapterId: string | null;
   label: string;
-  files: ReturnType<typeof useFiles>["data"] extends (infer T)[] ? T[] : never[];
+  files: UploadedFile[];
   isDragOver: boolean;
   isDragging: boolean;
   onDragOver: () => void;
