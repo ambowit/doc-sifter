@@ -2131,10 +2131,10 @@ export default function FileUpload() {
                                 {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
                                   <button
                                     onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: selectedChapterId!, action: "remove" })}
-                                    className="absolute top-1 right-1 p-0.5 hover:bg-destructive/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="absolute -top-1 -right-1 p-1 hover:bg-destructive/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background border border-border shadow-sm z-10"
                                     title="从此章节移除"
                                   >
-                                    <X className="w-3.5 h-3.5 text-destructive" />
+                                    <X className="w-3 h-3 text-destructive" />
                                   </button>
                                 )}
                                 {getFileIcon(file.name)}
