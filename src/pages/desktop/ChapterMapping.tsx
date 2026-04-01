@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useLatestGeneratedReport } from "@/hooks/useGeneratedReports";
 import { useProject } from "@/hooks/useProjects";
-import { useChapters, flattenChaptersWithNumbers } from "@/hooks/useChapters";
+import { useChapters, flattenChaptersWithNumbers, type Chapter } from "@/hooks/useChapters";
 import {
   useFiles,
   useClassifyFilesWithProgress,
@@ -34,6 +34,19 @@ import {
 interface DragState {
   fileId: string;
   sourceChapterId: string | null;
+}
+
+function collectChapterAndDescendantIds(chapter: Chapter): Set<string> {
+  const ids = new Set<string>();
+  const stack: Chapter[] = [chapter];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    ids.add(current.id);
+    if (current.children?.length) {
+      stack.push(...current.children);
+    }
+  }
+  return ids;
 }
 
 export default function ChapterMapping() {
@@ -88,6 +101,7 @@ export default function ChapterMapping() {
         number: c.number || "",
         title: c.title,
         level: c.level,
+        parentId: c.parentId,
       })),
     });
     if (result) {
@@ -137,11 +151,48 @@ export default function ChapterMapping() {
     return map;
   }, [mappings]);
 
-  const level1Chapters = flatChapters.filter((c) => c.level === 1);
+  const level1Chapters = useMemo(() => {
+    const roots = chaptersTree.filter((c) => c.level === 1);
+    if (roots.length > 0) return roots;
+    return chaptersTree;
+  }, [chaptersTree]);
+
+  const level1DescendantIds = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    level1Chapters.forEach((chapter) => {
+      map.set(chapter.id, collectChapterAndDescendantIds(chapter));
+    });
+    return map;
+  }, [level1Chapters]);
+
+  const level1FileCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    level1Chapters.forEach((chapter) => {
+      const subtreeIds = level1DescendantIds.get(chapter.id) ?? new Set([chapter.id]);
+      const count = files.filter((file) => {
+        const mapped = fileToChapters.get(file.id);
+        if (!mapped || mapped.size === 0) return false;
+        for (const chapterId of mapped) {
+          if (subtreeIds.has(chapterId)) return true;
+        }
+        return false;
+      }).length;
+      map.set(chapter.id, count);
+    });
+    return map;
+  }, [files, fileToChapters, level1Chapters, level1DescendantIds]);
 
   const filesByChapter = level1Chapters.map((chapter) => ({
     chapter,
-    files: files.filter((f) => fileToChapters.get(f.id)?.has(chapter.id)),
+    files: files.filter((file) => {
+      const mapped = fileToChapters.get(file.id);
+      if (!mapped || mapped.size === 0) return false;
+      const subtreeIds = level1DescendantIds.get(chapter.id) ?? new Set([chapter.id]);
+      for (const chapterId of mapped) {
+        if (subtreeIds.has(chapterId)) return true;
+      }
+      return false;
+    }),
   }));
 
   const unassignedFiles = files.filter((f) => !fileToChapters.has(f.id));
@@ -352,7 +403,7 @@ export default function ChapterMapping() {
                     <span className="truncate">{chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}</span>
                     {isLevel1 && (
                       <span className="ml-auto text-[10px] text-muted-foreground/60 flex-shrink-0">
-                        {files.filter((f) => fileToChapters.get(f.id)?.has(chapter.id)).length}
+                        {level1FileCountMap.get(chapter.id) ?? 0}
                       </span>
                     )}
                   </div>

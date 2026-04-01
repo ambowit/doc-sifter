@@ -582,7 +582,7 @@ export default function ReportPreview() {
 
   useEffect(() => {
     if (!currentTemplate || currentTemplate.selectedStyleId || templateStyles.length === 0) return;
-    updateSelectedStyle(templateStyles[0].id).catch(() => {});
+    updateSelectedStyle(templateStyles[0].id).catch(() => { });
   }, [currentTemplate, templateStyles, updateSelectedStyle]);
 
   const handleSelectStyle = useCallback(
@@ -660,7 +660,7 @@ export default function ReportPreview() {
           risk = "存在核查不完整的风险，可能遗漏重要法律问题";
           suggestion = "建议进一步核实并补充相关证明文件";
         } else {
-          risk = "上述情况可能存在潜��的法律或合规风险";
+          risk = "上述情况可能存在潜在的法律或合规风险";
           suggestion = "建议关注并进行进一步核查";
         }
       } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
@@ -815,7 +815,7 @@ export default function ReportPreview() {
 
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
-  
+
   // Locked sections state - persisted to localStorage per project
   const lockedSectionsKey = `locked-sections-${projectId}`;
 
@@ -1106,7 +1106,7 @@ export default function ReportPreview() {
         ...s,
         mappedFiles: chapterFilesMap.get(s.id) || [],
       }));
-      
+
       if (exportFormat === "pdf") {
         await exportToPDF(projectData, sectionsWithMappings, metadata, definitions, files.length, currentStyle);
         toast.success("PDF 报告已下载");

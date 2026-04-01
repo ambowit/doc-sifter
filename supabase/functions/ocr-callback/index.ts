@@ -48,7 +48,7 @@ async function triggerAutoClassification(
 
   const { data: chapters, error: chaptersError } = await db
     .from("chapters")
-    .select("id, number, title, level")
+    .select("id, number, title, level, parent_id")
     .eq("project_id", fileRow.project_id)
     .order("order_index", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })

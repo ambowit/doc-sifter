@@ -19,9 +19,11 @@ interface FileInput {
 
 interface ChapterInput {
   id: string;
-  number: string;
+  number?: string | null;
   title: string;
   level: number;
+  parentId?: string | null;
+  parent_id?: string | null;
 }
 
 interface ClassifyRequest {
@@ -37,15 +39,76 @@ interface ClassifyResult {
   confidence: number;
 }
 
+interface CandidateBuildResult {
+  candidates: ChapterInput[];
+  leafCount: number;
+  fallbackUsed: boolean;
+}
+
+function normalizeChapterNumber(number: string | null | undefined): string {
+  return (number || "").trim().replace(/。/g, ".");
+}
+
+function isNumberChildOf(childNumber: string, parentNumber: string): boolean {
+  if (!childNumber || !parentNumber || childNumber === parentNumber) return false;
+  return childNumber.startsWith(`${parentNumber}.`);
+}
+
+function buildCandidateChapters(chapters: ChapterInput[]): CandidateBuildResult {
+  const normalized = chapters.map((chapter) => ({
+    chapter,
+    parentId: chapter.parentId ?? chapter.parent_id ?? null,
+    normalizedNumber: normalizeChapterNumber(chapter.number),
+  }));
+
+  let leafCandidates = normalized.filter(() => false) as typeof normalized;
+
+  // 1) 优先基于 parent_id / parentId 判定叶子节点
+  const hasParentLinks = normalized.some((c) => !!c.parentId);
+  if (hasParentLinks) {
+    const parentIds = new Set(
+      normalized
+        .map((c) => c.parentId)
+        .filter((id): id is string => Boolean(id))
+    );
+    leafCandidates = normalized.filter((c) => !parentIds.has(c.chapter.id));
+  }
+
+  // 2) parent 关系不足时，按 number 前缀关系识别叶子节点
+  if (leafCandidates.length === 0) {
+    const hasDotNumber = normalized.some((c) => c.normalizedNumber.includes("."));
+    if (hasDotNumber) {
+      leafCandidates = normalized.filter((candidate) => {
+        return !normalized.some((other) =>
+          isNumberChildOf(other.normalizedNumber, candidate.normalizedNumber)
+        );
+      });
+    }
+  }
+
+  // 3) 叶子为空时兜底回退到全部章节
+  const fallbackUsed = leafCandidates.length === 0;
+  const base = fallbackUsed ? normalized : leafCandidates;
+  const candidates = base.map((item) => ({
+    ...item.chapter,
+    parentId: item.parentId,
+    parent_id: item.parentId,
+  }));
+
+  return {
+    candidates,
+    leafCount: leafCandidates.length,
+    fallbackUsed,
+  };
+}
+
 async function classifySingleFile(
   file: FileInput,
   chapters: ChapterInput[],
   token: string,
   gatewayBase: string
 ): Promise<ClassifyResult> {
-  const level1 = chapters.filter((c) => c.level === 1);
-
-  const chapterList = level1
+  const chapterList = chapters
     .map((c) => {
       const label = c.number && c.number !== c.title ? `${c.number}、${c.title}` : c.title;
       return `{"id":"${c.id}","title":"${label}"}`;
@@ -70,7 +133,9 @@ async function classifySingleFile(
 - 资质证、许可证、批准、备案 → 合规经营
 - 业务合同、销售合同 → 业务经营
 
-只返回一个JSON对象：{"chapterId":"章节id或null","summary":"≤20字摘要","confidence":0-100}`;
+只返回一个JSON对象：{"chapterId":"章节id或null","summary":"≤20字摘要","confidence":0-100}
+
+注意：只能从给定候选章节中选择 chapterId。`;
 
   const userPrompt = `章节：[${chapterList}]
 
@@ -147,14 +212,39 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const db = createClient(supabaseUrl, supabaseKey);
 
+    const { candidates, leafCount, fallbackUsed } = buildCandidateChapters(chapters);
+    if (!candidates.length) {
+      throw new Error("可分类章节为空");
+    }
+
     log("Classifying", { fileId: file.id, fileName: file.name });
+    log("Candidate stats", {
+      inputChapters: chapters.length,
+      candidateCount: candidates.length,
+      leafCount,
+      fallbackUsed,
+    });
 
     console.log(`[classify-single] Processing file: ${file.name} (${file.id})`);
     console.log(`[classify-single] Total chapters provided for classification: ${chapters.length}`);
+    console.log(`[classify-single] Candidate chapters used for classification: ${candidates.length}`);
 
-    const result = await classifySingleFile(file, chapters, token, gatewayBase);
+    const result = await classifySingleFile(file, candidates, token, gatewayBase);
+    const candidateIds = new Set(candidates.map((c) => c.id));
+    let invalidAiChapterIdCount = 0;
+    if (result.chapterId && !candidateIds.has(result.chapterId)) {
+      invalidAiChapterIdCount = 1;
+      result.chapterId = null;
+    }
 
     console.log(`[classify-single] AI Result for ${file.name}:`, JSON.stringify(result, null, 2));
+    log("Validation stats", {
+      inputChapters: chapters.length,
+      candidateCount: candidates.length,
+      leafCount,
+      fallbackUsed,
+      invalidAiChapterIdCount,
+    });
 
     if (!result.chapterId) {
       console.warn(`[classify-single] Warning: No chapterId returned by AI for ${file.name}`);
