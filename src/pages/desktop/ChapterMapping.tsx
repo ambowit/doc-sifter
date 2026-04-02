@@ -13,7 +13,8 @@ import {
 } from "@/hooks/useFiles";
 import { useMappings } from "@/hooks/useMappings";
 import { AIClassifyDialog } from "@/components/AIClassifyDialog";
-import { useGenerateAIReport } from "@/hooks/useReportGeneration";
+import { useReportJob } from "@/hooks/useReportJob";
+import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -61,20 +62,35 @@ export default function ChapterMapping() {
   const updateChapterMutation = useUpdateFileChapter();
   const [showClassifyDialog, setShowClassifyDialog] = useState(false);
 
-  // 报告生成：直接调 AI，不经过 Worker
-  const generateAIReport = useGenerateAIReport();
-  const jobIsRunning = generateAIReport.isPending;
+  // 异步报告生成
+  const {
+    job: reportJob,
+    isCreating: isCreatingJob,
+    createJob,
+    cancelJob,
+    reset: resetJob,
+  } = useReportJob({
+    projectId: projectId || "",
+    onSuccess: () => {
+      toast.success("报告生成成功");
+      navigate(`/project/${projectId}/preview`);
+    },
+    onError: (errorMessage) => {
+      toast.error(errorMessage || "报告生成失败，请重试");
+    },
+  });
+
+  const jobIsRunning = isCreatingJob || (reportJob?.status === "running" || reportJob?.status === "queued");
 
   const handleStart = async () => {
     if (!projectId) return;
-    try {
-      await generateAIReport.mutateAsync(projectId);
-      toast.success("报告生成成功");
-      navigate(`/project/${projectId}/preview`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "报告生成失败，请重试";
-      toast.error(msg);
-    }
+    await createJob();
+  };
+
+  const handleCancelJob = () => {
+    cancelJob();
+    resetJob();
+    toast.info("已取消报告生成");
   };
 
   // ── AI 分类 ──────────────────────────────────────────────
@@ -353,12 +369,30 @@ export default function ChapterMapping() {
 
         {/* 右侧：章节结构 + 生成中提示 */}
         <div className="flex flex-col overflow-hidden">
-          {/* AI 生成中提示 */}
-          {jobIsRunning && (
-            <div className="border-b border-border p-3">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" />
-                <span className="text-[11px] text-blue-700 font-medium">AI 正在生成报告，请稍候...</span>
+          {/* AI 生成进度面板 */}
+          {jobIsRunning && reportJob && (
+            <div className="border-b border-border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" />
+                  <span className="text-[11px] text-blue-700 font-medium">
+                    {reportJob.currentStage === "queued" ? "等待处理..." : "AI 正在生成报告"}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+                  onClick={handleCancelJob}
+                >
+                  <X className="w-3 h-3 mr-1" />
+                  取消
+                </Button>
+              </div>
+              <Progress value={reportJob.progress} className="h-1.5" />
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>{reportJob.progressMessage || "处理中..."}</span>
+                <span>{reportJob.processedChapters}/{reportJob.totalChapters} 章节</span>
               </div>
             </div>
           )}
