@@ -321,12 +321,7 @@ function SectionRenderer({
                 <FileWarning className="w-3 h-3" />
                 待补充资料
               </Button>
-            ) : (
-              <Badge variant="outline" className="text-emerald-600 border-emerald-300">
-                <CheckCircle2 className="w-3 h-3 mr-1" />
-                已核查
-              </Badge>
-            )}
+            ) : null}
             {mappedFiles.length > 0 && (
               <Badge variant="secondary" className="text-[10px]">
                 <File className="w-3 h-3 mr-1" />
@@ -2391,10 +2386,10 @@ function generateReportHTML(
     <div class="content">
       <p>受<strong>${project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>${project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。</p>
       <p><strong>一、报告依据</strong></p>
-      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，未对文件的真实性、完整性进行独立核查。</p>
+      <p>本报告依据委托方提供的数据室文件及相关补充材料编制。本次尽职调查采用文件审阅、访谈核实等方式进行，��对文件的真实性、完整性进行独立核查。</p>
       <p><strong>二、尽调范围</strong></p>
       <p>本次法律尽职调查涵盖目标公司的基本情况、股权结构、主要资产、知识产权、重大合同、劳动人事、诉讼仲裁、合规运营等方面。本报告基于截至${today}收到的数据室文件（共${fileCount}份）进行分析。</p>
-      <p><strong>三、免责声明</strong></p>
+      <p><strong>三、免��声明</strong></p>
       <p>1. 本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</p>
       <p>2. 本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</p>
       <p>3. 本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在遗漏、不完整或不真实，本所不对由此产生的后果承担责任。</p>
