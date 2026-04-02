@@ -1824,26 +1824,6 @@ export default function FileUpload() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* 自动匹配按钮 - 有未分配文件且有章节时显示 */}
-                    {chapters.length > 0 && existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
-                        onClick={handleAutoMatch}
-                        disabled={classifyProgress.isRunning}
-                      >
-                        {classifyProgress.isRunning ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <Brain className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        {classifyProgress.isRunning 
-                          ? `匹配中 ${classifyProgress.completed}/${classifyProgress.total}` 
-                          : "自动匹配"}
-                      </Button>
-                    )}
-                    {/* 解析结构按钮 - 已隐藏 */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1876,23 +1856,48 @@ export default function FileUpload() {
                         {/* Unassigned files section */}
                         {(() => {
                           const unassignedCount = existingFiles.filter(f => !effectiveFileChapterMap.has(f.id)).length;
+                          const hasMatchableFiles = existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary));
                           if (unassignedCount > 0) {
                             return (
-                              <button
-                                onClick={() => setSelectedChapterId('unassigned')}
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-2 py-2 rounded text-left transition-colors mb-1",
-                                  selectedChapterId === 'unassigned'
-                                    ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
-                                    : "hover:bg-muted text-amber-700 dark:text-amber-400"
+                              <div className="mb-1">
+                                <button
+                                  onClick={() => setSelectedChapterId('unassigned')}
+                                  className={cn(
+                                    "w-full flex items-center gap-2 px-2 py-2 rounded text-left transition-colors",
+                                    selectedChapterId === 'unassigned'
+                                      ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
+                                      : "hover:bg-muted text-amber-700 dark:text-amber-400"
+                                  )}
+                                >
+                                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                                  <span className="flex-1 text-[12px] font-medium truncate">未分配章节的文件</span>
+                                  <Badge variant="secondary" className="text-[9px] h-4 bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200">
+                                    {unassignedCount}
+                                  </Badge>
+                                </button>
+                                {/* 自动匹配按钮 - 移到未分配章节数量旁边 */}
+                                {chapters.length > 0 && hasMatchableFiles && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full h-7 mt-1 text-[10px] text-blue-600 hover:bg-blue-50 justify-start px-2"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAutoMatch();
+                                    }}
+                                    disabled={classifyProgress.isRunning}
+                                  >
+                                    {classifyProgress.isRunning ? (
+                                      <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                                    ) : (
+                                      <Brain className="w-3 h-3 mr-1.5" />
+                                    )}
+                                    {classifyProgress.isRunning 
+                                      ? `匹配中 ${classifyProgress.completed}/${classifyProgress.total}` 
+                                      : "自动匹配章节"}
+                                  </Button>
                                 )}
-                              >
-                                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                                <span className="flex-1 text-[12px] font-medium truncate">未分配章节</span>
-                                <Badge variant="secondary" className="text-[9px] h-4 bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200">
-                                  {unassignedCount}
-                                </Badge>
-                              </button>
+                              </div>
                             );
                           }
                           return null;
@@ -2277,14 +2282,14 @@ export default function FileUpload() {
                                       <PopoverTrigger asChild>
                                         <button
                                           className="p-1.5 hover:bg-primary/10 rounded"
-                                          title="编辑章节归属"
+                                          title="关联章节"
                                         >
                                           <BookOpen className="w-3.5 h-3.5 text-primary" />
                                         </button>
                                       </PopoverTrigger>
                                       <PopoverContent className="w-72 p-0" align="end">
                                         <div className="p-2 border-b bg-muted/30">
-                                          <div className="text-[11px] font-medium">选择章节归属</div>
+                                          <div className="text-[11px] font-medium">关联章节</div>
                                           <div className="text-[10px] text-muted-foreground truncate">{file.name}</div>
                                         </div>
                                         <Command>
