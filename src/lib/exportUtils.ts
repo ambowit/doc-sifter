@@ -376,7 +376,7 @@ function generatePDFHTML(
         </table>
         ${equity.notes && equity.notes.length > 0 ? `
           <div style="font-size: 11px; color: #6b7280; padding: 8px; background: #f9fafb; border-radius: 4px;">
-            <strong>注����</strong>
+            <strong>注�����</strong>
             <ol style="margin: 4px 0 0 0; padding-left: 16px;">
               ${equity.notes.map((note: string) => `<li>${note}</li>`).join("")}
             </ol>
@@ -582,7 +582,7 @@ async function renderContentByChunks(
   let currentY = margin;
   let isFirstChunk = true;
 
-  // 渲染单个HTML块并添加到PDF
+  // 渲染单个HTML块并添加到PDF，支持超长内容自动分页
   async function renderChunk(html: string): Promise<void> {
     const container = document.createElement("div");
     container.style.position = "absolute";
@@ -607,24 +607,79 @@ async function renderContentByChunks(
 
       const imgWidth = contentWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const availableHeight = contentHeight;
 
       // 检查是否需要新页面
-      if (!isFirstChunk && currentY + imgHeight > pageHeight - margin) {
+      if (!isFirstChunk && currentY + Math.min(imgHeight, 20) > pageHeight - margin) {
         pdf.addPage();
         currentY = margin;
       }
       isFirstChunk = false;
 
-      pdf.addImage(
-        canvas.toDataURL("image/png", 1.0),
-        "PNG",
-        margin,
-        currentY,
-        imgWidth,
-        imgHeight
-      );
+      // 如果内容高度小于等于剩余空间，直接添加
+      const remainingHeight = pageHeight - margin - currentY;
+      
+      if (imgHeight <= remainingHeight) {
+        pdf.addImage(
+          canvas.toDataURL("image/png", 1.0),
+          "PNG",
+          margin,
+          currentY,
+          imgWidth,
+          imgHeight
+        );
+        currentY += imgHeight + 5;
+      } else {
+        // 内容超出当前页面，需要分页处理
+        let sourceY = 0;
+        const scale = canvas.width / imgWidth;
+        
+        while (sourceY < canvas.height) {
+          const currentRemainingHeight = pageHeight - margin - currentY;
+          const sourceHeightForPage = Math.min(
+            currentRemainingHeight * scale,
+            canvas.height - sourceY
+          );
+          const destHeight = sourceHeightForPage / scale;
 
-      currentY += imgHeight + 5; // 5mm 间距
+          // 创建当前页面的画布切片
+          const pageCanvas = document.createElement("canvas");
+          pageCanvas.width = canvas.width;
+          pageCanvas.height = sourceHeightForPage;
+          const ctx = pageCanvas.getContext("2d");
+          
+          if (ctx) {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+            ctx.drawImage(
+              canvas,
+              0, sourceY,
+              canvas.width, sourceHeightForPage,
+              0, 0,
+              canvas.width, sourceHeightForPage
+            );
+
+            pdf.addImage(
+              pageCanvas.toDataURL("image/png", 1.0),
+              "PNG",
+              margin,
+              currentY,
+              imgWidth,
+              destHeight
+            );
+          }
+
+          sourceY += sourceHeightForPage;
+          
+          // 如果还有剩余内容，添加新页面
+          if (sourceY < canvas.height) {
+            pdf.addPage();
+            currentY = margin;
+          } else {
+            currentY += destHeight + 5;
+          }
+        }
+      }
     } finally {
       document.body.removeChild(container);
     }
