@@ -663,7 +663,7 @@ export default function ReportPreview() {
 
       if (str.startsWith("经核查") || str.includes("核查发现") || str.includes("目标公司")) {
         fact = str;
-        if (str.includes("未能提供") || str.includes("未提供") || str.includes("���失")) {
+        if (str.includes("未能提供") || str.includes("未提供") || str.includes("缺失")) {
           risk = "由于相关资料缺失，无法全面核实相关合规情况，存在潜在的法律风险";
           suggestion = "建议补充提供相关资料以便进一步核查";
         } else if (str.includes("无法") || str.includes("不能")) {
@@ -868,7 +868,7 @@ export default function ReportPreview() {
         newSet.add(sectionId);
         toast.success("章节已锁定，重新生成时将跳过此章节");
       }
-    return newSet;
+      return newSet;
     });
   };
 
@@ -928,7 +928,7 @@ export default function ReportPreview() {
         // 4. 调用 OCR 文字提取
         setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 55, status: "extracting" } : f));
         setUploadingStatus("extracting");
-        
+
         const { error: parseError } = await supabase.functions.invoke("parse", {
           body: { fileId: createdFile.id, projectId, mode: "ocr" },
         });
@@ -954,12 +954,12 @@ export default function ReportPreview() {
       const fileStatus = uploadingFiles[i];
       return fileStatus?.status === "done";
     }).length;
-    
+
     if (successCount > 0) {
       toast.success(`已上传 ${successCount} 个文件并关联到「${uploadingSectionTitle}」`);
     }
   };
-  
+
   // Calculate file statistics
   const fileStats = useMemo(() => {
     if (!files.length) return null;
@@ -1092,7 +1092,7 @@ export default function ReportPreview() {
                 suggestion = "建议进一步核实并补充相关证明文件";
               } else {
                 risk = "上述情况可能存在潜在的法律或合规风险";
-                suggestion = "建���关注并进行进一步核查";
+                suggestion = "建议关注并进行进一步核查";
               }
             } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
               fact = "经核查，发现以下情况";
