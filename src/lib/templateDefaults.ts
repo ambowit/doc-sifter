@@ -192,7 +192,7 @@ export const DEFAULT_TEMPLATE_FINGERPRINT: TemplateFingerprint = {
   },
 };
 
-// 按项目类型的引言内容配置
+// 按项目类型的引言内容配置 - 根据新建项目时选择的类型显示不同模板
 export const PROJECT_TYPE_INTRO_CONTENT: Record<string, {
   introContent: {
     background: string;
