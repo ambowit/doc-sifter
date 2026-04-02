@@ -1344,7 +1344,15 @@ export default function TemplateFingerprint() {
                   </ScrollArea>
                 </div>
 
-                {/* Middle: Style Editor */}
+                {/* Middle: Style Editor - 仅自定义模板可编辑 */}
+                {(() => {
+                  const isCustomTemplate = selectedStyleId === CUSTOM_STYLE_ID || 
+                    (customStyle && selectedStyleId === customStyle.id) ||
+                    templateStyles.find(s => s.id === selectedStyleId)?.projectId;
+                  
+                  if (!isCustomTemplate) return null;
+                  
+                  return (
                 <div className="w-80 border-r border-border flex flex-col min-h-0">
                   <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
                     <div className="flex items-center justify-between">
@@ -1362,43 +1370,28 @@ export default function TemplateFingerprint() {
                         >
                           重置
                         </Button>
-                        {(() => {
-                          // 只有自定义模板才能编辑（CUSTOM_STYLE_ID 或有 projectId 的模板）
-                          const isCustomTemplate = selectedStyleId === CUSTOM_STYLE_ID || 
-                            (customStyle && selectedStyleId === customStyle.id) ||
-                            templateStyles.find(s => s.id === selectedStyleId)?.projectId;
-                          
-                          return (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-[11px]"
-                              disabled={!isCustomTemplate && !isEditingStyle}
-                              title={!isCustomTemplate ? "仅自定义模板可编辑" : undefined}
-                              onClick={() => {
-                                if (!isCustomTemplate && !isEditingStyle) return;
-                                const next = !isEditingStyle;
-                                setIsEditingStyle(next);
-                                if (next) {
-                                  // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
-                                  // 否则从 templateStyles 获取基础样式
-                                  if (!styleDraft || styleDraft.id !== selectedStyleId) {
-                                    const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
-                                    if (baseStyle) {
-                                      setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
-                                      setStyleDraftDirty(false);
-                                    }
-                                  }
-                                  // 如果已有匹配的 styleDraft，保持不变，继续编辑
-                                } else {
-                                  // 停止编辑时不重置 dirty 状态，保留修改
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => {
+                            const next = !isEditingStyle;
+                            setIsEditingStyle(next);
+                            if (next) {
+                              // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
+                              // 否则从 templateStyles 获取基础样式
+                              if (!styleDraft || styleDraft.id !== selectedStyleId) {
+                                const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+                                if (baseStyle) {
+                                  setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+                                  setStyleDraftDirty(false);
                                 }
-                              }}
-                            >
-                              {isEditingStyle ? "停止编辑" : "编辑"}
-                            </Button>
-                          );
-                        })()}
+                              }
+                            }
+                          }}
+                        >
+                          {isEditingStyle ? "停止编辑" : "编辑"}
+                        </Button>
                         <Button
                           size="sm"
                           className="h-7 text-[11px]"
@@ -1815,6 +1808,8 @@ export default function TemplateFingerprint() {
                     </div>
                   </ScrollArea>
                 </div>
+                  );
+                })()}
 
                 {/* Right: Style preview */}
                 <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
