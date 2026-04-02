@@ -136,7 +136,7 @@ function IntroductionSection({
         <ul className="list-decimal pl-5 space-y-1">
           <li>本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</li>
           <li>本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</li>
-          <li>本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在遗漏、不完整或不真实，本所不对由此产生的后果承担责任。</li>
+          <li>本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在���漏、不完整或不真实，本所不对由此产生的后果承担责任。</li>
         </ul>
       </div>
     </div>
@@ -1866,15 +1866,15 @@ export default function ReportPreview() {
             ) : (
               <div className="space-y-3">
                 {uploadingFiles.map((file, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg overflow-hidden">
                     <div className="flex-shrink-0">
                       {file.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
                       {file.status === "extracting" && <Brain className="w-4 h-4 animate-pulse text-amber-500" />}
                       {file.status === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
                       {file.status === "error" && <AlertTriangle className="w-4 h-4 text-red-500" />}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-medium truncate">{file.name}</div>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className="text-[12px] font-medium truncate max-w-full">{file.name}</div>
                       <div className="text-[10px] text-muted-foreground">
                         {file.status === "uploading" && "上传中..."}
                         {file.status === "extracting" && "文字提取中..."}
@@ -1883,7 +1883,7 @@ export default function ReportPreview() {
                       </div>
                     </div>
                     {file.status !== "done" && file.status !== "error" && (
-                      <div className="w-16">
+                      <div className="flex-shrink-0 w-16">
                         <Progress value={file.progress} className="h-1.5" />
                       </div>
                     )}
