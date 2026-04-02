@@ -618,7 +618,7 @@ export default function Definitions() {
       </div> */}
 
       <div className="flex-1 px-6 pb-6 pt-4 overflow-hidden">
-        <Tabs defaultValue="final" className="h-full flex flex-col min-h-0">
+        <Tabs defaultValue="candidates" className="h-full flex flex-col min-h-0">
           <div className="flex items-center justify-between gap-3 flex-shrink-0">
             <TabsList className="w-fit">
               <TabsTrigger value="final">最终定义（{validDefinitions.length}）</TabsTrigger>
