@@ -2119,6 +2119,7 @@ export default function FileUpload() {
                         {/* Table Header */}
                         <div className="flex items-center gap-2 px-3 py-2 bg-muted text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0 z-10">
                               <span className="flex-1">文件名称</span>
+                              <span className="w-16 text-center">状态</span>
                               <span className="w-20 text-right">大小</span>
                               <span className="w-32 text-center">操作</span>
                             </div>
@@ -2149,6 +2150,7 @@ export default function FileUpload() {
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
                                 
                                 {/* OCR Task Status Indicator */}
+                                <div className="w-16 flex justify-center">
                                 {isUnsupported ? (
                                   <TooltipProvider>
                                     <Tooltip>
@@ -2208,6 +2210,7 @@ export default function FileUpload() {
                                     <CheckCircle className="w-3 h-3" />
                                   </span>
                                 ) : null}
+                                </div>
 
                                 <span className="w-20 text-right text-[10px] text-muted-foreground font-mono">
                                   {formatFileSize(file.sizeBytes)}
