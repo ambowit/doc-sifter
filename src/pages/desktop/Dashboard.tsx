@@ -408,7 +408,7 @@ export default function Dashboard() {
 
       {/* New Project Dialog */}
       <Dialog open={isNewProjectOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileCheck className="w-5 h-5" />
@@ -533,21 +533,6 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Strict Mode */}
-            <div className="flex items-center justify-between py-2 px-3 bg-surface-subtle rounded border border-border">
-              <div>
-                <Label className="text-[13px] font-medium">严格证据模式</Label>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  仅基于已上传文件生成内容，不允许 AI 补充推测
-                </p>
-              </div>
-              <Switch
-                checked={newProject.strictEvidenceMode}
-                onCheckedChange={(checked) =>
-                  setNewProject({ ...newProject, strictEvidenceMode: checked })
-                }
-              />
-            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button
