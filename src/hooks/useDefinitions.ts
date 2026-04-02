@@ -120,21 +120,32 @@ function normalizeKey(value: string | null | undefined): string {
     .replace(/\s+/g, "");
 }
 
+function isValidDefinitionRecord(definition: Pick<Definition, "shortName" | "fullName">): boolean {
+  const shortKey = normalizeKey(definition.shortName);
+  const fullKey = normalizeKey(definition.fullName);
+  if (!shortKey || !fullKey) return true;
+  return shortKey !== fullKey;
+}
+
 function withConflictMetadata(definitions: Definition[]): Definition[] {
+  const validDefinitions = definitions.filter((definition) => isValidDefinitionRecord(definition));
   const counts = new Map<string, number>();
-  definitions.forEach((definition) => {
+  validDefinitions.forEach((definition) => {
     const key = normalizeKey(definition.shortName);
     if (!key) return;
     counts.set(key, (counts.get(key) || 0) + 1);
   });
 
   return definitions.map((definition) => {
+    if (!isValidDefinitionRecord(definition)) {
+      return { ...definition, hasConflict: false, conflictWith: null };
+    }
     const key = normalizeKey(definition.shortName);
     if (!key || (counts.get(key) || 0) <= 1) {
       return { ...definition, hasConflict: false, conflictWith: null };
     }
 
-    const conflictWith = definitions
+    const conflictWith = validDefinitions
       .filter((item) => item.id !== definition.id && normalizeKey(item.shortName) === key)
       .map((item) => item.fullName)
       .filter(Boolean)
@@ -356,8 +367,23 @@ export function useDeleteDefinition() {
       if (error) throw error;
       return { id, projectId };
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["definitions", data.projectId] });
+    onMutate: async ({ id, projectId }) => {
+      const queryKey = ["definitions", projectId] as const;
+      await queryClient.cancelQueries({ queryKey });
+
+      const previous = queryClient.getQueryData<Definition[]>(queryKey);
+      queryClient.setQueryData<Definition[]>(queryKey, (current = []) =>
+        withConflictMetadata(current.filter((definition) => definition.id !== id)),
+      );
+
+      return { previous, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return;
+      queryClient.setQueryData(context.queryKey, context.previous);
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["definitions", variables.projectId] });
     },
   });
 }
@@ -477,7 +503,8 @@ export function calculateCandidateStats(candidates: DefinitionCandidate[]) {
   let lowConfidence = 0;
 
   candidates.forEach((candidate) => {
-    if (candidate.status === "pending_review") pending += 1;
+    if (candidate.status !== "pending_review") return;
+    pending += 1;
     if (candidate.hasConflict) conflicts += 1;
     if (!candidate.sourceFileId && !candidate.sourceExcerpt) missingSource += 1;
     if ((candidate.confidence ?? 0) > 0 && (candidate.confidence ?? 0) < 0.6) lowConfidence += 1;

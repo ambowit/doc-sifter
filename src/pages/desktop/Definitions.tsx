@@ -24,7 +24,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -33,7 +32,10 @@ import {
 } from "@/components/ui/table";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
   BookMarked,
   Brain,
   Briefcase,
@@ -44,14 +46,12 @@ import {
   FileText,
   Landmark,
   Loader2,
-  Lock,
   MoreVertical,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
   Trash2,
-  Unlock,
   User,
   WandSparkles,
 } from "lucide-react";
@@ -72,7 +72,6 @@ import {
   useDeleteDefinition,
   useExtractDefinitions,
   useRejectDefinitionCandidates,
-  useToggleDefinitionLock,
   useUpdateDefinition,
 } from "@/hooks/useDefinitions";
 
@@ -105,6 +104,103 @@ const reviewReasonLabel: Record<string, string> = {
   matched_existing_definition: "命中既有定义",
   matched_locked_definition: "命中锁定定义",
 };
+
+type SortDir = "asc" | "desc";
+type DefinitionSortKey = "shortName" | "fullName" | "entityType";
+type CandidateSortKey = "shortName" | "fullName" | "entityType" | "status";
+
+function normalizeDefinitionKey(value: string | null | undefined): string {
+  return (value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[“”"'《》()（）\[\]【】,，。.；;:：·]/g, "")
+    .replace(/\s+/g, "");
+}
+
+function isInvalidDefinition(shortName: string | null | undefined, fullName: string | null | undefined): boolean {
+  const shortKey = normalizeDefinitionKey(shortName);
+  const fullKey = normalizeDefinitionKey(fullName);
+  return Boolean(shortKey && fullKey && shortKey === fullKey);
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, "zh-CN", { sensitivity: "base" });
+}
+
+function compareWithDir(a: string, b: string, dir: SortDir): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  const result = compareText(a, b);
+  return dir === "asc" ? result : -result;
+}
+
+function isDuplicateDefinitionPair(
+  definitions: Definition[],
+  shortName: string,
+  fullName: string,
+  ignoreId?: string,
+): boolean {
+  const shortKey = normalizeDefinitionKey(shortName);
+  const fullKey = normalizeDefinitionKey(fullName);
+  if (!shortKey || !fullKey) return false;
+  return definitions.some((definition) => {
+    if (ignoreId && definition.id === ignoreId) return false;
+    return normalizeDefinitionKey(definition.shortName) === shortKey
+      && normalizeDefinitionKey(definition.fullName) === fullKey;
+  });
+}
+
+function candidateDedupKey(candidate: DefinitionCandidate): string {
+  const shortKey = normalizeDefinitionKey(candidate.shortName);
+  const fullKey = normalizeDefinitionKey(candidate.fullName);
+  if (!shortKey && !fullKey) return `id:${candidate.id}`;
+  return `${shortKey}|${fullKey}`;
+}
+
+function candidatePriority(status: CandidateStatus): number {
+  if (status === "pending_review") return 3;
+  if (status === "rejected") return 2;
+  if (status === "approved") return 1;
+  return 0;
+}
+
+function dedupeCandidates(candidates: DefinitionCandidate[]): DefinitionCandidate[] {
+  const byKey = new Map<string, DefinitionCandidate>();
+
+  candidates.forEach((candidate) => {
+    const key = candidateDedupKey(candidate);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, candidate);
+      return;
+    }
+
+    const currentPriority = candidatePriority(candidate.status);
+    const existingPriority = candidatePriority(existing.status);
+    if (currentPriority > existingPriority) {
+      byKey.set(key, candidate);
+      return;
+    }
+    if (currentPriority < existingPriority) {
+      return;
+    }
+
+    const currentConfidence = candidate.confidence ?? -1;
+    const existingConfidence = existing.confidence ?? -1;
+    if (currentConfidence > existingConfidence) {
+      byKey.set(key, candidate);
+      return;
+    }
+
+    if (currentConfidence === existingConfidence && candidate.updatedAt > existing.updatedAt) {
+      byKey.set(key, candidate);
+    }
+  });
+
+  return [...byKey.values()];
+}
 
 interface EditDialogProps {
   open: boolean;
@@ -160,13 +256,19 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
   }, [definition, open]);
 
   const handleSave = () => {
-    if (!shortName.trim() || !fullName.trim()) {
+    const nextShortName = shortName.trim();
+    const nextFullName = fullName.trim();
+    if (!nextShortName || !nextFullName) {
       toast.error("请填写简称和全称");
       return;
     }
+    if (isInvalidDefinition(nextShortName, nextFullName)) {
+      toast.error("简称与全称一致，视为无效定义");
+      return;
+    }
     onSave({
-      shortName: shortName.trim(),
-      fullName: fullName.trim(),
+      shortName: nextShortName,
+      fullName: nextFullName,
       entityType: type,
       notes: notes.trim() || undefined,
       sourceFileId: sourceFileId || undefined,
@@ -180,7 +282,7 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{definition ? "编辑最终定义" : "新增最终定义"}</DialogTitle>
-          <DialogDescription>人工维护的定义会自动锁定，后续 AI 抽取不会自动覆盖。</DialogDescription>
+          <DialogDescription>维护最终定义表中的实体定义信息。</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-4">
@@ -223,7 +325,7 @@ function EditDefinitionDialog({ open, onOpenChange, definition, files, onSave, i
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>取消</Button>
-          <Button onClick={handleSave} disabled={isSaving}>{isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />保存中...</> : "保存并锁定"}</Button>
+          <Button onClick={handleSave} disabled={isSaving}>{isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />保存中...</> : "保存"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -244,51 +346,118 @@ export default function Definitions() {
   const extractMutation = useExtractDefinitions();
   const approveMutation = useApproveDefinitionCandidates();
   const rejectMutation = useRejectDefinitionCandidates();
-  const toggleLockMutation = useToggleDefinitionLock();
 
   const [finalSearch, setFinalSearch] = useState("");
+  const [finalViewFilter, setFinalViewFilter] = useState<"all" | "conflicts">("all");
   const [filterType, setFilterType] = useState<EntityType | "all">("all");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateFilter, setCandidateFilter] = useState<"all" | "pending" | "conflicts" | "risky">("all");
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingDefinition, setEditingDefinition] = useState<Definition | null>(null);
+  const [reExtractConfirmOpen, setReExtractConfirmOpen] = useState(false);
+  const [finalSortKey, setFinalSortKey] = useState<DefinitionSortKey>("shortName");
+  const [finalSortDir, setFinalSortDir] = useState<SortDir>("asc");
+  const [candidateSortKey, setCandidateSortKey] = useState<CandidateSortKey>("shortName");
+  const [candidateSortDir, setCandidateSortDir] = useState<SortDir>("asc");
 
-  const definitionStats = useMemo(() => calculateDefinitionStats(definitions), [definitions]);
-  const candidateStats = useMemo(() => calculateCandidateStats(candidates), [candidates]);
+  const validDefinitions = useMemo(
+    () => definitions.filter((definition) => !isInvalidDefinition(definition.shortName, definition.fullName)),
+    [definitions],
+  );
+  const definitionStats = useMemo(() => calculateDefinitionStats(validDefinitions), [validDefinitions]);
 
-  const filteredDefinitions = useMemo(() => definitions.filter((definition) => {
+  const normalizedCandidates = useMemo(
+    () => dedupeCandidates(candidates.filter((candidate) => !isInvalidDefinition(candidate.shortName, candidate.fullName))),
+    [candidates],
+  );
+  const actionableCandidates = useMemo(
+    () => normalizedCandidates.filter((candidate) => candidate.status === "pending_review"),
+    [normalizedCandidates],
+  );
+  const candidateStats = useMemo(() => calculateCandidateStats(actionableCandidates), [actionableCandidates]);
+  const actionableCandidateCount = actionableCandidates.length;
+  const historicalCandidateCount = normalizedCandidates.length;
+
+  const filteredDefinitions = useMemo(() => validDefinitions.filter((definition) => {
     const matchesSearch = !finalSearch || definition.shortName.toLowerCase().includes(finalSearch.toLowerCase()) || definition.fullName.toLowerCase().includes(finalSearch.toLowerCase()) || (definition.sourceFileName || "").toLowerCase().includes(finalSearch.toLowerCase());
     const matchesType = filterType === "all" || definition.entityType === filterType;
-    return matchesSearch && matchesType;
-  }), [definitions, finalSearch, filterType]);
+    const matchesView = finalViewFilter === "all" || definition.hasConflict;
+    return matchesSearch && matchesType && matchesView;
+  }), [validDefinitions, finalSearch, filterType, finalViewFilter]);
 
-  const filteredCandidates = useMemo(() => candidates.filter((candidate) => {
+  const sortedDefinitions = useMemo(() => {
+    const list = [...filteredDefinitions];
+    list.sort((a, b) => {
+      if (finalSortKey === "entityType") {
+        return compareWithDir(typeConfig[a.entityType].label, typeConfig[b.entityType].label, finalSortDir);
+      }
+      if (finalSortKey === "shortName") {
+        return compareWithDir(normalizeDefinitionKey(a.shortName), normalizeDefinitionKey(b.shortName), finalSortDir);
+      }
+      return compareWithDir(normalizeDefinitionKey(a.fullName), normalizeDefinitionKey(b.fullName), finalSortDir);
+    });
+    return list;
+  }, [filteredDefinitions, finalSortDir, finalSortKey]);
+
+  const filteredCandidates = useMemo(() => normalizedCandidates.filter((candidate) => {
+    // 已接受的候选不再显示
+    if (candidate.status === "approved") return false;
     const haystack = [candidate.shortName, candidate.fullName, candidate.sourceFileName, candidate.sourceExcerpt].filter(Boolean).join(" ").toLowerCase();
     const matchesSearch = !candidateSearch || haystack.includes(candidateSearch.toLowerCase());
     if (!matchesSearch) return false;
     if (candidateFilter === "pending") return candidate.status === "pending_review";
-    if (candidateFilter === "conflicts") return candidate.hasConflict;
-    if (candidateFilter === "risky") return !candidate.sourceFileId || !candidate.sourceExcerpt || ((candidate.confidence ?? 0) > 0 && (candidate.confidence ?? 0) < 0.6);
+    if (candidateFilter === "conflicts") return candidate.hasConflict && candidate.status === "pending_review";
+    if (candidateFilter === "risky") return candidate.status === "pending_review" && (!candidate.sourceFileId || !candidate.sourceExcerpt || ((candidate.confidence ?? 0) > 0 && (candidate.confidence ?? 0) < 0.6));
     return true;
-  }), [candidateFilter, candidateSearch, candidates]);
+  }), [candidateFilter, candidateSearch, normalizedCandidates]);
 
-  const selectableCandidates = useMemo(() => filteredCandidates.filter((candidate) => candidate.status === "pending_review"), [filteredCandidates]);
+  const sortedCandidates = useMemo(() => {
+    const list = [...filteredCandidates];
+    list.sort((a, b) => {
+      if (candidateSortKey === "entityType") {
+        return compareWithDir(typeConfig[a.entityType].label, typeConfig[b.entityType].label, candidateSortDir);
+      }
+      if (candidateSortKey === "status") {
+        return compareWithDir(candidateStatusConfig[a.status].label, candidateStatusConfig[b.status].label, candidateSortDir);
+      }
+      if (candidateSortKey === "shortName") {
+        return compareWithDir(normalizeDefinitionKey(a.shortName), normalizeDefinitionKey(b.shortName), candidateSortDir);
+      }
+      return compareWithDir(normalizeDefinitionKey(a.fullName), normalizeDefinitionKey(b.fullName), candidateSortDir);
+    });
+    return list;
+  }, [candidateSortDir, candidateSortKey, filteredCandidates]);
+
+  const visibleCandidateCount = sortedCandidates.length;
+  const selectableCandidates = useMemo(() => sortedCandidates.filter((candidate) => candidate.status === "pending_review"), [sortedCandidates]);
   const allSelectableChecked = selectableCandidates.length > 0 && selectableCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id));
   const isLoading = isProjectLoading || isDefinitionsLoading || isCandidatesLoading || isFilesLoading;
+
+  useEffect(() => {
+    const selectableIdSet = new Set(selectableCandidates.map((candidate) => candidate.id));
+    setSelectedCandidateIds((current) => {
+      const next = current.filter((id) => selectableIdSet.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [selectableCandidates]);
 
   const handleAdd = () => { setEditingDefinition(null); setEditDialogOpen(true); };
   const handleEdit = (definition: Definition) => { setEditingDefinition(definition); setEditDialogOpen(true); };
 
   const handleSave = async (payload: { shortName: string; fullName: string; entityType: EntityType; notes?: string; sourceFileId?: string; sourcePageRef?: string; sourceExcerpt?: string; }) => {
     if (!projectId) return;
+    if (isDuplicateDefinitionPair(validDefinitions, payload.shortName, payload.fullName, editingDefinition?.id)) {
+      toast.error("简称与全称组合已存在，无需重复定义");
+      return;
+    }
     try {
       if (editingDefinition) {
         await updateMutation.mutateAsync({ id: editingDefinition.id, ...payload });
-        toast.success("最终定义已更新并锁定");
+        toast.success("最终定义已更新");
       } else {
         await createMutation.mutateAsync({ projectId, ...payload });
-        toast.success("最终定义已新增并锁定");
+        toast.success("最终定义已新增");
       }
       setEditDialogOpen(false);
     } catch (error) {
@@ -306,18 +475,11 @@ export default function Definitions() {
     }
   };
 
-  const handleToggleLock = async (definition: Definition) => {
-    if (!projectId) return;
-    try {
-      await toggleLockMutation.mutateAsync({ id: definition.id, projectId, isLocked: !definition.isLocked });
-      toast.success(definition.isLocked ? "已解除锁定" : "已锁定定义");
-    } catch (error) {
-      toast.error("更新锁定状态失败", { description: error instanceof Error ? error.message : "请稍后重试" });
-    }
-  };
 
-  const handleExtract = async () => {
+
+  const handleExtractConfirm = async () => {
     if (!projectId) return;
+    setReExtractConfirmOpen(false);
     try {
       const result = await extractMutation.mutateAsync({ projectId, mode: "refresh" });
       toast.success("AI 候选已刷新", { description: `新增 ${result.inserted} 条候选，冲突 ${result.conflicts} 条，归档旧候选 ${result.archived} 条` });
@@ -350,12 +512,12 @@ export default function Definitions() {
   };
 
   const handleExport = () => {
-    if (definitions.length === 0) {
+    if (validDefinitions.length === 0) {
       toast.error("暂无最终定义可导出");
       return;
     }
     const headers = ["简称", "全称", "类型", "来源", "页码", "来源片段", "备注"];
-    const rows = definitions.map((definition) => [definition.shortName, definition.fullName, typeConfig[definition.entityType].label, definition.sourceFileName || "", definition.sourcePageRef || "", definition.sourceExcerpt || "", definition.notes || ""]);
+    const rows = validDefinitions.map((definition) => [definition.shortName, definition.fullName, typeConfig[definition.entityType].label, definition.sourceFileName || "", definition.sourcePageRef || "", definition.sourceExcerpt || "", definition.notes || ""]);
     const csvContent = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
     const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -379,6 +541,35 @@ export default function Definitions() {
       return;
     }
     setSelectedCandidateIds((current) => current.filter((id) => !selectableCandidates.some((candidate) => candidate.id === id)));
+  };
+
+  const handleFinalSort = (key: DefinitionSortKey) => {
+    setFinalSortKey((prevKey) => {
+      if (prevKey === key) {
+        setFinalSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+        return prevKey;
+      }
+      setFinalSortDir("asc");
+      return key;
+    });
+  };
+
+  const handleCandidateSort = (key: CandidateSortKey) => {
+    setCandidateSortKey((prevKey) => {
+      if (prevKey === key) {
+        setCandidateSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+        return prevKey;
+      }
+      setCandidateSortDir("asc");
+      return key;
+    });
+  };
+
+  const renderSortIndicator = (active: boolean, dir: SortDir) => {
+    if (!active) {
+      return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+    }
+    return dir === "asc" ? <ArrowUp className="w-3 h-3 ml-1" /> : <ArrowDown className="w-3 h-3 ml-1" />;
   };
 
   if (isLoading) {
@@ -406,7 +597,7 @@ export default function Definitions() {
           <p className="text-[13px] text-muted-foreground">先抽取 AI 候选，再人工确认进入最终定义，报告仅使用最终定义。</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={handleExtract} disabled={extractMutation.isPending} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => setReExtractConfirmOpen(true)} disabled={extractMutation.isPending} className="gap-2">
             {extractMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
             AI 重新提取
           </Button>
@@ -418,20 +609,22 @@ export default function Definitions() {
           </Button>
         </div>
       </div>
-
+      {/* 
       <div className="mx-6 mt-4 p-4 bg-card border border-border rounded-lg grid grid-cols-4 gap-4">
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-primary" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">最终定义</div><div className="text-[16px] font-semibold">{definitionStats.total}</div></div></div>
-        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center"><WandSparkles className="w-5 h-5 text-amber-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">待复核候选</div><div className="text-[16px] font-semibold">{candidateStats.pending}</div></div></div>
+        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center"><WandSparkles className="w-5 h-5 text-amber-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">待复核候选</div><div className="text-[16px] font-semibold">{actionableCandidateCount}</div></div></div>
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-rose-100 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-rose-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">冲突候选</div><div className="text-[16px] font-semibold">{candidateStats.conflicts}</div></div></div>
         <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><Lock className="w-5 h-5 text-slate-700" /></div><div><div className="text-[11px] text-muted-foreground uppercase tracking-wider">锁定定义</div><div className="text-[16px] font-semibold">{definitionStats.locked}</div></div></div>
-      </div>
+      </div> */}
 
       <div className="flex-1 px-6 pb-6 pt-4 overflow-hidden">
         <Tabs defaultValue="final" className="h-full flex flex-col min-h-0">
-          <TabsList className="w-fit flex-shrink-0">
-            <TabsTrigger value="final">最终定义（{definitions.length}）</TabsTrigger>
-            <TabsTrigger value="candidates">AI 候选（{candidates.length}）</TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between gap-3 flex-shrink-0">
+            <TabsList className="w-fit">
+              <TabsTrigger value="final">最终定义（{validDefinitions.length}）</TabsTrigger>
+              <TabsTrigger value="candidates">AI 候选（{actionableCandidateCount}）</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="final" className="flex-1 flex flex-col mt-4 overflow-hidden min-h-0 data-[state=inactive]:hidden">
             <div className="flex items-center gap-4 mb-4">
@@ -446,26 +639,36 @@ export default function Definitions() {
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Badge variant={filterType === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilterType("all")}>全部</Badge>
+                <Badge variant={finalViewFilter === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFinalViewFilter("all")}>全部</Badge>
+                <Badge variant={finalViewFilter === "conflicts" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFinalViewFilter("conflicts")}>只看冲突</Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={filterType === "all" ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilterType("all")}>类型：全部</Badge>
                 {Object.entries(typeConfig).map(([key, config]) => <Badge key={key} variant={filterType === key ? "default" : "outline"} className="cursor-pointer" onClick={() => setFilterType(key as EntityType)}>{config.label}</Badge>)}
               </div>
             </div>
 
             <div className="flex-1 border border-border rounded-lg bg-card overflow-hidden">
               <ScrollArea className="h-full">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-card z-10">
+                <table className="w-full caption-bottom text-sm">
+                  <TableHeader className="sticky top-0 z-20 bg-card">
                     <TableRow>
-                      <TableHead className="w-[140px]">简称</TableHead>
-                      <TableHead>全称</TableHead>
-                      <TableHead className="w-[110px]">类型</TableHead>
+                      <TableHead className="w-[140px] cursor-pointer select-none" onClick={() => handleFinalSort("shortName")}>
+                        <span className="inline-flex items-center">简称{renderSortIndicator(finalSortKey === "shortName", finalSortDir)}</span>
+                      </TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleFinalSort("fullName")}>
+                        <span className="inline-flex items-center">全称{renderSortIndicator(finalSortKey === "fullName", finalSortDir)}</span>
+                      </TableHead>
+                      <TableHead className="w-[110px] cursor-pointer select-none" onClick={() => handleFinalSort("entityType")}>
+                        <span className="inline-flex items-center">类型{renderSortIndicator(finalSortKey === "entityType", finalSortDir)}</span>
+                      </TableHead>
                       <TableHead className="w-[240px]">来源证据</TableHead>
                       <TableHead className="w-[150px]">标记</TableHead>
                       <TableHead className="w-[80px] text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDefinitions.map((definition) => {
+                    {sortedDefinitions.map((definition) => {
                       const TypeIcon = typeConfig[definition.entityType].icon;
                       return (
                         <TableRow key={definition.id} className={cn(definition.hasConflict && "bg-amber-50/50")}>
@@ -473,13 +676,12 @@ export default function Definitions() {
                           <TableCell className="text-[13px]">{definition.fullName}</TableCell>
                           <TableCell><Badge variant="secondary" className={cn("text-[10px]", typeConfig[definition.entityType].color)}><TypeIcon className="w-3 h-3 mr-1" />{typeConfig[definition.entityType].label}</Badge></TableCell>
                           <TableCell><SourceEvidence fileName={definition.sourceFileName} pageRef={definition.sourcePageRef} excerpt={definition.sourceExcerpt} confidence={definition.sourceTrace[0]?.confidence ?? null} /></TableCell>
-                          <TableCell><div className="flex flex-wrap gap-2"><Badge variant="secondary" className={originConfig[definition.origin].className}>{originConfig[definition.origin].label}</Badge>{definition.isLocked ? <Badge variant="secondary" className="bg-slate-900 text-white">已锁定</Badge> : <Badge variant="outline">未锁定</Badge>}{definition.hasConflict && definition.conflictWith ? <Badge variant="secondary" className="bg-amber-100 text-amber-700">与 {definition.conflictWith} 冲突</Badge> : null}</div></TableCell>
+                          <TableCell><div className="flex flex-wrap gap-2"><Badge variant="secondary" className={originConfig[definition.origin].className}>{originConfig[definition.origin].label}</Badge>{definition.hasConflict && definition.conflictWith ? <Badge variant="secondary" className="bg-amber-100 text-amber-700">与 {definition.conflictWith} 冲突</Badge> : null}</div></TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreVertical className="w-4 h-4" /></Button></DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => handleEdit(definition)}><Edit2 className="w-4 h-4 mr-2" />编辑</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleToggleLock(definition)}>{definition.isLocked ? <Unlock className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}{definition.isLocked ? "解除锁定" : "锁定"}</DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => handleDelete(definition.id)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />删除</DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -488,8 +690,8 @@ export default function Definitions() {
                       );
                     })}
                   </TableBody>
-                </Table>
-                {filteredDefinitions.length === 0 ? <div className="py-14 text-center text-muted-foreground text-sm">当前没有匹配的最终定义</div> : null}
+                </table>
+                {sortedDefinitions.length === 0 ? <div className="py-14 text-center text-muted-foreground text-sm">当前没有匹配的最终定义</div> : null}
               </ScrollArea>
             </div>
           </TabsContent>
@@ -515,7 +717,11 @@ export default function Definitions() {
             </div>
 
             <div className="flex items-center justify-between gap-4 p-3 border border-border rounded-lg bg-muted/30 mb-4">
-              <div className="flex items-center gap-3 text-[13px] text-muted-foreground"><Sparkles className="w-4 h-4" /><span>已选 {selectedCandidateIds.length} 条候选</span><span>候选仅在人工确认后进入最终定义。</span></div>
+              <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
+                <Sparkles className="w-4 h-4" />
+                <span>已选 {selectedCandidateIds.length} 条候选</span>
+                <span>当前可操作 {actionableCandidateCount} 条，当前可见 {visibleCandidateCount} 条。</span>
+              </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => handleReject(selectedCandidateIds)} disabled={selectedCandidateIds.length === 0 || rejectMutation.isPending}>{rejectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}批量拒绝</Button>
                 <Button size="sm" onClick={() => handleApprove(selectedCandidateIds)} disabled={selectedCandidateIds.length === 0 || approveMutation.isPending} className="gap-2">{approveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}批量接受</Button>
@@ -524,21 +730,29 @@ export default function Definitions() {
 
             <div className="flex-1 border border-border rounded-lg bg-card overflow-hidden">
               <ScrollArea className="h-full">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-card z-10">
+                <table className="w-full caption-bottom text-sm">
+                  <TableHeader className="sticky top-0 z-20 bg-card">
                     <TableRow>
                       <TableHead className="w-[44px]"><Checkbox checked={allSelectableChecked} onCheckedChange={(checked) => toggleAllSelectable(Boolean(checked))} /></TableHead>
-                      <TableHead className="w-[130px]">简称</TableHead>
-                      <TableHead>全称</TableHead>
-                      <TableHead className="w-[100px]">类型</TableHead>
+                      <TableHead className="w-[130px] cursor-pointer select-none" onClick={() => handleCandidateSort("shortName")}>
+                        <span className="inline-flex items-center">简称{renderSortIndicator(candidateSortKey === "shortName", candidateSortDir)}</span>
+                      </TableHead>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleCandidateSort("fullName")}>
+                        <span className="inline-flex items-center">全称{renderSortIndicator(candidateSortKey === "fullName", candidateSortDir)}</span>
+                      </TableHead>
+                      <TableHead className="w-[100px] cursor-pointer select-none" onClick={() => handleCandidateSort("entityType")}>
+                        <span className="inline-flex items-center">类型{renderSortIndicator(candidateSortKey === "entityType", candidateSortDir)}</span>
+                      </TableHead>
                       <TableHead className="w-[220px]">来源证据</TableHead>
-                      <TableHead className="w-[140px]">状态</TableHead>
+                      <TableHead className="w-[140px] cursor-pointer select-none" onClick={() => handleCandidateSort("status")}>
+                        <span className="inline-flex items-center">状态{renderSortIndicator(candidateSortKey === "status", candidateSortDir)}</span>
+                      </TableHead>
                       <TableHead className="w-[160px]">审核原因</TableHead>
                       <TableHead className="w-[140px] text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredCandidates.map((candidate) => {
+                    {sortedCandidates.map((candidate) => {
                       const TypeIcon = typeConfig[candidate.entityType].icon;
                       const isSelected = selectedCandidateIds.includes(candidate.id);
                       const reviewLabel = candidate.reviewReason ? reviewReasonLabel[candidate.reviewReason] || candidate.reviewReason : null;
@@ -557,8 +771,8 @@ export default function Definitions() {
                       );
                     })}
                   </TableBody>
-                </Table>
-                {filteredCandidates.length === 0 ? <div className="py-14 text-center"><Sparkles className="w-10 h-10 text-muted-foreground mx-auto mb-3" /><p className="text-sm text-muted-foreground">当前没有匹配的 AI 候选</p></div> : null}
+                </table>
+                {sortedCandidates.length === 0 ? <div className="py-14 text-center"><Sparkles className="w-10 h-10 text-muted-foreground mx-auto mb-3" /><p className="text-sm text-muted-foreground">当前没有匹配的 AI 候选</p></div> : null}
               </ScrollArea>
             </div>
           </TabsContent>
@@ -582,6 +796,22 @@ export default function Definitions() {
         onSave={handleSave}
         isSaving={createMutation.isPending || updateMutation.isPending}
       />
+
+      {/* AI 重新提取确认弹窗 */}
+      <Dialog open={reExtractConfirmOpen} onOpenChange={setReExtractConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>确认重新提取</DialogTitle>
+            <DialogDescription>
+              此操作将清除当前未处理的 AI 候选（待复核），并重新从数据室文件中提取。已接受或已拒绝的候选不会受到影响，最终定义表不受影响。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setReExtractConfirmOpen(false)}>取消</Button>
+            <Button variant="destructive" onClick={handleExtractConfirm}>确认重新提取</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

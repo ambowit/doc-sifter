@@ -18,7 +18,6 @@ import {
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronRight,
   CheckCircle2,
   AlertTriangle,
   FileText,
@@ -42,11 +41,12 @@ import {
   Lock,
   Unlock,
   Palette,
+  Upload,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useFlatChapters } from "@/hooks/useChapters";
-import { useFiles } from "@/hooks/useFiles";
-import { useMappings } from "@/hooks/useMappings";
+import { useFiles, useCreateFile, uploadFile, detectFileType } from "@/hooks/useFiles";
+import { useMappings, useCreateMapping } from "@/hooks/useMappings";
 import { useDefinitions, Definition } from "@/hooks/useDefinitions";
 import { useLatestGeneratedReport, usePersistGeneratedReport } from "@/hooks/useGeneratedReports";
 import { EquityChart } from "@/components/desktop/EquityChart";
@@ -526,6 +526,15 @@ export default function ReportPreview() {
     isLoading: isStylesLoading,
   } = useTemplateStyles(projectId);
   const persistGeneratedReport = usePersistGeneratedReport();
+  const createFileMutation = useCreateFile();
+  const createMappingMutation = useCreateMapping();
+
+  // 上传对话框状态
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadingSectionId, setUploadingSectionId] = useState<string | null>(null);
+  const [uploadingSectionTitle, setUploadingSectionTitle] = useState<string>("");
+  const [uploadingStatus, setUploadingStatus] = useState<"idle" | "uploading" | "extracting" | "done">("idle");
+  const [uploadingFiles, setUploadingFiles] = useState<Array<{ name: string; progress: number; status: "uploading" | "extracting" | "done" | "error" }>>([]);
 
   const hasInitializedRef = useRef(false);
   useEffect(() => {
@@ -583,7 +592,7 @@ export default function ReportPreview() {
 
   useEffect(() => {
     if (!currentTemplate || currentTemplate.selectedStyleId || templateStyles.length === 0) return;
-    updateSelectedStyle(templateStyles[0].id).catch(() => {});
+    updateSelectedStyle(templateStyles[0].id).catch(() => { });
   }, [currentTemplate, templateStyles, updateSelectedStyle]);
 
   const handleSelectStyle = useCallback(
@@ -816,7 +825,6 @@ export default function ReportPreview() {
 
   // Retry state for failed sections
   const [retryingSectionId, setRetryingSectionId] = useState<string | null>(null);
-  const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(new Set());
 
   // Locked sections state - persisted to localStorage per project
   const lockedSectionsKey = `locked-sections-${projectId}`;
@@ -862,6 +870,94 @@ export default function ReportPreview() {
       }
       return newSet;
     });
+  };
+
+  // 打开上传对话框
+  const handleOpenUploadDialog = (sectionId: string, sectionTitle: string) => {
+    setUploadingSectionId(sectionId);
+    setUploadingSectionTitle(sectionTitle);
+    setUploadingFiles([]);
+    setUploadingStatus("idle");
+    setUploadDialogOpen(true);
+  };
+
+  // 处理文件上传 + OCR 提取 + 章节关联
+  const handleSupplementUpload = async (acceptedFiles: File[]) => {
+    if (!uploadingSectionId || !projectId || acceptedFiles.length === 0) return;
+
+    setUploadingStatus("uploading");
+    const fileStatuses = acceptedFiles.map(f => ({
+      name: f.name,
+      progress: 0,
+      status: "uploading" as const,
+    }));
+    setUploadingFiles(fileStatuses);
+
+    for (let i = 0; i < acceptedFiles.length; i++) {
+      const file = acceptedFiles[i];
+      try {
+        // 1. 上传文件到 S3
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 10, status: "uploading" } : f));
+        const { storagePath } = await uploadFile(file, projectId, (progress) => {
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: Math.min(progress * 0.4, 40) } : f));
+        });
+
+        // 2. 创建文件记录
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 45 } : f));
+        const fileType = detectFileType(file.name);
+        const createdFile = await createFileMutation.mutateAsync({
+          projectId,
+          name: file.name,
+          originalName: file.name,
+          fileType,
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+          storagePath,
+        });
+
+        // 3. 创建章节-文件映射（直接关联，不走 AI 匹配）
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 50 } : f));
+        await createMappingMutation.mutateAsync({
+          chapterId: uploadingSectionId,
+          fileId: createdFile.id,
+          confidence: 100,
+          isAiSuggested: false,
+          isConfirmed: true,
+        });
+
+        // 4. 调用 OCR 文字提取
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 55, status: "extracting" } : f));
+        setUploadingStatus("extracting");
+
+        const { error: parseError } = await supabase.functions.invoke("parse", {
+          body: { fileId: createdFile.id, projectId, mode: "ocr" },
+        });
+
+        if (parseError) {
+          console.warn("[ReportPreview] OCR parse failed:", parseError);
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "error" } : f));
+        } else {
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "done" } : f));
+        }
+      } catch (error) {
+        console.error("[ReportPreview] Upload failed:", error);
+        setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "error" } : f));
+        toast.error(`上传失败: ${file.name}`, {
+          description: error instanceof Error ? error.message : "请稍后重试",
+        });
+      }
+    }
+
+    // 检查是否所有文件都处理完成
+    setUploadingStatus("done");
+    const successCount = acceptedFiles.filter((_, i) => {
+      const fileStatus = uploadingFiles[i];
+      return fileStatus?.status === "done";
+    }).length;
+
+    if (successCount > 0) {
+      toast.success(`已上传 ${successCount} 个文件并关联到「${uploadingSectionTitle}」`);
+    }
   };
 
   // Calculate file statistics
@@ -1108,7 +1204,7 @@ export default function ReportPreview() {
         ...s,
         mappedFiles: chapterFilesMap.get(s.id) || [],
       }));
-      
+
       if (exportFormat === "pdf") {
         await exportToPDF(projectData, sectionsWithMappings, metadata, definitions, files.length, currentStyle);
         toast.success("PDF 报告已下载");
@@ -1209,21 +1305,40 @@ export default function ReportPreview() {
             <div className="flex items-center gap-2 mr-2">
               <Palette className="w-4 h-4 text-muted-foreground" />
               <Select value={selectedStyleId || templateStyles[0].id} onValueChange={handleSelectStyle}>
-                <SelectTrigger className="w-32 h-8 text-[12px]">
+                <SelectTrigger className="w-36 h-8 text-[12px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {templateStyles.map(style => (
+                  {/* 全局模板 */}
+                  {templateStyles.filter(s => !s.projectId).map(style => (
                     <SelectItem key={style.id} value={style.id} className="text-[12px]">
                       <div className="flex items-center gap-2">
                         <span
                           className="w-3 h-3 rounded-full border"
-                          style={{ backgroundColor: style.preview.primaryColor }}
+                          style={{ backgroundColor: style.preview?.primaryColor || "#111827" }}
                         />
                         {style.name}
                       </div>
                     </SelectItem>
                   ))}
+                  {/* 自定义模板（项目专属） */}
+                  {templateStyles.filter(s => s.projectId).length > 0 && (
+                    <>
+                      <div className="border-t my-1" />
+                      {templateStyles.filter(s => s.projectId).map(style => (
+                        <SelectItem key={style.id} value={style.id} className="text-[12px]">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-3 h-3 rounded-full border border-dashed"
+                              style={{ backgroundColor: style.preview?.primaryColor || "#111827" }}
+                            />
+                            <span>{style.name}</span>
+                            <span className="text-[9px] text-muted-foreground">(本项目)</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -1447,77 +1562,30 @@ export default function ReportPreview() {
                     const hasIssues = section.issues && section.issues.length > 0;
                     const isSectionLocked = lockedSectionIds.has(section.id);
 
-                    const isExpanded = expandedSectionIds.has(section.id);
-                    const hasFiles = sectionMappedFiles.length > 0;
-
                     return (
-                      <div key={section.id}>
-                        <div
-                          className={cn(
-                            "flex items-center gap-2 py-2 px-2 rounded cursor-pointer text-[12px] transition-colors",
-                            isActive
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "hover:bg-muted/50",
-                            isSectionLocked && "border-l-2 border-amber-500"
-                          )}
-                          onClick={() => setActiveSectionId(section.id)}
-                        >
-                          {hasFiles ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setExpandedSectionIds(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(section.id)) {
-                                    next.delete(section.id);
-                                  } else {
-                                    next.add(section.id);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              className="p-0.5 hover:bg-muted rounded"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "w-3 h-3 flex-shrink-0 transition-transform",
-                                  isExpanded && "rotate-90",
-                                  isActive ? "text-primary" : "text-muted-foreground"
-                                )}
-                              />
-                            </button>
-                          ) : (
-                            <span className="w-4 h-4 flex-shrink-0" />
-                          )}
-                          <span className="flex-1 truncate">
-                            {section.number && section.number !== section.title && `${section.number} `}
-                            {section.title}
-                          </span>
-                          {isSectionLocked && (
-                            <Lock className="w-3 h-3 text-amber-500 flex-shrink-0" title="已锁定" />
-                          )}
-                          {hasNoData && !isSectionLocked && (
-                            <FileWarning className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                          )}
-                          {hasIssues && !hasNoData && !isSectionLocked && (
-                            <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                          )}
-                        </div>
-                        {/* 展开后显示关联文件列表（来自 chapter_file_mappings） */}
-                        {isExpanded && hasFiles && (
-                          <div className="ml-6 border-l border-border/50 pl-2 py-1 space-y-1">
-                            {sectionMappedFiles.map((file, idx) => (
-                              <div
-                                key={file.id || idx}
-                                className="text-[11px] text-muted-foreground truncate py-0.5 px-1"
-                                title={file.name}
-                              >
-                                {file.name}
-                              </div>
-                            ))}
-                          </div>
+                      <div
+                        key={section.id}
+                        className={cn(
+                          "flex items-center gap-2 py-2 px-2 rounded cursor-pointer text-[12px] transition-colors",
+                          isActive
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "hover:bg-muted/50",
+                          isSectionLocked && "border-l-2 border-amber-500"
+                        )}
+                        onClick={() => setActiveSectionId(section.id)}
+                      >
+                        <span className="flex-1 truncate">
+                          {section.number && section.number !== section.title && `${section.number} `}
+                          {section.title}
+                        </span>
+                        {isSectionLocked && (
+                          <Lock className="w-3 h-3 text-amber-500 flex-shrink-0" title="已锁定" />
+                        )}
+                        {hasNoData && !isSectionLocked && (
+                          <FileWarning className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                        )}
+                        {hasIssues && !hasNoData && !isSectionLocked && (
+                          <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
                         )}
                       </div>
                     );
@@ -1551,8 +1619,10 @@ export default function ReportPreview() {
                         isLocked={lockedSectionIds.has(activeSection.id)}
                         onToggleLock={handleToggleLock}
                         onUploadClick={(sectionTitle) => {
-                          // Navigate to upload page with section context
-                          navigate(`/project/${projectId}/upload?section=${encodeURIComponent(sectionTitle)}`);
+                          // 打开上传对话框
+                          if (activeSection) {
+                            handleOpenUploadDialog(activeSection.id, sectionTitle);
+                          }
                         }}
                       />
                     )}
@@ -1771,6 +1841,137 @@ export default function ReportPreview() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Upload Dialog - 补充资料 */}
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              补充资料
+            </DialogTitle>
+            <DialogDescription>
+              上传的文件将自动关联到「{uploadingSectionTitle}」章节并提取文字
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {uploadingFiles.length === 0 ? (
+              <SupplementUploadDropzone onDrop={handleSupplementUpload} />
+            ) : (
+              <div className="space-y-3">
+                {uploadingFiles.map((file, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                    <div className="flex-shrink-0">
+                      {file.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+                      {file.status === "extracting" && <Brain className="w-4 h-4 animate-pulse text-amber-500" />}
+                      {file.status === "done" && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                      {file.status === "error" && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium truncate">{file.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {file.status === "uploading" && "上传中..."}
+                        {file.status === "extracting" && "文字提取中..."}
+                        {file.status === "done" && "已提取完成"}
+                        {file.status === "error" && "处理失败"}
+                      </div>
+                    </div>
+                    {file.status !== "done" && file.status !== "error" && (
+                      <div className="w-16">
+                        <Progress value={file.progress} className="h-1.5" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {uploadingStatus === "done" && (
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setUploadingFiles([]);
+                        setUploadingStatus("idle");
+                      }}
+                    >
+                      继续上传
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => setUploadDialogOpen(false)}
+                    >
+                      完成
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Upload Dropzone Component for Supplement Files
+function SupplementUploadDropzone({ onDrop }: { onDrop: (files: File[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragActive(false);
+  };
+
+  const handleDropEvent = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragActive(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      onDrop(files);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      onDrop(files);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
+        isDragActive
+          ? "border-primary bg-primary/5"
+          : "border-muted-foreground/30 hover:border-muted-foreground/50"
+      )}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDropEvent}
+      onClick={() => inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar,.7z"
+        onChange={handleFileChange}
+      />
+      <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+      <div className="text-[13px] font-medium mb-1">
+        拖拽文件到此处，或点击上传
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        支持 PDF、Word、Excel、图片、压缩包等格式
+      </div>
     </div>
   );
 }

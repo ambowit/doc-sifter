@@ -19,10 +19,11 @@ interface FileInput {
 
 interface ChapterInput {
   id: string;
-  number: string;
+  number?: string | null;
   title: string;
   level: number;
   parentId?: string | null;
+  parent_id?: string | null;
 }
 
 interface ClassifyRequest {
@@ -38,15 +39,76 @@ interface ClassifyResult {
   confidence: number;
 }
 
+interface CandidateBuildResult {
+  candidates: ChapterInput[];
+  leafCount: number;
+  fallbackUsed: boolean;
+}
+
+function normalizeChapterNumber(number: string | null | undefined): string {
+  return (number || "").trim().replace(/。/g, ".");
+}
+
+function isNumberChildOf(childNumber: string, parentNumber: string): boolean {
+  if (!childNumber || !parentNumber || childNumber === parentNumber) return false;
+  return childNumber.startsWith(`${parentNumber}.`);
+}
+
+function buildCandidateChapters(chapters: ChapterInput[]): CandidateBuildResult {
+  const normalized = chapters.map((chapter) => ({
+    chapter,
+    parentId: chapter.parentId ?? chapter.parent_id ?? null,
+    normalizedNumber: normalizeChapterNumber(chapter.number),
+  }));
+
+  let leafCandidates = normalized.filter(() => false) as typeof normalized;
+
+  // 1) 优先基于 parent_id / parentId 判定叶子节点
+  const hasParentLinks = normalized.some((c) => !!c.parentId);
+  if (hasParentLinks) {
+    const parentIds = new Set(
+      normalized
+        .map((c) => c.parentId)
+        .filter((id): id is string => Boolean(id))
+    );
+    leafCandidates = normalized.filter((c) => !parentIds.has(c.chapter.id));
+  }
+
+  // 2) parent 关系不足时，按 number 前缀关系识别叶子节点
+  if (leafCandidates.length === 0) {
+    const hasDotNumber = normalized.some((c) => c.normalizedNumber.includes("."));
+    if (hasDotNumber) {
+      leafCandidates = normalized.filter((candidate) => {
+        return !normalized.some((other) =>
+          isNumberChildOf(other.normalizedNumber, candidate.normalizedNumber)
+        );
+      });
+    }
+  }
+
+  // 3) 叶子为空时兜底回退到全部章节
+  const fallbackUsed = leafCandidates.length === 0;
+  const base = fallbackUsed ? normalized : leafCandidates;
+  const candidates = base.map((item) => ({
+    ...item.chapter,
+    parentId: item.parentId,
+    parent_id: item.parentId,
+  }));
+
+  return {
+    candidates,
+    leafCount: leafCandidates.length,
+    fallbackUsed,
+  };
+}
+
 async function classifyBatch(
   files: FileInput[],
   chapters: ChapterInput[],
   token: string,
   gatewayBase: string
 ): Promise<ClassifyResult[]> {
-  const level1 = chapters.filter((c) => c.level === 1);
-
-  const chapterList = level1
+  const chapterList = chapters
     .map((c) => {
       const label = c.number && c.number !== c.title ? `${c.number}、${c.title}` : c.title;
       return `  {"id":"${c.id}","title":"${label}"}`;
@@ -82,7 +144,9 @@ async function classifyBatch(
 3. 置信度 0-100，凭文件名匹配把握70+，不确定则5-40
 
 只返回合法JSON数组：
-[{"fileId":"xxx","chapterId":"yyy或null","summary":"摘要","confidence":85}]`;
+[{"fileId":"xxx","chapterId":"yyy或null","summary":"摘要","confidence":85}]
+
+注意：只能从给定候选章节中选择 chapterId。`;
 
   const userPrompt = `章节列表：
 [
@@ -158,17 +222,37 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const db = createClient(supabaseUrl, supabaseKey);
 
+    const { candidates, leafCount, fallbackUsed } = buildCandidateChapters(chapters);
+    if (!candidates.length) {
+      throw new Error("可分类章节为空");
+    }
+
     log("Start", { projectId, fileCount: files.length, chapterCount: chapters.length });
+    log("Candidate stats", {
+      inputChapters: chapters.length,
+      candidateCount: candidates.length,
+      leafCount,
+      fallbackUsed,
+    });
 
     const BATCH_SIZE = 15;
     const allResults: ClassifyResult[] = [];
+    const candidateIds = new Set(candidates.map((c) => c.id));
+    let invalidAiChapterIdCount = 0;
 
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE);
       log(`Batch ${Math.floor(i / BATCH_SIZE) + 1}`, { count: batch.length });
       try {
-        const results = await classifyBatch(batch, chapters, token, gatewayBase);
-        allResults.push(...results);
+        const results = await classifyBatch(batch, candidates, token, gatewayBase);
+        const validated = results.map((r) => {
+          if (r.chapterId && !candidateIds.has(r.chapterId)) {
+            invalidAiChapterIdCount++;
+            return { ...r, chapterId: null };
+          }
+          return r;
+        });
+        allResults.push(...validated);
       } catch (err) {
         log("Batch error", { error: String(err) });
         batch.forEach((f) =>
@@ -177,7 +261,14 @@ serve(async (req) => {
       }
     }
 
-    log("AI done", { total: allResults.length });
+    log("AI done", {
+      total: allResults.length,
+      inputChapters: chapters.length,
+      candidateCount: candidates.length,
+      leafCount,
+      fallbackUsed,
+      invalidAiChapterIdCount,
+    });
 
     // 写入 chapter_file_mappings（不再写 files.chapter_id）
     const now = new Date().toISOString();

@@ -619,6 +619,9 @@ export default function TemplateFingerprint() {
     isLoading: stylesLoading,
     updateStyle,
     isUpdating: isStyleUpdating,
+    customStyle,
+    upsertCustomStyle,
+    isUpsertingCustom,
   } = useTemplateStyles(currentProjectId || undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -632,7 +635,7 @@ export default function TemplateFingerprint() {
   const [styleDraft, setStyleDraft] = useState<TemplateStyle | null>(null);
   const [styleDraftDirty, setStyleDraftDirty] = useState(false);
   const [isEditingStyle, setIsEditingStyle] = useState(false);
-  
+
   // 上传的模板文件预览状态
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
@@ -642,6 +645,9 @@ export default function TemplateFingerprint() {
   const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
 
   const currentTemplate = draftTemplate;
+
+  // 自定义模板的特殊 ID 标识
+  const CUSTOM_STYLE_ID = "__custom__";
 
   const fallbackStyle: TemplateStyle = useMemo(
     () => ({
@@ -665,7 +671,7 @@ export default function TemplateFingerprint() {
   const selectedStyleId =
     localSelectedStyleId || templateFingerprint?.selectedStyleId || (templateStyles.length > 0 ? templateStyles[0].id : null);
   const rawStyle =
-    (isEditingStyle && styleDraft && styleDraft.id === selectedStyleId)
+    (isEditingStyle && styleDraft && styleDraft.id === selectedStyleId ? styleDraft : null)
     || templateStyles.find((style) => style.id === selectedStyleId)
     || templateStyles[0]
     || fallbackStyle;
@@ -692,16 +698,41 @@ export default function TemplateFingerprint() {
   }, [isEditingStyle]);
 
   const saveCurrentStyle = useCallback(async () => {
-    if (!styleDraft || !isEditingStyle) return;
+    if (!styleDraft || !isEditingStyle || !currentProjectId) return;
     try {
-      await updateStyle(styleDraft);
+      // 判断是否是自定义模板（ID 为特殊标识或有 projectId）
+      const isCustom = styleDraft.id === CUSTOM_STYLE_ID || styleDraft.projectId === currentProjectId;
+
+      if (isCustom) {
+        // 保存为项目专属自定义模板
+        const savedStyle = await upsertCustomStyle({
+          projectId: currentProjectId,
+          style: {
+            name: styleDraft.name || "自定义模板",
+            description: styleDraft.description || "仅对当前项目生效的自定义样式",
+            preview: styleDraft.preview,
+            styles: styleDraft.styles,
+            tables: styleDraft.tables,
+            page: styleDraft.page,
+          },
+        });
+        // 更新本地选中的样式 ID 为实际保存后的 ID
+        setLocalSelectedStyleId(savedStyle.id);
+        setStyleDraft({ ...styleDraft, id: savedStyle.id, projectId: savedStyle.projectId });
+        // 同步更新 templateFingerprint 的 selectedStyleId
+        await updateSelectedStyle(savedStyle.id);
+        toast.success("自定义模板已保存", { description: "样式仅对当前项目生效" });
+      } else {
+        // 更新全局模板
+        await updateStyle(styleDraft);
+        toast.success("样式已保存", { description: "模板样式已更新" });
+      }
       setStyleDraftDirty(false);
-      toast.success("样式已保存", { description: "模板样式已更新" });
     } catch (error) {
       console.error("Failed to save styles:", error);
       toast.error("保存失败", { description: "无法保存样式配置" });
     }
-  }, [styleDraft, updateStyle, isEditingStyle]);
+  }, [styleDraft, updateStyle, upsertCustomStyle, isEditingStyle, currentProjectId, updateSelectedStyle, CUSTOM_STYLE_ID]);
 
   const resetStyleToDefault = useCallback(() => {
     const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
@@ -782,7 +813,7 @@ export default function TemplateFingerprint() {
 
   useEffect(() => {
     if (!templateFingerprint || templateFingerprint.selectedStyleId || templateStyles.length === 0) return;
-    updateSelectedStyle(templateStyles[0].id).catch(() => {});
+    updateSelectedStyle(templateStyles[0].id).catch(() => { });
   }, [templateFingerprint, templateStyles, updateSelectedStyle]);
 
   useEffect(() => {
@@ -794,7 +825,7 @@ export default function TemplateFingerprint() {
       });
     }
   }, [templateFingerprint, templateLoading, currentProjectId, initializeTemplate]);
-  
+
   // 清理上传的文件 URL（组件卸载或项目切换时）
   useEffect(() => {
     return () => {
@@ -862,7 +893,7 @@ export default function TemplateFingerprint() {
 
     // Clear input value for re-upload
     event.target.value = "";
-    
+
     // 创建文件预览 URL
     const fileUrl = URL.createObjectURL(file);
     setUploadedFileUrl(fileUrl);
@@ -870,13 +901,13 @@ export default function TemplateFingerprint() {
     setUploadedFileType(file.type);
     setUploadedFileHtml(null); // 重置 HTML
     // 保持样式效果预览模式，用户可以手动切换到原文件预览
-    
+
     // 如果是 Word 文件，转换为 HTML 预览
-    const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+    const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       || file.type === "application/msword"
       || file.name.endsWith(".docx")
       || file.name.endsWith(".doc");
-    
+
     if (isWordFile) {
       setIsConvertingFile(true);
       try {
@@ -1164,7 +1195,7 @@ export default function TemplateFingerprint() {
                 <Edit3 className="w-4 h-4" />
                 引言编辑
               </TabsTrigger>
-{/* JSON Tab 暂时隐藏
+              {/* JSON Tab 暂时隐藏
                         <TabsTrigger value="json" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                           <FileCode className="w-4 h-4" />
                           JSON
@@ -1191,7 +1222,8 @@ export default function TemplateFingerprint() {
                   </div>
                   <ScrollArea className="h-0 grow">
                     <div className="p-3 space-y-2">
-                      {templateStyles.map((style) => {
+                      {/* 全局模板列表（排除项目专属的自定义模板） */}
+                      {templateStyles.filter(s => !s.projectId).map((style) => {
                         const displayStyle =
                           isEditingStyle && style.id === selectedStyleId && styleDraft?.id === style.id ? styleDraft : style;
                         return (
@@ -1233,6 +1265,80 @@ export default function TemplateFingerprint() {
                           </div>
                         );
                       })}
+
+                      {/* 分隔线 */}
+                      <div className="border-t border-border my-2" />
+
+                      {/* 自定义模板选项 */}
+                      {(() => {
+                        const isCustomSelected = selectedStyleId === CUSTOM_STYLE_ID || (customStyle && selectedStyleId === customStyle.id);
+                        const displayCustomStyle = isCustomSelected && styleDraft ? styleDraft : (customStyle || templateStyles[0]);
+                        return (
+                          <div
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-colors",
+                              isCustomSelected
+                                ? "border-primary bg-primary/5"
+                                : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50 bg-muted/10"
+                            )}
+                            onClick={() => {
+                              if (customStyle) {
+                                handleSelectStyle(customStyle.id);
+                              } else {
+                                // 没有自定义模板时，使用特殊 ID 并进入编辑模式
+                                setLocalSelectedStyleId(CUSTOM_STYLE_ID);
+                                const baseStyle = templateStyles[0] || fallbackStyle;
+                                setStyleDraft({
+                                  ...JSON.parse(JSON.stringify(baseStyle)),
+                                  id: CUSTOM_STYLE_ID,
+                                  name: "自定义模板",
+                                  description: "仅对当前项目生效的自定义样式",
+                                  projectId: currentProjectId,
+                                });
+                                setStyleDraftDirty(true);
+                                setIsEditingStyle(true);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-dashed border-muted-foreground/30 overflow-hidden relative bg-muted/20">
+                                {customStyle ? (
+                                  <>
+                                    <div
+                                      className="absolute inset-x-0 top-0 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.primaryColor || "#111827" }}
+                                    />
+                                    <div
+                                      className="absolute inset-x-0 bottom-0 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.accentColor || "#374151" }}
+                                    />
+                                  </>
+                                ) : (
+                                  <span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground">+</span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">
+                                    {customStyle ? customStyle.name : "自定义模板"}
+                                  </h4>
+                                  {isCustomSelected && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline" className="text-[9px] px-1 text-muted-foreground">
+                                    仅本项目
+                                  </Badge>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {customStyle ? (displayCustomStyle?.preview?.fontFamily || "自定义") : "基于其他模板创建专属样式"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </ScrollArea>
                 </div>
@@ -1263,13 +1369,18 @@ export default function TemplateFingerprint() {
                             const next = !isEditingStyle;
                             setIsEditingStyle(next);
                             if (next) {
-                              const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
-                              if (baseStyle) {
-                                setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
-                                setStyleDraftDirty(false);
+                              // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
+                              // 否则从 templateStyles 获取基础样式
+                              if (!styleDraft || styleDraft.id !== selectedStyleId) {
+                                const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+                                if (baseStyle) {
+                                  setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+                                  setStyleDraftDirty(false);
+                                }
                               }
+                              // 如果已有匹配的 styleDraft，保持不变，继续编辑
                             } else {
-                              setStyleDraftDirty(false);
+                              // 停止编辑时不重置 dirty 状态，保留修改
                             }
                           }}
                         >
@@ -1279,9 +1390,9 @@ export default function TemplateFingerprint() {
                           size="sm"
                           className="h-7 text-[11px]"
                           onClick={saveCurrentStyle}
-                          disabled={!isEditingStyle || !styleDraftDirty || isStyleUpdating}
+                          disabled={!isEditingStyle || !styleDraftDirty || isStyleUpdating || isUpsertingCustom}
                         >
-                          保存
+                          {isStyleUpdating || isUpsertingCustom ? "保存中..." : "保存"}
                         </Button>
                       </div>
                     </div>
@@ -1606,7 +1717,7 @@ export default function TemplateFingerprint() {
 
                           {/* Quote Style */}
                           <div>
-                            <Label className="text-[11px]">引用块��式</Label>
+                            <Label className="text-[11px]">引用块样式</Label>
                             <Select
                               value={currentStyle.preview.quoteStyle || "border-left"}
                               onValueChange={(v) => updateStyleProperty(['preview', 'quoteStyle'], v)}
@@ -1730,7 +1841,7 @@ export default function TemplateFingerprint() {
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* 文件预览模式 */}
                   {previewMode === "file" && uploadedFileUrl && (
                     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -1742,7 +1853,7 @@ export default function TemplateFingerprint() {
                           title="PDF 预览"
                         />
                       )}
-                      
+
                       {/* Word 文件预览 - 转换中 */}
                       {!uploadedFileType?.includes("pdf") && isConvertingFile && (
                         <div className="flex-1 flex items-center justify-center p-8">
@@ -1754,13 +1865,13 @@ export default function TemplateFingerprint() {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* Word 文件预览 - 已转换 */}
                       {!uploadedFileType?.includes("pdf") && !isConvertingFile && uploadedFileHtml && (
                         <ScrollArea className="h-full">
                           <div className="p-6">
                             <div className="max-w-3xl mx-auto bg-white border border-border shadow-sm p-8">
-                              <div 
+                              <div
                                 className="prose prose-sm max-w-none word-preview"
                                 dangerouslySetInnerHTML={{ __html: uploadedFileHtml }}
                                 style={{
@@ -1772,7 +1883,7 @@ export default function TemplateFingerprint() {
                           </div>
                         </ScrollArea>
                       )}
-                      
+
                       {/* Word 文件预览 - 转换失败 */}
                       {!uploadedFileType?.includes("pdf") && !isConvertingFile && !uploadedFileHtml && (
                         <div className="flex-1 flex items-center justify-center p-8">
@@ -1784,8 +1895,8 @@ export default function TemplateFingerprint() {
                             <p className="text-xs text-muted-foreground mb-4">
                               无法预览此文件格式，请切换到"样式效果"查看章节预览
                             </p>
-                            <Button 
-                              variant="outline" 
+                            <Button
+                              variant="outline"
                               size="sm"
                               onClick={() => setPreviewMode("style")}
                             >
@@ -1796,283 +1907,283 @@ export default function TemplateFingerprint() {
                       )}
                     </div>
                   )}
-                  
+
                   {/* 样式预览模式 */}
                   {(previewMode === "style" || !uploadedFileUrl) && (
-                  <ScrollArea className="h-0 grow">
-                    <div className="p-8">
-                      <div
-                        key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
-                        className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
-                        style={{
-                          padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
-                          minHeight: "600px"
-                        }}
-                      >
-                        {/* Header Decoration */}
-                        {currentStyle.preview.headerDecoration && currentStyle.preview.headerDecoration !== 'none' && (
-                          <div className="mb-4">
-                            {currentStyle.preview.headerDecoration === 'line' && (
-                              <div className="h-1 rounded-full" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
-                            )}
-                            {currentStyle.preview.headerDecoration === 'double-line' && (
-                              <div className="space-y-1">
-                                <div className="h-0.5" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
-                                <div className="h-1" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
-                              </div>
-                            )}
-                            {currentStyle.preview.headerDecoration === 'gradient' && (
-                              <div
-                                className="h-2 rounded-full"
-                                style={{
-                                  background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})`
-                                }}
-                              />
-                            )}
-                            {currentStyle.preview.headerDecoration === 'pattern' && (
-                              <div className="flex items-center gap-1">
-                                {Array.from({ length: 12 }).map((_, i) => (
-                                  <div
-                                    key={i}
-                                    className="flex-1 h-2"
-                                    style={{
-                                      backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
-                                      transform: 'skewX(-15deg)'
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                    <ScrollArea className="h-0 grow">
+                      <div className="p-8">
+                        <div
+                          key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
+                          className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
+                          style={{
+                            padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
+                            minHeight: "600px"
+                          }}
+                        >
+                          {/* Header Decoration */}
+                          {currentStyle.preview.headerDecoration && currentStyle.preview.headerDecoration !== 'none' && (
+                            <div className="mb-4">
+                              {currentStyle.preview.headerDecoration === 'line' && (
+                                <div className="h-1 rounded-full" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                              )}
+                              {currentStyle.preview.headerDecoration === 'double-line' && (
+                                <div className="space-y-1">
+                                  <div className="h-0.5" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                  <div className="h-1" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                </div>
+                              )}
+                              {currentStyle.preview.headerDecoration === 'gradient' && (
+                                <div
+                                  className="h-2 rounded-full"
+                                  style={{
+                                    background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})`
+                                  }}
+                                />
+                              )}
+                              {currentStyle.preview.headerDecoration === 'pattern' && (
+                                <div className="flex items-center gap-1">
+                                  {Array.from({ length: 12 }).map((_, i) => (
+                                    <div
+                                      key={i}
+                                      className="flex-1 h-2"
+                                      style={{
+                                        backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
+                                        transform: 'skewX(-15deg)'
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
-                        {/* Page Corner Decoration */}
-                        {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
-                          <div className="absolute top-4 right-4">
-                            {currentStyle.preview.pageCorner === 'fold' && (
-                              <div
-                                className="w-8 h-8"
-                                style={{
-                                  background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
-                                  borderBottomLeftRadius: '8px',
-                                }}
-                              />
+                          {/* Page Corner Decoration */}
+                          {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
+                            <div className="absolute top-4 right-4">
+                              {currentStyle.preview.pageCorner === 'fold' && (
+                                <div
+                                  className="w-8 h-8"
+                                  style={{
+                                    background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
+                                    borderBottomLeftRadius: '8px',
+                                  }}
+                                />
+                              )}
+                              {currentStyle.preview.pageCorner === 'stamp' && (
+                                <div
+                                  className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
+                                  style={{
+                                    borderColor: currentStyle.preview.primaryColor,
+                                    color: currentStyle.preview.primaryColor,
+                                  }}
+                                >
+                                  LEGAL
+                                </div>
+                              )}
+                              {currentStyle.preview.pageCorner === 'watermark' && (
+                                <div
+                                  className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
+                                  style={{ color: currentStyle.preview.primaryColor }}
+                                >
+                                  CONFIDENTIAL
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Report Header Preview */}
+                          <div
+                            className={cn(
+                              "text-center mb-8 pb-4",
+                              currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
+                              currentStyle.preview.titleDecoration === 'ribbon' && "relative",
+                              currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
+                              (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
                             )}
-                            {currentStyle.preview.pageCorner === 'stamp' && (
+                            style={{
+                              borderColor: currentStyle.preview.primaryColor,
+                              backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
+                            }}
+                          >
+                            {currentStyle.preview.titleDecoration === 'badge' && (
                               <div
-                                className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
+                                className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
                                 style={{
-                                  borderColor: currentStyle.preview.primaryColor,
+                                  backgroundColor: `${currentStyle.preview.primaryColor}15`,
                                   color: currentStyle.preview.primaryColor,
                                 }}
                               >
-                                LEGAL
+                                法律文书
                               </div>
                             )}
-                            {currentStyle.preview.pageCorner === 'watermark' && (
+                            {currentStyle.preview.titleDecoration === 'ribbon' && (
                               <div
-                                className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
-                                style={{ color: currentStyle.preview.primaryColor }}
-                              >
-                                CONFIDENTIAL
-                              </div>
+                                className="absolute -left-2 top-0 w-1 h-full rounded-r"
+                                style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                              />
                             )}
-                          </div>
-                        )}
-
-                        {/* Report Header Preview */}
-                        <div
-                          className={cn(
-                            "text-center mb-8 pb-4",
-                            currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
-                            currentStyle.preview.titleDecoration === 'ribbon' && "relative",
-                            currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
-                            (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
-                          )}
-                          style={{
-                            borderColor: currentStyle.preview.primaryColor,
-                            backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
-                          }}
-                        >
-                          {currentStyle.preview.titleDecoration === 'badge' && (
-                            <div
-                              className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
-                              style={{
-                                backgroundColor: `${currentStyle.preview.primaryColor}15`,
-                                color: currentStyle.preview.primaryColor,
-                              }}
-                            >
-                              法律文书
-                            </div>
-                          )}
-                          {currentStyle.preview.titleDecoration === 'ribbon' && (
-                            <div
-                              className="absolute -left-2 top-0 w-1 h-full rounded-r"
-                              style={{ backgroundColor: currentStyle.preview.primaryColor }}
-                            />
-                          )}
-                          <h1
-                            style={{
-                              fontFamily: currentStyle.styles.h1.font,
-                              fontSize: `${currentStyle.styles.h1.sizePt}pt`,
-                              fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
-                              color: currentStyle.preview.primaryColor,
-                              marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
-                              textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
-                            }}
-                          >
-                            法律尽职调查报告
-                          </h1>
-                          <p
-                            style={{
-                              fontFamily: currentStyle.styles.body.font,
-                              fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                              color: "#666",
-                            }}
-                          >
-                            {currentProject?.target || "目标公司名称"}
-                          </p>
-                        </div>
-
-                        {/* Real chapters preview - show ALL chapters with their children */}
-                        {chapters.map((chapter, chapterIdx) => (
-                          <div key={chapter.id} className="mb-6 pt-4">
-                            {/* Section Divider (not for first chapter) */}
-                            {chapterIdx > 0 && (
-                              <>
-                                {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
-                                  <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
-                                )}
-                                {currentStyle.preview.sectionDivider === 'dotted' && (
-                                  <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
-                                )}
-                                {currentStyle.preview.sectionDivider === 'diamond' && (
-                                  <div className="mb-4 flex items-center gap-2">
-                                    <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
-                                    <div className="w-2 h-2 transform rotate-45" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
-                                    <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
-                                  </div>
-                                )}
-                                {currentStyle.preview.sectionDivider === 'wave' && (
-                                  <div className="mb-4">
-                                    <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
-                                      <path d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" fill="none" stroke={currentStyle.preview.primaryColor + '60'} strokeWidth="1" />
-                                    </svg>
-                                  </div>
-                                )}
-                                {currentStyle.preview.sectionDivider === 'none' && <div className="mb-4" />}
-                              </>
-                            )}
-
-                            {/* Chapter H1 */}
-                            <h2
+                            <h1
                               style={{
                                 fontFamily: currentStyle.styles.h1.font,
                                 fontSize: `${currentStyle.styles.h1.sizePt}pt`,
                                 fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
                                 color: currentStyle.preview.primaryColor,
                                 marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                                textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
                               }}
                             >
-                              {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
-                            </h2>
-                            
-                            {/* Chapter description/content */}
+                              法律尽职调查报告
+                            </h1>
                             <p
                               style={{
                                 fontFamily: currentStyle.styles.body.font,
                                 fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                lineHeight: currentStyle.styles.body.lineSpacing,
-                                textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                color: "#444",
+                                color: "#666",
                               }}
                             >
-                              {chapter.description || `本章将对${chapter.title}相关事项进行详细核查和分析，包括相关文件的合规性审查、法律风险识别及应对建议等内容。`}
+                              {currentProject?.target || "目标公司名称"}
                             </p>
-
-                            {/* Sub-chapters H2 - show ALL children */}
-                            {chapter.children && chapter.children.map((child) => (
-                              <div key={child.id}>
-                                <h3
-                                  style={{
-                                    fontFamily: currentStyle.styles.h2.font,
-                                    fontSize: `${currentStyle.styles.h2.sizePt}pt`,
-                                    fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
-                                    color: currentStyle.preview.secondaryColor,
-                                    marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
-                                    marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
-                                  }}
-                                >
-                                  {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
-                                </h3>
-                                {/* Sub-chapter content - always show */}
-                                <p
-                                  style={{
-                                    fontFamily: currentStyle.styles.body.font,
-                                    fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                    lineHeight: currentStyle.styles.body.lineSpacing,
-                                    textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                    textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                    marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                    color: "#555",
-                                  }}
-                                >
-                                  {child.description || `针对${child.title}，我们核查了相关文件资料，审阅了公司提供的证明材料，并对关键事项进行了法律分析。`}
-                                </p>
-                                
-                                {/* Show H3 level children if exist */}
-                                {child.children && child.children.map((subChild) => (
-                                  <div key={subChild.id} className="ml-4">
-                                    <h4
-                                      style={{
-                                        fontFamily: currentStyle.styles.h3?.font || currentStyle.styles.h2.font,
-                                        fontSize: `${currentStyle.styles.h3?.sizePt || Number(currentStyle.styles.h2.sizePt) - 2}pt`,
-                                        fontWeight: currentStyle.styles.h3?.bold ? "bold" : "normal",
-                                        color: currentStyle.preview.secondaryColor,
-                                        marginTop: `${currentStyle.styles.h3?.spaceBeforePt || 6}pt`,
-                                        marginBottom: `${currentStyle.styles.h3?.spaceAfterPt || 4}pt`,
-                                      }}
-                                    >
-                                      {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
-                                    </h4>
-                                    {/* H3 level content - always show */}
-                                    <p
-                                      style={{
-                                        fontFamily: currentStyle.styles.body.font,
-                                        fontSize: `${currentStyle.styles.body.sizePt}pt`,
-                                        lineHeight: currentStyle.styles.body.lineSpacing,
-                                        textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
-                                        textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
-                                        marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
-                                        color: "#666",
-                                      }}
-                                    >
-                                      {subChild.description || `经核查，${subChild.title}相关情况如下：（此处将显示具体核查内容和法律意见）`}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
                           </div>
-                        ))}
 
-                        {/* Footer showing total count */}
-                        {chapters.length > 0 && (
-                          <div
-                            className="mt-6 pt-4 border-t text-center text-[11px]"
-                            style={{
-                              borderColor: currentStyle.preview.primaryColor + '20',
-                              color: currentStyle.preview.primaryColor + '80',
-                            }}
-                          >
-                            共 {chapters.length} 个一级章节
-                          </div>
-                        )}
+                          {/* Real chapters preview - show ALL chapters with their children */}
+                          {chapters.map((chapter, chapterIdx) => (
+                            <div key={chapter.id} className="mb-6 pt-4">
+                              {/* Section Divider (not for first chapter) */}
+                              {chapterIdx > 0 && (
+                                <>
+                                  {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
+                                    <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'dotted' && (
+                                    <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'diamond' && (
+                                    <div className="mb-4 flex items-center gap-2">
+                                      <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                      <div className="w-2 h-2 transform rotate-45" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                      <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                    </div>
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'wave' && (
+                                    <div className="mb-4">
+                                      <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
+                                        <path d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" fill="none" stroke={currentStyle.preview.primaryColor + '60'} strokeWidth="1" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'none' && <div className="mb-4" />}
+                                </>
+                              )}
+
+                              {/* Chapter H1 */}
+                              <h2
+                                style={{
+                                  fontFamily: currentStyle.styles.h1.font,
+                                  fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                                  fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                                  color: currentStyle.preview.primaryColor,
+                                  marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                                }}
+                              >
+                                {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
+                              </h2>
+
+                              {/* Chapter description/content */}
+                              <p
+                                style={{
+                                  fontFamily: currentStyle.styles.body.font,
+                                  fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                  lineHeight: currentStyle.styles.body.lineSpacing,
+                                  textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                  textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                  marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                  color: "#444",
+                                }}
+                              >
+                                {chapter.description || `本章将对${chapter.title}相关事项进行详细核查和分析，包括相关文件的合规性审查、法律风险识别及应对建议等内容。`}
+                              </p>
+
+                              {/* Sub-chapters H2 - show ALL children */}
+                              {chapter.children && chapter.children.map((child) => (
+                                <div key={child.id}>
+                                  <h3
+                                    style={{
+                                      fontFamily: currentStyle.styles.h2.font,
+                                      fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                                      fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                                      color: currentStyle.preview.secondaryColor,
+                                      marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                                      marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                                    }}
+                                  >
+                                    {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
+                                  </h3>
+                                  {/* Sub-chapter content - always show */}
+                                  <p
+                                    style={{
+                                      fontFamily: currentStyle.styles.body.font,
+                                      fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                      lineHeight: currentStyle.styles.body.lineSpacing,
+                                      textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                      textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                      marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                      color: "#555",
+                                    }}
+                                  >
+                                    {child.description || `针对${child.title}，我们核查了相关文件资料，审阅了公司提供的证明材料，并对关键事项进行了法律分析。`}
+                                  </p>
+
+                                  {/* Show H3 level children if exist */}
+                                  {child.children && child.children.map((subChild) => (
+                                    <div key={subChild.id} className="ml-4">
+                                      <h4
+                                        style={{
+                                          fontFamily: currentStyle.styles.h3?.font || currentStyle.styles.h2.font,
+                                          fontSize: `${currentStyle.styles.h3?.sizePt || Number(currentStyle.styles.h2.sizePt) - 2}pt`,
+                                          fontWeight: currentStyle.styles.h3?.bold ? "bold" : "normal",
+                                          color: currentStyle.preview.secondaryColor,
+                                          marginTop: `${currentStyle.styles.h3?.spaceBeforePt || 6}pt`,
+                                          marginBottom: `${currentStyle.styles.h3?.spaceAfterPt || 4}pt`,
+                                        }}
+                                      >
+                                        {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
+                                      </h4>
+                                      {/* H3 level content - always show */}
+                                      <p
+                                        style={{
+                                          fontFamily: currentStyle.styles.body.font,
+                                          fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                          lineHeight: currentStyle.styles.body.lineSpacing,
+                                          textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                          textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                          marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                          color: "#666",
+                                        }}
+                                      >
+                                        {subChild.description || `经核查，${subChild.title}相关情况如下：（此处将显示具体核查内容和法律意见）`}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+
+                          {/* Footer showing total count */}
+                          {chapters.length > 0 && (
+                            <div
+                              className="mt-6 pt-4 border-t text-center text-[11px]"
+                              style={{
+                                borderColor: currentStyle.preview.primaryColor + '20',
+                                color: currentStyle.preview.primaryColor + '80',
+                              }}
+                            >
+                              共 {chapters.length} 个一级章节
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </ScrollArea>
+                    </ScrollArea>
                   )}
                 </div>
               </div>
@@ -2268,7 +2379,7 @@ export default function TemplateFingerprint() {
               </div>
             </TabsContent>
 
-{/* JSON Tab 暂时隐藏
+            {/* JSON Tab 暂时隐藏
             <TabsContent value="json" className="absolute inset-0 m-0">
               <div className="absolute inset-0 overflow-y-auto">
                 <div className="max-w-5xl mx-auto p-8">

@@ -465,7 +465,7 @@ async function invokeAuthedFunction<T>(functionName: string, body: Record<string
     throw new Error(
       (typeof data.error === "string" && data.error) ||
       (typeof data.message === "string" && data.message) ||
-      `调用 ${functionName} 失��� (${response.status})`
+      `调用 ${functionName} 失败 (${response.status})`
     );
   }
 
@@ -517,7 +517,7 @@ export function useClassifyFiles() {
     }: {
       projectId: string;
       files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
-      chapters: Array<{ id: string; number: string; title: string; level: number }>;
+      chapters: Array<{ id: string; number: string; title: string; level: number; parentId?: string | null }>;
     }) => {
       const { data, error } = await supabase.functions.invoke("classify-files", {
         body: { projectId, files, chapters },
@@ -544,7 +544,7 @@ export interface ClassifyProgressState {
   currentFileName: string;
   completed: number;
   failed: number;
-  results: Array<{ fileId: string; fileName: string; success: boolean; error?: string }>;
+  results: Array<{ fileId: string; fileName: string; success: boolean; chapterId?: string | null; error?: string }>;
 }
 
 // Hook 用于带进度的 AI 分类（逐文件处理，支持暂停/取消）
@@ -571,7 +571,7 @@ export function useClassifyFilesWithProgress() {
   }: {
     projectId: string;
     files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
-    chapters: Array<{ id: string; number: string; title: string; level: number }>;
+    chapters: Array<{ id: string; number: string; title: string; level: number; parentId?: string | null }>;
   }) => {
     if (progress.isRunning) return;
 
@@ -618,11 +618,14 @@ export function useClassifyFilesWithProgress() {
           body: { projectId, file, chapters },
         });
 
+        console.log(`[useClassifyFiles] Edge Function response for ${file.name}:`, { data, error });
+
         if (error || data?.error) {
           results.push({ fileId: file.id, fileName: file.name, success: false, error: error?.message || data?.error });
           setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
         } else {
-          results.push({ fileId: file.id, fileName: file.name, success: true });
+          const chapterId = data?.result?.chapterId ?? null;
+          results.push({ fileId: file.id, fileName: file.name, success: true, chapterId });
           setProgress((prev) => ({ ...prev, completed: prev.completed + 1, results: [...results] }));
         }
       } catch (err) {
@@ -706,7 +709,7 @@ export function useUpdateFileChapter() {
       action?: "add" | "remove" | "clear";
     }) => {
       if (action === "clear" || chapterId === null) {
-        // 清空该文件的所有章节映���
+        // 清空该文件的所有章节映射
         const { error } = await supabase
           .from("chapter_file_mappings")
           .delete()

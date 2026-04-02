@@ -31,7 +31,7 @@ async function invokeGenerateReport(
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 55000); // 55s timeout
-  
+
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/generate-report`, {
       method: "POST",
@@ -184,7 +184,7 @@ serve(async (req) => {
 
       const totalChapters = chapterRows?.length || 0;
       const totalBatches = Math.max(1, Math.ceil(totalChapters / CHAPTERS_PER_BATCH));
-      
+
       // Determine current step based on job state
       const currentStage = jobData.current_stage || "metadata";
       const processedChapters = jobData.processed_chapters || 0;
@@ -194,8 +194,8 @@ serve(async (req) => {
       let partialSections: Array<Record<string, unknown>> = [];
       if (jobData.partial_results) {
         try {
-          const parsed = typeof jobData.partial_results === "string" 
-            ? JSON.parse(jobData.partial_results) 
+          const parsed = typeof jobData.partial_results === "string"
+            ? JSON.parse(jobData.partial_results)
             : jobData.partial_results;
           partialSections = Array.isArray(parsed.sections) ? parsed.sections : [];
         } catch {
@@ -235,7 +235,7 @@ serve(async (req) => {
         if (edgeRuntime?.waitUntil) {
           edgeRuntime.waitUntil(continueProcessing(supabaseUrl, serviceRoleKey, jobId));
         }
-        
+
         return jsonResponse({ success: true, stage: "metadata", next: "extract" });
       }
 
@@ -247,7 +247,7 @@ serve(async (req) => {
         }
 
         const progress = 10 + Math.round(((currentBatchIndex + 1) / totalBatches) * 75);
-        
+
         await updateJob({
           progress,
           progress_message: `正在生成章节 (${currentBatchIndex + 1}/${totalBatches})...`,
@@ -281,7 +281,7 @@ serve(async (req) => {
         // Merge new sections with existing ones
         const newSections = Array.isArray(batchData.sections) ? batchData.sections as Array<Record<string, unknown>> : [];
         const sectionMap = new Map<string, Record<string, unknown>>();
-        
+
         for (const section of partialSections) {
           const id = typeof section.id === "string" ? section.id : "";
           if (id) sectionMap.set(id, section);
@@ -298,8 +298,8 @@ serve(async (req) => {
         let metadata = null;
         if (jobData.partial_results) {
           try {
-            const parsed = typeof jobData.partial_results === "string" 
-              ? JSON.parse(jobData.partial_results) 
+            const parsed = typeof jobData.partial_results === "string"
+              ? JSON.parse(jobData.partial_results)
               : jobData.partial_results;
             metadata = parsed.metadata || null;
           } catch {
@@ -320,10 +320,10 @@ serve(async (req) => {
           edgeRuntime.waitUntil(continueProcessing(supabaseUrl, serviceRoleKey, jobId));
         }
 
-        return jsonResponse({ 
-          success: true, 
-          stage: "extract", 
-          batch: currentBatchIndex + 1, 
+        return jsonResponse({
+          success: true,
+          stage: "extract",
+          batch: currentBatchIndex + 1,
           totalBatches,
           next: newProcessedChapters >= totalChapters ? "analyze" : "extract"
         });
@@ -346,8 +346,8 @@ serve(async (req) => {
         let metadata = null;
         if (jobData.partial_results) {
           try {
-            const parsed = typeof jobData.partial_results === "string" 
-              ? JSON.parse(jobData.partial_results) 
+            const parsed = typeof jobData.partial_results === "string"
+              ? JSON.parse(jobData.partial_results)
               : jobData.partial_results;
             metadata = parsed.metadata || null;
           } catch {
@@ -381,9 +381,9 @@ serve(async (req) => {
         const totalIssues = typeof summary.totalIssues === "number"
           ? summary.totalIssues
           : sections.reduce((acc, section) => {
-              const issues = Array.isArray(section.issues) ? section.issues : [];
-              return acc + issues.length;
-            }, 0);
+            const issues = Array.isArray(section.issues) ? section.issues : [];
+            return acc + issues.length;
+          }, 0);
 
         // 证据统计改为基于 chapter_file_mappings 映射表计算
         // 获取所有章节的映射文件数
@@ -462,7 +462,7 @@ serve(async (req) => {
         }
 
         if (reportError || !reportRow) {
-          throw new Error(reportError?.message || "报告保存���败");
+          throw new Error(reportError?.message || "报告保存失败");
         }
 
         await updateJob({
@@ -479,7 +479,7 @@ serve(async (req) => {
       }
 
       return jsonResponse({ success: true, message: "No action needed" });
-      
+
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await updateJob({

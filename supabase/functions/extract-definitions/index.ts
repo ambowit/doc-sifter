@@ -101,12 +101,12 @@ serve(async (req) => {
 
     let archived = 0;
     if (mode === "refresh") {
+      // 仅清除未处理的候选（pending_review）
       const { data: archivedRows, error: archiveError } = await admin
         .from("definition_candidates")
         .update({ status: "archived", updated_at: new Date().toISOString() })
         .eq("project_id", projectId)
         .eq("status", "pending_review")
-        .eq("origin", "ai")
         .select("id");
 
       if (archiveError) {
@@ -218,6 +218,11 @@ serve(async (req) => {
       const shortName = normalizeWhitespace(item.shortName);
       const fullName = normalizeWhitespace(item.fullName);
       if (!shortName && !fullName) {
+        skipped += 1;
+        continue;
+      }
+      if (shortName && fullName && normalizeLookupKey(shortName) === normalizeLookupKey(fullName)) {
+        // 无效定义：简称与全称一致
         skipped += 1;
         continue;
       }

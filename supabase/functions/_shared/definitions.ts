@@ -194,8 +194,11 @@ export function dedupeExtractedItems(items: ExtractedDefinitionItem[]): Extracte
   for (const item of items) {
     const shortKey = normalizeLookupKey(item.shortName);
     const fullKey = normalizeLookupKey(item.fullName);
-    const fileKey = normalizeLookupKey(item.sourceFileName);
-    const key = `${shortKey}|${fullKey}|${fileKey}`;
+    if (shortKey && fullKey && shortKey === fullKey) {
+      // 无效定义：简称与全称一致
+      continue;
+    }
+    const key = `${shortKey}|${fullKey}`;
     if (!shortKey && !fullKey) continue;
 
     const previous = bestByKey.get(key);

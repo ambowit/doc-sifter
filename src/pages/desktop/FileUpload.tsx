@@ -170,6 +170,102 @@ const ALLOWED_EXTENSIONS = [
   ".html", ".htm", ".xml", ".json",
 ];
 
+function normalizeChapterNumber(number: string | null | undefined): string {
+  return (number || "").trim().replace(/。/g, ".");
+}
+
+function buildChapterHierarchy(chapters: Chapter[]) {
+  const chapterById = new Map<string, Chapter>();
+  const childrenMap = new Map<string, Chapter[]>();
+  const roots: Chapter[] = [];
+
+  chapters.forEach((chapter) => chapterById.set(chapter.id, chapter));
+
+  // Strategy 1: use explicit parentId relationship when available.
+  const hasParentRelations = chapters.some((c) => !!c.parentId);
+  if (hasParentRelations) {
+    for (const chapter of chapters) {
+      if (chapter.parentId && chapterById.has(chapter.parentId)) {
+        const children = childrenMap.get(chapter.parentId) || [];
+        children.push(chapter);
+        childrenMap.set(chapter.parentId, children);
+      } else {
+        roots.push(chapter);
+      }
+    }
+  } else {
+    // Strategy 2: derive parent from chapter number prefix.
+    const numberToId = new Map<string, string>();
+    chapters.forEach((chapter) => {
+      const number = normalizeChapterNumber(chapter.number);
+      if (number) numberToId.set(number, chapter.id);
+    });
+
+    let linkedByNumber = false;
+    for (const chapter of chapters) {
+      const chapterNumber = normalizeChapterNumber(chapter.number);
+      const parentNumber = chapterNumber.includes(".")
+        ? chapterNumber.split(".").slice(0, -1).join(".")
+        : "";
+      const parentId = parentNumber ? numberToId.get(parentNumber) : null;
+
+      if (parentId && parentId !== chapter.id) {
+        const children = childrenMap.get(parentId) || [];
+        children.push(chapter);
+        childrenMap.set(parentId, children);
+        linkedByNumber = true;
+      } else {
+        roots.push(chapter);
+      }
+    }
+
+    // Strategy 3: fallback by level + order when number is unavailable.
+    if (!linkedByNumber && chapters.some((c) => c.level > 1)) {
+      roots.length = 0;
+      childrenMap.clear();
+      const levelStack = new Map<number, Chapter>();
+
+      for (const chapter of chapters) {
+        const parent = chapter.level > 1 ? levelStack.get(chapter.level - 1) : null;
+        if (parent) {
+          const children = childrenMap.get(parent.id) || [];
+          children.push(chapter);
+          childrenMap.set(parent.id, children);
+        } else {
+          roots.push(chapter);
+        }
+
+        levelStack.set(chapter.level, chapter);
+        for (const key of Array.from(levelStack.keys())) {
+          if (key > chapter.level) levelStack.delete(key);
+        }
+      }
+    }
+  }
+
+  const rootChapters = roots.length > 0 ? roots : chapters;
+  const descendantIdsByChapter = new Map<string, Set<string>>();
+
+  const collect = (chapterId: string): Set<string> => {
+    const cached = descendantIdsByChapter.get(chapterId);
+    if (cached) return cached;
+
+    const ids = new Set<string>([chapterId]);
+    const children = childrenMap.get(chapterId) || [];
+    children.forEach((child) => {
+      collect(child.id).forEach((id) => ids.add(id));
+    });
+    descendantIdsByChapter.set(chapterId, ids);
+    return ids;
+  };
+
+  chapters.forEach((chapter) => {
+    collect(chapter.id);
+  });
+
+  return { rootChapters, childrenMap, descendantIdsByChapter };
+}
+
 export default function FileUpload() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
@@ -189,6 +285,48 @@ export default function FileUpload() {
     return map;
   }, [mappings]);
 
+  // AI 自动匹配
+  const {
+    progress: classifyProgress,
+    start: startClassify,
+    cancel: cancelClassify,
+  } = useClassifyFilesWithProgress();
+
+  const classifySuccessMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    if (!classifyProgress.isRunning) return map;
+
+    const dedup = new Set<string>();
+
+    for (const result of classifyProgress.results) {
+      if (!result.success || !result.chapterId) continue;
+      const key = `${result.fileId}::${result.chapterId}`;
+      if (dedup.has(key)) continue;
+      dedup.add(key);
+
+      if (!map.has(result.fileId)) map.set(result.fileId, new Set());
+      map.get(result.fileId)!.add(result.chapterId);
+    }
+
+    return map;
+  }, [classifyProgress.isRunning, classifyProgress.results]);
+
+  const effectiveFileChapterMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+
+    for (const [fileId, chapterIds] of fileChapterMap.entries()) {
+      map.set(fileId, new Set(chapterIds));
+    }
+
+    for (const [fileId, chapterIds] of classifySuccessMap.entries()) {
+      if (!map.has(fileId)) map.set(fileId, new Set());
+      const target = map.get(fileId)!;
+      chapterIds.forEach((chapterId) => target.add(chapterId));
+    }
+
+    return map;
+  }, [fileChapterMap, classifySuccessMap]);
+
   const createFileMutation = useCreateFile();
   const deleteFileMutation = useDeleteFile();
   const batchOcrMutation = useBatchOcrExtract();
@@ -202,13 +340,6 @@ export default function FileUpload() {
     reset: resetParse,
   } = useBatchParseDocumentStructure();
   const matchSectionsMutation = useMatchSectionsToChapters();
-  
-  // AI 自动匹配
-  const {
-    progress: classifyProgress,
-    start: startClassify,
-    cancel: cancelClassify,
-  } = useClassifyFilesWithProgress();
 
   // State for chapter selector popover
   const [chapterSelectorFileId, setChapterSelectorFileId] = useState<string | null>(null);
@@ -265,112 +396,39 @@ export default function FileUpload() {
 
   // 检查文件是否已关联章节（基于 chapter_file_mappings）
   const isFileMappedToChapter = useCallback((fileId: string, chapterId: string): boolean => {
-    return fileChapterMap.get(fileId)?.has(chapterId) ?? false;
-  }, [fileChapterMap]);
+    return effectiveFileChapterMap.get(fileId)?.has(chapterId) ?? false;
+  }, [effectiveFileChapterMap]);
+
+  const chaptersHierarchy = useMemo(() => buildChapterHierarchy(chapters), [chapters]);
+
+  const selectedChapterScopeIds = useMemo(() => {
+    if (!selectedChapterId || selectedChapterId === "unassigned") return null;
+    return chaptersHierarchy.descendantIdsByChapter.get(selectedChapterId) || new Set([selectedChapterId]);
+  }, [chaptersHierarchy.descendantIdsByChapter, selectedChapterId]);
 
   // Get files for the selected chapter（基于 chapter_file_mappings）
   const selectedChapterFiles = useMemo(() => {
     if (!selectedChapterId) return [];
     if (selectedChapterId === 'unassigned') {
-      return existingFiles.filter(f => !fileChapterMap.has(f.id));
+      return existingFiles.filter(f => !effectiveFileChapterMap.has(f.id));
     }
-    return existingFiles.filter(f => fileChapterMap.get(f.id)?.has(selectedChapterId) ?? false);
-  }, [selectedChapterId, existingFiles, fileChapterMap]);
+
+    const scopeIds = selectedChapterScopeIds || new Set([selectedChapterId]);
+    return existingFiles.filter((file) => {
+      const mapped = effectiveFileChapterMap.get(file.id);
+      if (!mapped || mapped.size === 0) return false;
+      for (const chapterId of mapped) {
+        if (scopeIds.has(chapterId)) return true;
+      }
+      return false;
+    });
+  }, [selectedChapterId, selectedChapterScopeIds, existingFiles, effectiveFileChapterMap]);
 
   // Get selected chapter info
   const selectedChapter = useMemo(() => {
     if (!selectedChapterId || selectedChapterId === 'unassigned') return null;
     return chapters.find(c => c.id === selectedChapterId) || null;
   }, [selectedChapterId, chapters]);
-
-  // Organize chapters by hierarchy (parent -> children)
-  // Supports multiple formats: parentId relations, level field, or number-based hierarchy
-  const chaptersHierarchy = useMemo(() => {
-    // Method 1: Use parentId if available
-    const hasParentIdRelations = chapters.some(c => c.parentId);
-    if (hasParentIdRelations) {
-      const parentChapters = chapters.filter(c => !c.parentId);
-      const childrenMap = new Map<string, typeof chapters>();
-      chapters.forEach(c => {
-        if (c.parentId) {
-          const children = childrenMap.get(c.parentId) || [];
-          children.push(c);
-          childrenMap.set(c.parentId, children);
-        }
-      });
-      return { parentChapters, childrenMap };
-    }
-
-    // Method 2: Use level field if available
-    const hasLevelField = chapters.some(c => c.level && c.level > 1);
-    if (hasLevelField) {
-      const parentChapters = chapters.filter(c => c.level === 1);
-      const childrenMap = new Map<string, typeof chapters>();
-
-      // For level-based, we need to determine parent by order
-      let currentParentId: string | null = null;
-      chapters.forEach(c => {
-        if (c.level === 1) {
-          currentParentId = c.id;
-        } else if (c.level === 2 && currentParentId) {
-          const children = childrenMap.get(currentParentId) || [];
-          children.push(c);
-          childrenMap.set(currentParentId, children);
-        }
-      });
-      return { parentChapters, childrenMap };
-    }
-
-    // Method 3: Use chapter number to determine hierarchy
-    // Count dots in number to determine level
-    const getLevel = (num: string | null): number => {
-      if (!num) return 1;
-      // "第X章" format is level 1
-      if (/^第.+章$/.test(num)) return 1;
-      // Count dots: "1" = level 1, "1.1" = level 2, "1.1.1" = level 3
-      const dotCount = (num.match(/\./g) || []).length;
-      return dotCount + 1;
-    };
-
-    const getParentNumber = (num: string | null): string | null => {
-      if (!num || !num.includes('.')) return null;
-      const parts = num.split('.');
-      return parts.slice(0, -1).join('.');
-    };
-
-    const parentChapters = chapters.filter(c => getLevel(c.number) === 1);
-    const childrenMap = new Map<string, typeof chapters>();
-
-    // Build a map from parent number to parent chapter id
-    const numberToParentId = new Map<string, string>();
-    parentChapters.forEach(p => {
-      if (p.number) {
-        numberToParentId.set(p.number, p.id);
-      }
-    });
-
-    // Group children by their parent's number
-    chapters.forEach(c => {
-      if (getLevel(c.number) === 2) {
-        const parentNum = getParentNumber(c.number);
-        if (parentNum) {
-          const parentId = numberToParentId.get(parentNum);
-          if (parentId) {
-            const children = childrenMap.get(parentId) || [];
-            children.push(c);
-            childrenMap.set(parentId, children);
-          }
-        }
-      }
-    });
-
-    // If no hierarchy found, treat all as flat list with first level
-    if (parentChapters.length === 0) {
-      return { parentChapters: chapters, childrenMap: new Map() };
-    }
-
-    return { parentChapters, childrenMap };
-  }, [chapters]);
 
   // 每个章节的解析内容数量
   const sectionCountByChapter = useMemo(() => {
@@ -384,11 +442,42 @@ export default function FileUpload() {
     return countMap;
   }, [fileSections]);
 
+  const aggregatedSectionCountByChapter = useMemo(() => {
+    const countMap = new Map<string, number>();
+    chapters.forEach((chapter) => {
+      const scopeIds = chaptersHierarchy.descendantIdsByChapter.get(chapter.id) || new Set([chapter.id]);
+      let total = 0;
+      for (const id of scopeIds) {
+        total += sectionCountByChapter.get(id) || 0;
+      }
+      countMap.set(chapter.id, total);
+    });
+    return countMap;
+  }, [chapters, chaptersHierarchy.descendantIdsByChapter, sectionCountByChapter]);
+
+  const aggregatedFileCountByChapter = useMemo(() => {
+    const countMap = new Map<string, number>();
+    chapters.forEach((chapter) => {
+      const scopeIds = chaptersHierarchy.descendantIdsByChapter.get(chapter.id) || new Set([chapter.id]);
+      const total = existingFiles.filter((file) => {
+        const mapped = effectiveFileChapterMap.get(file.id);
+        if (!mapped || mapped.size === 0) return false;
+        for (const id of mapped) {
+          if (scopeIds.has(id)) return true;
+        }
+        return false;
+      }).length;
+      countMap.set(chapter.id, total);
+    });
+    return countMap;
+  }, [chapters, chaptersHierarchy.descendantIdsByChapter, existingFiles, effectiveFileChapterMap]);
+
   // 当前选中章节的解析内容
   const selectedChapterSections = useMemo(() => {
     if (!selectedChapterId || selectedChapterId === 'unassigned') return [];
-    return fileSections.filter(s => s.matched_chapter_id === selectedChapterId);
-  }, [selectedChapterId, fileSections]);
+    const scopeIds = selectedChapterScopeIds || new Set([selectedChapterId]);
+    return fileSections.filter(s => !!s.matched_chapter_id && scopeIds.has(s.matched_chapter_id));
+  }, [selectedChapterId, selectedChapterScopeIds, fileSections]);
 
   // Toggle parent chapter expansion
   const toggleParentChapter = useCallback((parentId: string) => {
@@ -407,11 +496,11 @@ export default function FileUpload() {
   useEffect(() => {
     if (!hasInitializedChapter && chapters.length > 0) {
       // 基于 chapter_file_mappings 判断是否有未分配文件
-      const hasUnassigned = existingFiles.some(f => !fileChapterMap.has(f.id));
+      const hasUnassigned = existingFiles.some(f => !effectiveFileChapterMap.has(f.id));
       setSelectedChapterId(hasUnassigned ? 'unassigned' : chapters[0].id);
       setHasInitializedChapter(true);
     }
-  }, [chapters, existingFiles, hasInitializedChapter, fileChapterMap]);
+  }, [chapters, existingFiles, hasInitializedChapter, effectiveFileChapterMap]);
 
   // Validate project exists on mount
   useEffect(() => {
@@ -487,7 +576,7 @@ export default function FileUpload() {
   const getFileStats = () => {
     const stats: Record<FileType, number> = {
       "合同": 0,
-      "公司���理": 0,
+      "公司治理": 0,
       "财务": 0,
       "知识产权": 0,
       "人事": 0,
@@ -794,13 +883,6 @@ export default function FileUpload() {
         toast.info(`${result.skipped} 个文件无需重复提取`, { duration: 4000 });
       }
 
-      if (options?.autoRedirect && hasTemplate && result.failed === 0) {
-        toast.info("正在跳转到定义管理...", { duration: 2000 });
-        setTimeout(() => {
-          navigate(`/project/${projectId}/definitions`);
-        }, 1500);
-      }
-
       if (result.failed > 0) {
         const uniqueErrors = [...new Set(result.errors || [])];
         const errorSummary = uniqueErrors.length > 0
@@ -1017,7 +1099,7 @@ export default function FileUpload() {
     }
   }, [currentProjectId, existingFiles, chapters, startBatchParse, matchSectionsMutation]);
 
-  // AI 自动匹配文件到章���
+  // AI 自动匹配文件到章节
   const handleAutoMatch = useCallback(async () => {
     if (!currentProjectId || chapters.length === 0) {
       toast.error("请先设置章节模板");
@@ -1026,7 +1108,7 @@ export default function FileUpload() {
     
     // 找出未分配章节且有文字内容的文件（基于 chapter_file_mappings）
     const unassignedFiles = existingFiles.filter(f => 
-      !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)
+      !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)
     );
     
     if (unassignedFiles.length === 0) {
@@ -1051,6 +1133,7 @@ export default function FileUpload() {
         number: c.number || "",
         title: c.title,
         level: c.level,
+        parentId: c.parentId,
       })),
     });
     
@@ -1062,7 +1145,33 @@ export default function FileUpload() {
         toast.warning(`${result.failed} 个文件匹配失败`);
       }
     }
-  }, [currentProjectId, existingFiles, chapters, startClassify, fileChapterMap]);
+  }, [currentProjectId, existingFiles, chapters, startClassify, effectiveFileChapterMap]);
+
+  const handleRemoveFromSelectedScope = useCallback(async (fileId: string) => {
+    if (!selectedChapterId || selectedChapterId === "unassigned") return;
+
+    const scopeIds = selectedChapterScopeIds || new Set([selectedChapterId]);
+    const mappedIds = effectiveFileChapterMap.get(fileId);
+    if (!mappedIds || mappedIds.size === 0) return;
+
+    const targetChapterIds = Array.from(mappedIds).filter((chapterId) => scopeIds.has(chapterId));
+    if (targetChapterIds.length === 0) return;
+
+    try {
+      await Promise.all(
+        targetChapterIds.map((chapterId) =>
+          updateFileChapterMutation.mutateAsync({
+            fileId,
+            chapterId,
+            action: "remove",
+          })
+        )
+      );
+    } catch (error) {
+      console.error("[FileUpload] Failed to remove mappings in selected scope:", error);
+      toast.error("移除失败，请重试");
+    }
+  }, [selectedChapterId, selectedChapterScopeIds, effectiveFileChapterMap, updateFileChapterMutation]);
 
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
     console.log("[FileUpload] handleFileUpload called with", files.length, "files");
@@ -1266,13 +1375,8 @@ export default function FileUpload() {
       if (ocrCandidates.length > 0) {
         console.log(`[FileUpload] Auto-triggering OCR for ${ocrCandidates.length} files`);
         setTimeout(() => {
-          handleBatchOcr(ocrCandidates, { autoRedirect: true });
+          handleBatchOcr(ocrCandidates);
         }, 500);
-      } else if (hasTemplate) {
-        toast.info("正在跳转到定义管理...", { duration: 2000 });
-        setTimeout(() => {
-          navigate(`/project/${projectId}/definitions`);
-        }, 1500);
       }
     }
     if (failCount > 0) {
@@ -1301,7 +1405,7 @@ export default function FileUpload() {
   const handleContinueToDefinitions = () => {
     if (!hasTemplate) {
       toast.error("请先设置报告模板结构", {
-        description: "前往「模板���纹」页面上传或生成报告结构",
+        description: "前往「模板指纹」页面上传或生成报告结构",
       });
       navigate(`/project/${projectId}/template`);
       return;
@@ -1627,15 +1731,15 @@ export default function FileUpload() {
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -5 }}
-                      className="mb-4 p-3 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3 relative"
+                      className="mb-4 p-3 pr-8 bg-destructive/5 border border-destructive/20 rounded-lg flex items-center gap-3 relative"
                     >
-                      {/* 关闭按钮 */}
+                      {/* 关闭按钮 - 放在整个横幅的右上角 */}
                       <button
                         onClick={() => setDismissedFailedBanner(true)}
-                        className="absolute top-2 right-2 p-1 hover:bg-destructive/10 rounded-full transition-colors"
+                        className="absolute -top-2 -right-2 p-1 bg-background border border-destructive/30 hover:bg-destructive/10 rounded-full transition-colors shadow-sm z-10"
                         title="关闭提示（文件行仍会显示失败状态）"
                       >
-                        <X className="w-3.5 h-3.5 text-destructive/60" />
+                        <X className="w-3 h-3 text-destructive" />
                       </button>
                       <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center flex-shrink-0">
                         <AlertTriangle className="w-4 h-4 text-destructive" />
@@ -1721,11 +1825,11 @@ export default function FileUpload() {
                   </div>
                   <div className="flex items-center gap-2">
                     {/* 自动匹配按钮 - 有未分配文件且有章节时显示 */}
-                    {chapters.length > 0 && existingFiles.some(f => !fileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
+                    {chapters.length > 0 && existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 text-[11px] text-primary border-primary/30 hover:bg-primary/10"
+                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
                         onClick={handleAutoMatch}
                         disabled={classifyProgress.isRunning}
                       >
@@ -1739,25 +1843,7 @@ export default function FileUpload() {
                           : "自动匹配"}
                       </Button>
                     )}
-                    {/* 解析结构按钮 */}
-                    {existingFiles.some(f => f.extractedText && f.extractedText.length > 100) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] text-blue-600 border-blue-200 hover:bg-blue-50"
-                        onClick={handleParseStructure}
-                        disabled={parseProgress.isRunning}
-                      >
-                        {parseProgress.isRunning ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <FileSearch className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        {parseProgress.isRunning 
-                          ? `解析中 ${parseProgress.completed}/${parseProgress.total}` 
-                          : "解析结构"}
-                      </Button>
-                    )}
+                    {/* 解析结构按钮 - 已隐藏 */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1780,8 +1866,8 @@ export default function FileUpload() {
                     onDrop={handleDataRoomDrop}
                   >
                     {/* Left Panel: 章节目录 */}
-                    <div className="w-[280px] flex-shrink-0 border-r bg-muted/30 overflow-y-auto">
-                      <div className="p-2 border-b bg-muted/50 sticky top-0">
+                    <div className="w-[280px] flex-shrink-0 border-r bg-muted overflow-y-auto">
+                      <div className="p-2 border-b bg-muted sticky top-0 z-10">
                         <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                           章节目录
                         </div>
@@ -1789,7 +1875,7 @@ export default function FileUpload() {
                       <div className="p-1">
                         {/* Unassigned files section */}
                         {(() => {
-                          const unassignedCount = existingFiles.filter(f => !fileChapterMap.has(f.id)).length;
+                          const unassignedCount = existingFiles.filter(f => !effectiveFileChapterMap.has(f.id)).length;
                           if (unassignedCount > 0) {
                             return (
                               <button
@@ -1813,147 +1899,93 @@ export default function FileUpload() {
                         })()}
 
                         {/* Chapter list with hierarchy */}
-                        {chaptersHierarchy.parentChapters.map((parentChapter) => {
-                          const children = chaptersHierarchy.childrenMap.get(parentChapter.id) || [];
-                          const hasChildren = children.length > 0;
-                          const isExpanded = expandedParentChapters.has(parentChapter.id);
-                          const parentFileCount = existingFiles.filter(f => fileChapterMap.get(f.id)?.has(parentChapter.id) ?? false).length;
-                          const isParentSelected = selectedChapterId === parentChapter.id;
+                        {(() => {
+                          const renderChapterNode = (chapter: Chapter, depth = 0): JSX.Element => {
+                            const children = chaptersHierarchy.childrenMap.get(chapter.id) || [];
+                            const hasChildren = children.length > 0;
+                            const isExpanded = expandedParentChapters.has(chapter.id);
+                            const isSelected = selectedChapterId === chapter.id;
+                            const totalFileCount = aggregatedFileCountByChapter.get(chapter.id) || 0;
+                            const totalSectionCount = aggregatedSectionCountByChapter.get(chapter.id) || 0;
 
-                          // Calculate total files for parent (including children)
-                          const childFileCount = children.reduce((sum, child) =>
-                            sum + existingFiles.filter(f => fileChapterMap.get(f.id)?.has(child.id) ?? false).length, 0
-                          );
-                          const totalFileCount = parentFileCount + childFileCount;
-                          
-                          // Calculate section count for parent (including children)
-                          const parentSectionCount = sectionCountByChapter.get(parentChapter.id) || 0;
-                          const childSectionCount = children.reduce((sum, child) =>
-                            sum + (sectionCountByChapter.get(child.id) || 0), 0
-                          );
-                          const totalSectionCount = parentSectionCount + childSectionCount;
-
-                          return (
-                            <div key={parentChapter.id} className="mb-0.5">
-                              {/* Parent Chapter */}
-                              <div className="flex items-center">
-                                {hasChildren ? (
-                                  <button
-                                    onClick={() => toggleParentChapter(parentChapter.id)}
-                                    className="p-1 hover:bg-muted rounded flex-shrink-0"
-                                  >
-                                    {isExpanded ? (
-                                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                                    ) : (
-                                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                                    )}
-                                  </button>
-                                ) : (
-                                  <span className="w-5 flex-shrink-0" />
-                                )}
-                                <button
-                                  onClick={() => setSelectedChapterId(parentChapter.id)}
-                                  className={cn(
-                                    "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
-                                    isParentSelected
-                                      ? "bg-primary/10 text-primary"
-                                      : "hover:bg-muted text-foreground"
-                                  )}
-                                >
-                                  <BookOpen className={cn(
-                                    "w-3.5 h-3.5 flex-shrink-0",
-                                    isParentSelected ? "text-primary" : "text-muted-foreground"
-                                  )} />
-                                  <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
-                                    {parentChapter.number || "-"}
-                                  </span>
-                                  <span className="flex-1 text-[12px] font-medium truncate">
-                                    {parentChapter.title}
-                                  </span>
-                                  <div className="flex items-center gap-1">
-                                    <Badge
-                                      variant={totalFileCount > 0 ? "secondary" : "outline"}
-                                      className={cn(
-                                        "text-[9px] h-4 min-w-[18px] justify-center",
-                                        totalFileCount === 0 && "text-muted-foreground"
-                                      )}
-                                      title="原始文件数"
+                            return (
+                              <div key={chapter.id} className="mb-0.5">
+                                <div className="flex items-center" style={{ paddingLeft: `${depth * 14}px` }}>
+                                  {hasChildren ? (
+                                    <button
+                                      onClick={() => toggleParentChapter(chapter.id)}
+                                      className="p-1 hover:bg-muted rounded flex-shrink-0"
                                     >
-                                      {totalFileCount}
-                                    </Badge>
-                                    {totalSectionCount > 0 && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[9px] h-4 min-w-[18px] justify-center text-blue-600 border-blue-200"
-                                        title="解析内容数"
-                                      >
-                                        {totalSectionCount}
-                                      </Badge>
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                                      ) : (
+                                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <span className="w-5 flex-shrink-0" />
+                                  )}
+                                  <button
+                                    onClick={() => setSelectedChapterId(chapter.id)}
+                                    className={cn(
+                                      "flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors",
+                                      isSelected ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground"
                                     )}
-                                  </div>
-                                </button>
-                              </div>
-
-                              {/* Children Chapters */}
-                              {hasChildren && isExpanded && (
-                                <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
-                                  {children.map((child) => {
-                                    const childFileCount = existingFiles.filter(f => fileChapterMap.get(f.id)?.has(child.id) ?? false).length;
-                                    const childSectionCnt = sectionCountByChapter.get(child.id) || 0;
-                                    const isChildSelected = selectedChapterId === child.id;
-                                    return (
-                                      <button
-                                        key={child.id}
-                                        onClick={() => setSelectedChapterId(child.id)}
+                                  >
+                                    <BookOpen
+                                      className={cn(
+                                        "w-3.5 h-3.5 flex-shrink-0",
+                                        isSelected ? "text-primary" : "text-muted-foreground"
+                                      )}
+                                    />
+                                    <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
+                                      {chapter.number || "-"}
+                                    </span>
+                                    <span className={cn("flex-1 truncate", depth === 0 ? "text-[12px] font-medium" : "text-[11px]")}>
+                                      {chapter.title}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <Badge
+                                        variant={totalFileCount > 0 ? "secondary" : "outline"}
                                         className={cn(
-                                          "w-full flex items-center gap-2 px-2 py-1 rounded text-left transition-colors",
-                                          isChildSelected
-                                            ? "bg-primary/10 text-primary"
-                                            : "hover:bg-muted text-foreground"
+                                          "text-[9px] h-4 min-w-[18px] justify-center",
+                                          totalFileCount === 0 && "text-muted-foreground"
                                         )}
+                                        title="原始文件数（含子章节）"
                                       >
-                                        <span className="text-[10px] text-muted-foreground min-w-[28px] flex-shrink-0">
-                                          {child.number || "-"}
-                                        </span>
-                                        <span className="flex-1 text-[11px] truncate">
-                                          {child.title}
-                                        </span>
-                                        <div className="flex items-center gap-1">
-                                          <Badge
-                                            variant={childFileCount > 0 ? "secondary" : "outline"}
-                                            className={cn(
-                                              "text-[9px] h-4 min-w-[18px] justify-center",
-                                              childFileCount === 0 && "text-muted-foreground"
-                                            )}
-                                            title="原始文件数"
-                                          >
-                                            {childFileCount}
-                                          </Badge>
-                                          {childSectionCnt > 0 && (
-                                            <Badge
-                                              variant="outline"
-                                              className="text-[9px] h-4 min-w-[18px] justify-center text-blue-600 border-blue-200"
-                                              title="解析内容数"
-                                            >
-                                              {childSectionCnt}
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
+                                        {totalFileCount}
+                                      </Badge>
+                                      {totalSectionCount > 0 && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] h-4 min-w-[18px] justify-center text-blue-600 border-blue-200"
+                                          title="解析内容数（含子章节）"
+                                        >
+                                          {totalSectionCount}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </button>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
+
+                                {hasChildren && isExpanded && (
+                                  <div className="ml-5 border-l border-border/50 pl-1 mt-0.5">
+                                    {children.map((child) => renderChapterNode(child, depth + 1))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          };
+
+                          return chaptersHierarchy.rootChapters.map((chapter) => renderChapterNode(chapter));
+                        })()}
                       </div>
                     </div>
 
                     {/* Right Panel: 文件列表 */}
                     <div className="flex-1 flex flex-col overflow-hidden">
                       {/* Right Panel Header */}
-                      <div className="p-2 border-b bg-muted/30 flex items-center justify-between sticky top-0">
+                      <div className="p-2 border-b bg-muted flex items-center justify-between sticky top-0 z-10">
                         <div className="flex items-center gap-2">
                           {selectedChapterId === 'unassigned' ? (
                             <>
@@ -2063,7 +2095,7 @@ export default function FileUpload() {
                           selectedChapterSections.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                               <FileSearch className="w-12 h-12 mb-2 opacity-30" />
-                              <p className="text-[13px]">该章节暂���解析内容</p>
+                              <p className="text-[13px]">该章节暂无解析内容</p>
                               <p className="text-[11px] mt-1">请先上传文件并点击"解析结构"</p>
                             </div>
                           ) : (
@@ -2107,8 +2139,8 @@ export default function FileUpload() {
                           </div>
                         ) : (
                           <div className="divide-y">
-                            {/* Table Header */}
-                            <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0">
+                        {/* Table Header */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-muted text-[10px] text-muted-foreground uppercase tracking-wider sticky top-0 z-10">
                               <span className="flex-1">文件名称</span>
                               <span className="w-16 text-center">类型</span>
                               <span className="w-20 text-right">大小</span>
@@ -2121,12 +2153,22 @@ export default function FileUpload() {
                               <div
                                 key={file.storagePath}
                                 className={cn(
-                                  "flex items-center gap-2 px-3 py-2 text-[13px] group transition-colors",
+                                  "flex items-center gap-2 px-3 py-2 text-[13px] group transition-colors relative",
                                   isFailed 
                                     ? "bg-red-50/70 hover:bg-red-50" 
                                     : "hover:bg-muted/30"
                                 )}
                               >
+                                {/* Remove from current chapter - positioned at top-right of the entire row */}
+                                {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
+                                  <button
+                                    onClick={() => void handleRemoveFromSelectedScope(file.id!)}
+                                    className="absolute -top-1 -right-1 p-1 hover:bg-destructive/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-background border border-border shadow-sm z-10"
+                                    title="从当前章节范围移除"
+                                  >
+                                    <X className="w-3 h-3 text-destructive" />
+                                  </button>
+                                )}
                                 {getFileIcon(file.name)}
                                 <span className="flex-1 truncate" title={file.name}>{file.name}</span>
                                 
@@ -2282,17 +2324,6 @@ export default function FileUpload() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
-                                  )}
-
-                                  {/* Remove from current chapter */}
-                                  {selectedChapterId && selectedChapterId !== 'unassigned' && file.id && (
-                                    <button
-                                      onClick={() => updateFileChapterMutation.mutate({ fileId: file.id!, chapterId: selectedChapterId!, action: "remove" })}
-                                      className="p-1.5 hover:bg-destructive/10 rounded"
-                                      title="从此章节移除"
-                                    >
-                                      <X className="w-3.5 h-3.5 text-destructive" />
-                                    </button>
                                   )}
 
                                   {/* Delete file */}

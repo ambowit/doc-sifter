@@ -38,10 +38,10 @@ const queryClient = new QueryClient({
 
 function RootLayout() {
   return (
-    <AuthProvider>
+    <>
       <Outlet />
       <ScrollRestoration />
-    </AuthProvider>
+    </>
   );
 }
 
@@ -90,10 +90,12 @@ const router = createBrowserRouter(
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Sonner />
-        <RouterProvider router={router} />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Sonner />
+          <RouterProvider router={router} />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   </ThemeProvider>
 );
