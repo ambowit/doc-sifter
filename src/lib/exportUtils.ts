@@ -376,7 +376,7 @@ function generatePDFHTML(
         </table>
         ${equity.notes && equity.notes.length > 0 ? `
           <div style="font-size: 11px; color: #6b7280; padding: 8px; background: #f9fafb; border-radius: 4px;">
-            <strong>注：</strong>
+            <strong>注��</strong>
             <ol style="margin: 4px 0 0 0; padding-left: 16px;">
               ${equity.notes.map((note: string) => `<li>${note}</li>`).join("")}
             </ol>
@@ -498,7 +498,325 @@ function generatePDFHTML(
   `;
 }
 
+// Helper function to render HTML to canvas and add to PDF
+async function renderSectionToPDF(
+  pdf: jsPDF,
+  html: string,
+  isFirstPage: boolean,
+  containerWidth: string = "794px"
+): Promise<void> {
+  const container = document.createElement("div");
+  container.style.position = "absolute";
+  container.style.left = "-9999px";
+  container.style.top = "0";
+  container.style.width = containerWidth;
+  container.style.background = "white";
+  container.style.padding = "40px";
+  document.body.appendChild(container);
+  container.innerHTML = html;
+
+  await document.fonts.ready;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  try {
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+    });
+
+    const margin = 15;
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const contentWidth = pageWidth - margin * 2;
+    const contentHeight = pageHeight - margin * 2;
+    const imgWidth = contentWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    if (!isFirstPage) {
+      pdf.addPage();
+    }
+
+    // If content fits in one page, add it directly
+    if (imgHeight <= contentHeight) {
+      pdf.addImage(
+        canvas.toDataURL("image/jpeg", 0.95),
+        "JPEG",
+        margin,
+        margin,
+        imgWidth,
+        imgHeight
+      );
+    } else {
+      // Content needs multiple pages - split carefully
+      const totalPages = Math.ceil(imgHeight / contentHeight);
+      for (let i = 0; i < totalPages; i++) {
+        if (i > 0) {
+          pdf.addPage();
+        }
+        // Calculate the portion of the image to show
+        const sourceY = (i * contentHeight * canvas.width) / imgWidth;
+        const sourceHeight = Math.min(
+          (contentHeight * canvas.width) / imgWidth,
+          canvas.height - sourceY
+        );
+        
+        // Create a temporary canvas for this page's portion
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sourceHeight;
+        const ctx = pageCanvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0,
+            sourceY,
+            canvas.width,
+            sourceHeight,
+            0,
+            0,
+            canvas.width,
+            sourceHeight
+          );
+          const pageImgHeight = (sourceHeight * imgWidth) / canvas.width;
+          pdf.addImage(
+            pageCanvas.toDataURL("image/jpeg", 0.95),
+            "JPEG",
+            margin,
+            margin,
+            imgWidth,
+            pageImgHeight
+          );
+        }
+      }
+    }
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+// Generate Cover Page HTML
+function generateCoverPageHTML(
+  project: Project,
+  fileCount: number,
+  templateStyle?: TemplateStyle
+): string {
+  const today = new Date().toLocaleDateString("zh-CN");
+  const targetName = project.target || project.name;
+  const { primaryColor, accentColor, fontFamily } = resolveTemplateColors(templateStyle);
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", serif',
+    "黑体": '"SimHei", "黑体", sans-serif',
+    "仿宋": '"FangSong", "仿宋", serif',
+    "楷体": '"KaiTi", "楷体", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", sans-serif',
+    "Times New Roman": '"Times New Roman", Georgia, serif',
+    "Arial": 'Arial, Helvetica, sans-serif',
+  };
+  const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
+
+  return `
+    <div style="font-family: ${fontStack}; text-align: center; padding: 120px 40px; min-height: 800px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <h1 style="font-size: 36px; font-weight: 700; margin-bottom: 24px; color: ${primaryColor};">
+        法律尽职调查报告
+      </h1>
+      <div style="font-size: 18px; color: ${accentColor}; margin-bottom: 80px;">
+        Legal Due Diligence Report
+      </div>
+      <div style="font-size: 20px; margin-bottom: 20px; color: ${primaryColor};">
+        <strong>目标公司：</strong>${targetName}
+      </div>
+      ${project.client ? `<div style="font-size: 18px; margin-bottom: 20px; color: ${accentColor};"><strong>委托方：</strong>${project.client}</div>` : ""}
+      <div style="font-size: 16px; color: ${accentColor}; margin-top: 60px;">
+        报告日期：${today}
+      </div>
+      <div style="font-size: 16px; color: ${accentColor}; margin-top: 12px;">
+        审阅文件数量：${fileCount} 份
+      </div>
+    </div>
+  `;
+}
+
+// Generate TOC Page HTML
+function generateTOCPageHTML(
+  sections: ReportSection[],
+  templateStyle?: TemplateStyle
+): string {
+  const { fontFamily } = resolveTemplateColors(templateStyle);
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", serif',
+    "黑体": '"SimHei", "黑体", sans-serif',
+    "仿宋": '"FangSong", "仿宋", serif',
+    "楷体": '"KaiTi", "楷体", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", sans-serif',
+    "Times New Roman": '"Times New Roman", Georgia, serif',
+    "Arial": 'Arial, Helvetica, sans-serif',
+  };
+  const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
+
+  return `
+    <div style="font-family: ${fontStack}; padding: 40px;">
+      <h2 style="font-size: 24px; font-weight: 700; text-align: center; margin-bottom: 40px; color: #111827;">
+        目 录
+      </h2>
+      <div style="font-size: 14px;">
+        ${sections
+          .map(
+            (section) => `
+          <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dotted #d1d5db;">
+            <span style="color: #374151;">${sectionLabel(section.number, section.title)}</span>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+// Generate Content Pages HTML (sections + metadata)
+function generateContentPagesHTML(
+  sections: ReportSection[],
+  metadata: ReportMetadata | null,
+  definitions: Definition[],
+  templateStyle?: TemplateStyle
+): string {
+  const { primaryColor, accentColor, fontFamily } = resolveTemplateColors(templateStyle);
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", serif',
+    "黑体": '"SimHei", "黑体", sans-serif',
+    "仿宋": '"FangSong", "仿宋", serif',
+    "楷体": '"KaiTi", "楷体", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", sans-serif',
+    "Times New Roman": '"Times New Roman", Georgia, serif',
+    "Arial": 'Arial, Helvetica, sans-serif',
+  };
+  const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
+
+  let sectionsHTML = "";
+  for (const section of sections) {
+    let issuesHTML = "";
+    if (section.issues && section.issues.length > 0) {
+      issuesHTML = `
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">发现的问题与风险</h4>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <thead>
+              <tr style="background: #f3f4f6;">
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 5%;">序号</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">事实</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 25%;">问题/风险</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">建议</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 10%;">级别</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${section.issues
+                .map(
+                  (issue, idx) => `
+                <tr>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${idx + 1}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.fact}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.risk}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.suggestion}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center; vertical-align: top;">
+                    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: white; background: ${getSeverityColor(issue.severity)};">
+                      ${severityToChinese(issue.severity)}
+                    </span>
+                  </td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    let findingsHTML = "";
+    if (section.findings && section.findings.length > 0) {
+      findingsHTML = `
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">核查发现</h4>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #4b5563;">
+            ${section.findings.map((f) => `<li style="margin-bottom: 4px;">${f}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    let mappedFilesHTML = "";
+    if (section.mappedFiles && section.mappedFiles.length > 0) {
+      mappedFilesHTML = `
+        <div style="margin-top: 16px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 12px; color: #6b7280;">
+          <strong>证据来源：</strong>${section.mappedFiles.map(f => f.name).join("、")}
+        </div>
+      `;
+    }
+
+    sectionsHTML += `
+      <div style="margin-bottom: 32px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          ${sectionLabel(section.number, section.title)}
+        </h2>
+        <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
+          ${markdownToHTMLForPDF(section.content)}
+        </div>
+        ${findingsHTML}
+        ${issuesHTML}
+        ${mappedFilesHTML}
+      </div>
+    `;
+  }
+
+  // Definitions section
+  let definitionsHTML = "";
+  if (definitions && definitions.length > 0) {
+    definitionsHTML = `
+      <div style="margin-bottom: 32px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          释义
+        </h2>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">简称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 50%;">全称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">类型</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${definitions
+              .map(
+                (def) => `
+              <tr>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.shortName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.fullName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.entityType}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="font-family: ${fontStack};">
+      ${definitionsHTML}
+      ${sectionsHTML}
+    </div>
+  `;
+}
+
 // Export to PDF using html2canvas + jsPDF for Chinese support
+// 分离封面、目录、正文到不同页面
 export async function exportToPDF(
   project: Project,
   sections: ReportSection[],
@@ -508,69 +826,28 @@ export async function exportToPDF(
   templateStyle?: TemplateStyle
 ): Promise<void> {
   const targetName = project.target || project.name;
-  
-  // Create a hidden container for rendering
-  const container = document.createElement("div");
-  container.style.position = "absolute";
-  container.style.left = "-9999px";
-  container.style.top = "0";
-  container.style.width = "794px"; // A4 width at 96 DPI
-  container.style.background = "white";
-  document.body.appendChild(container);
 
-  // Generate HTML content with template style
-  const html = generatePDFHTML(project, sections, metadata, definitions, fileCount, templateStyle);
-  container.innerHTML = html;
+  // Create PDF
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+  });
 
-  // Wait for fonts to load
-  await document.fonts.ready;
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // 1. Render Cover Page (first page)
+  const coverHTML = generateCoverPageHTML(project, fileCount, templateStyle);
+  await renderSectionToPDF(pdf, coverHTML, true);
 
-  try {
-    // Capture with html2canvas
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: "#ffffff",
-    });
+  // 2. Render TOC Page (new page)
+  const tocHTML = generateTOCPageHTML(sections, templateStyle);
+  await renderSectionToPDF(pdf, tocHTML, false);
 
-    // Calculate dimensions with margins
-    const margin = 15; // 15mm margin on each side
-    const pageWidth = 210; // A4 width in mm
-    const pageHeight = 297; // A4 height in mm
-    const contentWidth = pageWidth - (margin * 2); // Available content width
-    const imgHeight = (canvas.height * contentWidth) / canvas.width;
-    const contentHeight = pageHeight - (margin * 2); // Available content height per page
-    
-    // Create PDF
-    const pdf = new jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: "a4",
-    });
+  // 3. Render Content Pages (new page)
+  const contentHTML = generateContentPagesHTML(sections, metadata, definitions, templateStyle);
+  await renderSectionToPDF(pdf, contentHTML, false);
 
-    let heightLeft = imgHeight;
-    let position = 0;
-
-    // Add first page with margins
-    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", margin, margin, contentWidth, imgHeight);
-    heightLeft -= contentHeight;
-
-    // Add additional pages if needed
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", margin, position + margin, contentWidth, imgHeight);
-      heightLeft -= contentHeight;
-    }
-
-    // Save the PDF
-    pdf.save(`${targetName}_法律尽职调查报告.pdf`);
-  } finally {
-    // Clean up
-    document.body.removeChild(container);
-  }
+  // Save the PDF
+  pdf.save(`${targetName}_法律尽职调查报告.pdf`);
 }
 
 // Export to Word using docx library
