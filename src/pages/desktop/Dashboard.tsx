@@ -426,7 +426,7 @@ export default function Dashboard() {
               </Label>
               <Input
                 id="project-name"
-                placeholder="例如：星辰科技并购尽调"
+                placeholder="请输入项目名称"
                 value={newProject.name}
                 onChange={(e) => {
                   setNewProject({ ...newProject, name: e.target.value });
@@ -447,7 +447,7 @@ export default function Dashboard() {
                   客户名称 <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  placeholder="例如：华创资本"
+                  placeholder="请输入客户名称"
                   value={newProject.client}
                   onChange={(e) => {
                     setNewProject({ ...newProject, client: e.target.value });
@@ -465,7 +465,7 @@ export default function Dashboard() {
                   标的公司 <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  placeholder="例如：星辰科技有限公司"
+                  placeholder="请输入标的公司名称"
                   value={newProject.target}
                   onChange={(e) => {
                     setNewProject({ ...newProject, target: e.target.value });
@@ -526,7 +526,7 @@ export default function Dashboard() {
             <div className="space-y-2">
               <Label className="text-[13px]">项目描述（可选）</Label>
               <Textarea
-                placeholder="简要描述项目背景、范围或特殊要求..."
+                placeholder="请输入项目描述"
                 value={newProject.description}
                 onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
                 className="text-[13px] min-h-[80px] resize-none"
