@@ -190,12 +190,14 @@ export function useParseTemplate() {
       filename,
       fileData,
       mimeType,
+      projectType,
     }: {
       projectId: string;
       content: string;
       filename?: string;
       fileData?: string;
       mimeType?: string;
+      projectType?: string;
     }) => {
       if (!user) throw new Error("User not authenticated");
 
@@ -222,6 +224,8 @@ export function useParseTemplate() {
           type: "template",
           content,
           filename,
+          // Pass projectType for generating type-specific templates
+          ...(projectType ? { projectType } : {}),
           // Always pass fileData so Edge Function can do server-side extraction as fallback
           ...(fileData ? { fileData, mimeType } : {}),
         };

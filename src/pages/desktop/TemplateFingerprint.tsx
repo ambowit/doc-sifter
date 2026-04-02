@@ -863,9 +863,10 @@ export default function TemplateFingerprint() {
         projectId: currentProjectId,
         content: "",
         filename: "标准法律尽调报告模板",
+        projectType: currentProject?.projectType,
       });
       toast.success("报告模板已生成", {
-        description: "已根据标准法律尽调报告模板生成章节结构",
+        description: `已根据${currentProject?.projectType || "标准"}尽调报告模板生成章节结构`,
       });
     } catch (error) {
       console.error("[TemplateFingerprint] Generate template error:", error);
