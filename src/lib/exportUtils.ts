@@ -376,7 +376,7 @@ function generatePDFHTML(
         </table>
         ${equity.notes && equity.notes.length > 0 ? `
           <div style="font-size: 11px; color: #6b7280; padding: 8px; background: #f9fafb; border-radius: 4px;">
-            <strong>注���</strong>
+            <strong>注����</strong>
             <ol style="margin: 4px 0 0 0; padding-left: 16px;">
               ${equity.notes.map((note: string) => `<li>${note}</li>`).join("")}
             </ol>
@@ -764,22 +764,32 @@ function generateCoverPageHTML(
   const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
 
   return `
-    <div style="font-family: ${fontStack}; text-align: center; padding: 120px 40px; min-height: 800px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-      <h1 style="font-size: 36px; font-weight: 700; margin-bottom: 24px; color: ${primaryColor};">
+    <div style="font-family: ${fontStack}; text-align: center; padding: 100px 40px; min-height: 800px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <h1 style="font-size: 42px; font-weight: 700; margin-bottom: 60px; color: ${primaryColor}; letter-spacing: 8px;">
         法律尽职调查报告
       </h1>
-      <div style="font-size: 18px; color: ${accentColor}; margin-bottom: 80px;">
-        Legal Due Diligence Report
+      <div style="width: 120px; height: 2px; background: ${primaryColor}; margin-bottom: 60px;"></div>
+      <div style="font-size: 22px; margin-bottom: 24px; color: ${primaryColor};">
+        <strong>目标公司</strong>
       </div>
-      <div style="font-size: 20px; margin-bottom: 20px; color: ${primaryColor};">
-        <strong>目标公司：</strong>${targetName}
+      <div style="font-size: 26px; margin-bottom: 40px; color: #111827; font-weight: 600;">
+        ${targetName}
       </div>
-      ${project.client ? `<div style="font-size: 18px; margin-bottom: 20px; color: ${accentColor};"><strong>委托方：</strong>${project.client}</div>` : ""}
-      <div style="font-size: 16px; color: ${accentColor}; margin-top: 60px;">
-        报告日期：${today}
+      ${project.client ? `
+      <div style="font-size: 18px; margin-bottom: 12px; color: ${accentColor};">
+        <strong>委托方</strong>
       </div>
-      <div style="font-size: 16px; color: ${accentColor}; margin-top: 12px;">
-        审阅文件数量：${fileCount} 份
+      <div style="font-size: 20px; margin-bottom: 40px; color: #374151;">
+        ${project.client}
+      </div>
+      ` : ""}
+      <div style="margin-top: 60px; padding-top: 40px; border-top: 1px solid #e5e7eb;">
+        <div style="font-size: 15px; color: ${accentColor}; margin-bottom: 10px;">
+          报告日期：${today}
+        </div>
+        <div style="font-size: 15px; color: ${accentColor};">
+          审阅文件数量：${fileCount} 份
+        </div>
       </div>
     </div>
   `;
