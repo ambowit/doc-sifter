@@ -1717,7 +1717,7 @@ export default function TemplateFingerprint() {
 
                           {/* Quote Style */}
                           <div>
-                            <Label className="text-[11px]">引用块��式</Label>
+                            <Label className="text-[11px]">引用块样式</Label>
                             <Select
                               value={currentStyle.preview.quoteStyle || "border-left"}
                               onValueChange={(v) => updateStyleProperty(['preview', 'quoteStyle'], v)}

@@ -1291,7 +1291,7 @@ export default function ReportPreview() {
             <h1 className="text-lg font-semibold text-foreground">尽职调查报告预览</h1>
             {hasGenerated && (
               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                已��成
+                已生成
               </Badge>
             )}
           </div>

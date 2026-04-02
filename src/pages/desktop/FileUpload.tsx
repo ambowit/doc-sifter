@@ -576,7 +576,7 @@ export default function FileUpload() {
   const getFileStats = () => {
     const stats: Record<FileType, number> = {
       "合同": 0,
-      "公司���理": 0,
+      "公司治理": 0,
       "财务": 0,
       "知识产权": 0,
       "人事": 0,
@@ -1099,7 +1099,7 @@ export default function FileUpload() {
     }
   }, [currentProjectId, existingFiles, chapters, startBatchParse, matchSectionsMutation]);
 
-  // AI 自动匹配文件到章���
+  // AI 自动匹配文件到章节
   const handleAutoMatch = useCallback(async () => {
     if (!currentProjectId || chapters.length === 0) {
       toast.error("请先设置章节模板");
@@ -1405,7 +1405,7 @@ export default function FileUpload() {
   const handleContinueToDefinitions = () => {
     if (!hasTemplate) {
       toast.error("请先设置报告模板结构", {
-        description: "前往「模板���纹」页面上传或生成报告结构",
+        description: "前往「模板指纹」页面上传或生成报告结构",
       });
       navigate(`/project/${projectId}/template`);
       return;
@@ -1819,7 +1819,7 @@ export default function FileUpload() {
                     {fileSections.length > 0 && (
                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200">
                         <Link2 className="w-3 h-3 mr-1" />
-                        {fileSections.length} 段解��内容
+                        {fileSections.length} 段解析内容
                       </Badge>
                     )}
                   </div>
@@ -2095,7 +2095,7 @@ export default function FileUpload() {
                           selectedChapterSections.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                               <FileSearch className="w-12 h-12 mb-2 opacity-30" />
-                              <p className="text-[13px]">该章节暂���解析内容</p>
+                              <p className="text-[13px]">该章节暂无解析内容</p>
                               <p className="text-[11px] mt-1">请先上传文件并点击"解析结构"</p>
                             </div>
                           ) : (

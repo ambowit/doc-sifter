@@ -465,7 +465,7 @@ async function invokeAuthedFunction<T>(functionName: string, body: Record<string
     throw new Error(
       (typeof data.error === "string" && data.error) ||
       (typeof data.message === "string" && data.message) ||
-      `调用 ${functionName} 失��� (${response.status})`
+      `调用 ${functionName} 失败 (${response.status})`
     );
   }
 
@@ -709,7 +709,7 @@ export function useUpdateFileChapter() {
       action?: "add" | "remove" | "clear";
     }) => {
       if (action === "clear" || chapterId === null) {
-        // 清空该文件的所有章节映���
+        // 清空该文件的所有章节映射
         const { error } = await supabase
           .from("chapter_file_mappings")
           .delete()
