@@ -1223,7 +1223,7 @@ export default function TemplateFingerprint() {
                   </div>
                   <ScrollArea className="h-0 grow">
                     <div className="p-3 space-y-2">
-                      {/* 全局模板列表（排除项目专属的自定义模板） */}
+                      {/* 全局模板列表（排除项目专属的自定义模���） */}
                       {templateStyles.filter(s => !s.projectId).map((style) => {
                         const displayStyle =
                           isEditingStyle && style.id === selectedStyleId && styleDraft?.id === style.id ? styleDraft : style;
@@ -1362,31 +1362,43 @@ export default function TemplateFingerprint() {
                         >
                           重置
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px]"
-                          onClick={() => {
-                            const next = !isEditingStyle;
-                            setIsEditingStyle(next);
-                            if (next) {
-                              // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
-                              // 否则从 templateStyles 获取基础样式
-                              if (!styleDraft || styleDraft.id !== selectedStyleId) {
-                                const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
-                                if (baseStyle) {
-                                  setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
-                                  setStyleDraftDirty(false);
+                        {(() => {
+                          // 只有自定义模板才能编辑（CUSTOM_STYLE_ID 或有 projectId 的模板）
+                          const isCustomTemplate = selectedStyleId === CUSTOM_STYLE_ID || 
+                            (customStyle && selectedStyleId === customStyle.id) ||
+                            templateStyles.find(s => s.id === selectedStyleId)?.projectId;
+                          
+                          return (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[11px]"
+                              disabled={!isCustomTemplate && !isEditingStyle}
+                              title={!isCustomTemplate ? "仅自定义模板可编辑" : undefined}
+                              onClick={() => {
+                                if (!isCustomTemplate && !isEditingStyle) return;
+                                const next = !isEditingStyle;
+                                setIsEditingStyle(next);
+                                if (next) {
+                                  // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
+                                  // 否则从 templateStyles 获取基础样式
+                                  if (!styleDraft || styleDraft.id !== selectedStyleId) {
+                                    const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+                                    if (baseStyle) {
+                                      setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+                                      setStyleDraftDirty(false);
+                                    }
+                                  }
+                                  // 如果已有匹配的 styleDraft，保持不变，继续编辑
+                                } else {
+                                  // 停止编辑时不重置 dirty 状态，保留修改
                                 }
-                              }
-                              // 如果已有匹配的 styleDraft，保持不变，继续编辑
-                            } else {
-                              // 停止编辑时不重置 dirty 状态，保留修改
-                            }
-                          }}
-                        >
-                          {isEditingStyle ? "停止编辑" : "编辑"}
-                        </Button>
+                              }}
+                            >
+                              {isEditingStyle ? "停止编辑" : "编辑"}
+                            </Button>
+                          );
+                        })()}
                         <Button
                           size="sm"
                           className="h-7 text-[11px]"
