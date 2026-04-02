@@ -167,14 +167,14 @@ export const DEFAULT_TEMPLATE_FINGERPRINT: TemplateFingerprint = {
   toc: [],
   sectionBlueprints: {},
   introVariables: [
-    { id: "var_client", name: "委托方名称", value: "", placeholder: "XX资本", required: true },
+    { id: "var_client", name: "客户名称", value: "", placeholder: "XX资本", required: true },
     { id: "var_target", name: "标的公司名称", value: "", placeholder: "XX有限公司", required: true },
     { id: "var_date", name: "报告日期", value: "", placeholder: "YYYY年MM月DD日", required: true },
     { id: "var_cutoff", name: "截止日期", value: "", placeholder: "YYYY年MM月DD日", required: true },
     { id: "var_firm", name: "律所名称", value: "", placeholder: "XX律师事务所", required: true },
   ],
   introContent: {
-    background: "受{委托方名称}委托，本所律师对{标的公司名称}进行法律尽职调查，并出具本报告。",
+    background: "受{客户名称}委托，本所律师对{标的公司名称}进行法律尽职调查，并出具本报告。",
     scope: "本次尽职调查涵盖公司设立沿革、股权结构、主要资产、重大合同、劳动人事、诉讼仲裁与合规经营等内容。",
     methodology: "调查方法包括文件审阅、访谈核实及必要的公开信息检索。",
     disclaimer: "本报告仅供委托方内部决策参考使用，未经书面同意不得对外披露。",

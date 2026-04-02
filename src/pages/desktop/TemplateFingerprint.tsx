@@ -56,7 +56,7 @@ import {
   ArrowRight,
   X,
 } from "lucide-react";
-import { useCurrentProject } from "@/hooks/useProjects";
+import { useCurrentProject, useUpdateProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
 import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
@@ -603,6 +603,7 @@ export default function TemplateFingerprint() {
   const { projectId } = useParams<{ projectId: string }>();
   const currentProjectId = projectId || null;
   const { data: currentProject, isLoading: projectLoading } = useCurrentProject();
+  const updateProjectMutation = useUpdateProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
 
   const parseTemplateMutation = useParseTemplate();
@@ -807,9 +808,30 @@ export default function TemplateFingerprint() {
 
   useEffect(() => {
     if (draftTemplate?.introVariables) {
-      setVariables(draftTemplate.introVariables);
+      // 使用项目数据初始化客户名称和标的公司名称
+      const varsWithProjectData = draftTemplate.introVariables.map(v => {
+        if (v.id === "var_client" && currentProject?.client && !v.value) {
+          return { ...v, value: currentProject.client };
+        }
+        if (v.id === "var_target" && currentProject?.target && !v.value) {
+          return { ...v, value: currentProject.target };
+        }
+        return v;
+      });
+      setVariables(varsWithProjectData);
+    } else if (currentProject) {
+      // 没有 draftTemplate 时，也用项目数据初始化默认变量
+      setVariables(prev => prev.map(v => {
+        if (v.id === "var_client" && currentProject.client && !v.value) {
+          return { ...v, value: currentProject.client };
+        }
+        if (v.id === "var_target" && currentProject.target && !v.value) {
+          return { ...v, value: currentProject.target };
+        }
+        return v;
+      }));
     }
-  }, [draftTemplate?.introVariables]);
+  }, [draftTemplate?.introVariables, currentProject]);
 
   useEffect(() => {
     if (!templateFingerprint || templateFingerprint.selectedStyleId || templateStyles.length === 0) return;
@@ -1016,7 +1038,27 @@ export default function TemplateFingerprint() {
     setDraftTemplate(updatedTemplate);
     try {
       await saveTemplate({ projectId: currentProjectId, ...updatedTemplate });
-      toast.success("变量已保存", { description: "引言变量已更新" });
+      
+      // 同步更新项目的客户名称和标的公司名称
+      const clientVar = variables.find(v => v.id === "var_client");
+      const targetVar = variables.find(v => v.id === "var_target");
+      
+      const projectUpdates: { client?: string; target?: string } = {};
+      if (clientVar?.value && clientVar.value !== currentProject?.client) {
+        projectUpdates.client = clientVar.value;
+      }
+      if (targetVar?.value && targetVar.value !== currentProject?.target) {
+        projectUpdates.target = targetVar.value;
+      }
+      
+      if (Object.keys(projectUpdates).length > 0) {
+        await updateProjectMutation.mutateAsync({
+          projectId: currentProjectId,
+          data: projectUpdates,
+        });
+      }
+      
+      toast.success("变量已保存", { description: "引言变量已更新，项目信息已同步" });
     } catch (error) {
       console.error("[TemplateFingerprint] Save variables error:", error);
       toast.error("保存失败");
@@ -1553,7 +1595,7 @@ export default function TemplateFingerprint() {
 
                       {/* Body Styles */}
                       <div>
-                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">正文样式</h4>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">正��样式</h4>
                         <div className="space-y-3">
                           <div className="grid grid-cols-2 gap-2">
                             <div>
