@@ -945,13 +945,23 @@ export default function ReportPreview() {
 
     // 检查是否所有文件都处理完成
     setUploadingStatus("done");
-    const successCount = acceptedFiles.filter((_, i) => {
-      const fileStatus = uploadingFiles[i];
-      return fileStatus?.status === "done";
-    }).length;
-
-    if (successCount > 0) {
-      toast.success(`已上传 ${successCount} 个文件并关联到「${uploadingSectionTitle}」`);
+    
+    // 等待一下确保 uploadingFiles 状态已更新
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // 关闭对话框
+    setUploadDialogOpen(false);
+    
+    toast.success(`已上传 ${acceptedFiles.length} 个文件并关联到「${uploadingSectionTitle}」`, {
+      description: "正在重新生成章节内容...",
+    });
+    
+    // 自动触发章节重新生成
+    if (uploadingSectionId && uploadingSectionTitle) {
+      // 稍微延迟一下确保数据库已更新
+      setTimeout(() => {
+        handleRetrySection(uploadingSectionId, uploadingSectionTitle);
+      }, 1000);
     }
   };
 
