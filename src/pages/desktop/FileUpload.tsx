@@ -823,9 +823,9 @@ export default function FileUpload() {
     setIsClearingAllFiles(false);
     
     if (errorCount === 0) {
-      toast.success(`已清除全部 ${successCount} 个文件`);
+      toast.success(`已删除全部 ${successCount} 个文件`);
     } else {
-      toast.warning(`清除完成: ${successCount}/${totalCount} 个文件成功，${errorCount} 个失败`);
+      toast.warning(`删除完成: ${successCount}/${totalCount} 个文件成功，${errorCount} 个失败`);
     }
   };
 
@@ -1518,12 +1518,12 @@ export default function FileUpload() {
                         onClick={() => setShowClearConfirm(true)}
                         disabled={isClearingAllFiles}
                       >
-                        {isClearingAllFiles ? (
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-3 h-3 mr-1" />
-                        )}
-                        清除全部
+                {isClearingAllFiles ? (
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3 mr-1" />
+                )}
+                全部删除
                       </Button>
                     </>
                   )}
@@ -1737,7 +1737,7 @@ export default function FileUpload() {
                       <button
                         onClick={() => setDismissedFailedBanner(true)}
                         className="absolute -top-2 -right-2 p-1 bg-background border border-destructive/30 hover:bg-destructive/10 rounded-full transition-colors shadow-sm z-10"
-                        title="关闭提示（文件行仍会���示失败状态）"
+                        title="关闭提示（文��行仍会���示失败状态）"
                       >
                         <X className="w-3 h-3 text-destructive" />
                       </button>
@@ -2029,33 +2029,7 @@ export default function FileUpload() {
                               </PopoverContent>
                             </Popover>
                           )}
-                          {/* Tab 切换 */}
-                          {selectedChapterId && selectedChapterId !== 'unassigned' && (
-                            <div className="flex items-center gap-1 border rounded-md p-0.5 bg-muted/50">
-                              <button
-                                onClick={() => setRightPanelTab("files")}
-                                className={cn(
-                                  "px-2 py-0.5 rounded text-[10px] transition-colors",
-                                  rightPanelTab === "files"
-                                    ? "bg-background shadow-sm font-medium"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                文件 ({selectedChapterFiles.length})
-                              </button>
-                              <button
-                                onClick={() => setRightPanelTab("sections")}
-                                className={cn(
-                                  "px-2 py-0.5 rounded text-[10px] transition-colors",
-                                  rightPanelTab === "sections"
-                                    ? "bg-background shadow-sm font-medium text-blue-600"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                解析内容 ({selectedChapterSections.length})
-                              </button>
-                            </div>
-                          )}
+
                           {selectedChapterId === 'unassigned' && (
                             <>
                               {/* 自动匹配按钮 - 放在文件数量左边 */}
@@ -2360,7 +2334,7 @@ export default function FileUpload() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              确认清除全部文件
+              确认全部删除
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
