@@ -376,7 +376,7 @@ function generatePDFHTML(
         </table>
         ${equity.notes && equity.notes.length > 0 ? `
           <div style="font-size: 11px; color: #6b7280; padding: 8px; background: #f9fafb; border-radius: 4px;">
-            <strong>注��</strong>
+            <strong>注���</strong>
             <ol style="margin: 4px 0 0 0; padding-left: 16px;">
               ${equity.notes.map((note: string) => `<li>${note}</li>`).join("")}
             </ol>
@@ -499,6 +499,7 @@ function generatePDFHTML(
 }
 
 // Helper function to render HTML to canvas and add to PDF
+// 使用整页渲染方式，不在页面中间切割内容
 async function renderSectionToPDF(
   pdf: jsPDF,
   html: string,
@@ -530,7 +531,6 @@ async function renderSectionToPDF(
     const pageWidth = 210;
     const pageHeight = 297;
     const contentWidth = pageWidth - margin * 2;
-    const contentHeight = pageHeight - margin * 2;
     const imgWidth = contentWidth;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
@@ -538,63 +538,208 @@ async function renderSectionToPDF(
       pdf.addPage();
     }
 
-    // If content fits in one page, add it directly
-    if (imgHeight <= contentHeight) {
+    // 直接将整个内容添加到页面，让jsPDF自动处理溢出
+    // 对于较长内容，缩放以适应页面宽度，高度按比例
+    pdf.addImage(
+      canvas.toDataURL("image/png", 1.0),
+      "PNG",
+      margin,
+      margin,
+      imgWidth,
+      imgHeight
+    );
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+// 分块渲染内容，每个章节单独渲染避免切断
+async function renderContentByChunks(
+  pdf: jsPDF,
+  sections: ReportSection[],
+  metadata: ReportMetadata | null,
+  definitions: Definition[],
+  templateStyle?: TemplateStyle
+): Promise<void> {
+  const { fontFamily } = resolveTemplateColors(templateStyle);
+  const fontFamilyMap: Record<string, string> = {
+    "宋体": '"SimSun", "宋体", serif',
+    "黑体": '"SimHei", "黑体", sans-serif',
+    "仿宋": '"FangSong", "仿宋", serif',
+    "楷体": '"KaiTi", "楷体", serif',
+    "微软雅黑": '"Microsoft YaHei", "微软雅黑", sans-serif',
+    "Times New Roman": '"Times New Roman", Georgia, serif',
+    "Arial": 'Arial, Helvetica, sans-serif',
+  };
+  const fontStack = fontFamilyMap[fontFamily] || fontFamilyMap["宋体"];
+  
+  const margin = 15;
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const contentWidth = pageWidth - margin * 2;
+  const contentHeight = pageHeight - margin * 2;
+  
+  let currentY = margin;
+  let isFirstChunk = true;
+
+  // 渲染单个HTML块并添加到PDF
+  async function renderChunk(html: string): Promise<void> {
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.left = "-9999px";
+    container.style.top = "0";
+    container.style.width = "714px"; // 794 - 80 (padding)
+    container.style.background = "white";
+    container.style.fontFamily = fontStack;
+    document.body.appendChild(container);
+    container.innerHTML = html;
+
+    await document.fonts.ready;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    try {
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgWidth = contentWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      // 检查是否需要新页面
+      if (!isFirstChunk && currentY + imgHeight > pageHeight - margin) {
+        pdf.addPage();
+        currentY = margin;
+      }
+      isFirstChunk = false;
+
       pdf.addImage(
-        canvas.toDataURL("image/jpeg", 0.95),
-        "JPEG",
+        canvas.toDataURL("image/png", 1.0),
+        "PNG",
         margin,
-        margin,
+        currentY,
         imgWidth,
         imgHeight
       );
-    } else {
-      // Content needs multiple pages - split carefully
-      const totalPages = Math.ceil(imgHeight / contentHeight);
-      for (let i = 0; i < totalPages; i++) {
-        if (i > 0) {
-          pdf.addPage();
-        }
-        // Calculate the portion of the image to show
-        const sourceY = (i * contentHeight * canvas.width) / imgWidth;
-        const sourceHeight = Math.min(
-          (contentHeight * canvas.width) / imgWidth,
-          canvas.height - sourceY
-        );
-        
-        // Create a temporary canvas for this page's portion
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sourceHeight;
-        const ctx = pageCanvas.getContext("2d");
-        if (ctx) {
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-          ctx.drawImage(
-            canvas,
-            0,
-            sourceY,
-            canvas.width,
-            sourceHeight,
-            0,
-            0,
-            canvas.width,
-            sourceHeight
-          );
-          const pageImgHeight = (sourceHeight * imgWidth) / canvas.width;
-          pdf.addImage(
-            pageCanvas.toDataURL("image/jpeg", 0.95),
-            "JPEG",
-            margin,
-            margin,
-            imgWidth,
-            pageImgHeight
-          );
-        }
-      }
+
+      currentY += imgHeight + 5; // 5mm 间距
+    } finally {
+      document.body.removeChild(container);
     }
-  } finally {
-    document.body.removeChild(container);
+  }
+
+  // 添加新页面开始正文
+  pdf.addPage();
+
+  // 1. 渲染释义表（如果有）
+  if (definitions && definitions.length > 0) {
+    const definitionsHTML = `
+      <div style="margin-bottom: 20px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          释义
+        </h2>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">简称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 50%;">全称</th>
+              <th style="padding: 8px 12px; border: 1px solid #d1d5db; text-align: left; width: 25%;">类型</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${definitions
+              .map(
+                (def) => `
+              <tr>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.shortName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.fullName}</td>
+                <td style="padding: 8px 12px; border: 1px solid #d1d5db;">${def.entityType}</td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+    await renderChunk(definitionsHTML);
+  }
+
+  // 2. 逐个渲染章节
+  for (const section of sections) {
+    // 章节标题和内容
+    let sectionHTML = `
+      <div style="margin-bottom: 16px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+          ${sectionLabel(section.number, section.title)}
+        </h2>
+        <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
+          ${markdownToHTMLForPDF(section.content)}
+        </div>
+      </div>
+    `;
+    await renderChunk(sectionHTML);
+
+    // 核查发现（如果有）
+    if (section.findings && section.findings.length > 0) {
+      const findingsHTML = `
+        <div style="margin-bottom: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">核查发现</h4>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #4b5563;">
+            ${section.findings.map((f) => `<li style="margin-bottom: 4px;">${f}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+      await renderChunk(findingsHTML);
+    }
+
+    // 发现的问题与风险（如果有）
+    if (section.issues && section.issues.length > 0) {
+      const issuesHTML = `
+        <div style="margin-bottom: 16px;">
+          <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">发现的问题与风险</h4>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
+            <thead>
+              <tr style="background: #f3f4f6;">
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 6%;">序号</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 26%;">事实</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 22%;">问题/风险</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 26%;">建议</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 20%;">级别</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${section.issues
+                .map(
+                  (issue, idx) => `
+                <tr>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; text-align: center;">${idx + 1}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word;">${issue.fact}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word;">${issue.risk}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word;">${issue.suggestion}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center; vertical-align: middle; background-color: ${getSeverityColor(issue.severity)}; color: #ffffff; font-weight: 600;">${severityToChinese(issue.severity)}</td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+      await renderChunk(issuesHTML);
+    }
+
+    // 证据来源（如果有）
+    if (section.mappedFiles && section.mappedFiles.length > 0) {
+      const mappedFilesHTML = `
+        <div style="margin-bottom: 16px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; font-size: 12px; color: #6b7280;">
+          <strong>证据来源：</strong>${section.mappedFiles.map(f => f.name).join("、")}
+        </div>
+      `;
+      await renderChunk(mappedFilesHTML);
+    }
   }
 }
 
@@ -701,32 +846,28 @@ function generateContentPagesHTML(
     let issuesHTML = "";
     if (section.issues && section.issues.length > 0) {
       issuesHTML = `
-        <div style="margin-top: 16px;">
+        <div style="margin-top: 16px; page-break-inside: avoid;">
           <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">发现的问题与风险</h4>
-          <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;">
             <thead>
               <tr style="background: #f3f4f6;">
-                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 5%;">序号</th>
-                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">事实</th>
-                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 25%;">问题/风险</th>
-                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 30%;">建议</th>
-                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 10%;">级别</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 6%;">序号</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 26%;">事实</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 22%;">问题/风险</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: left; width: 26%;">建议</th>
+                <th style="padding: 8px; border: 1px solid #d1d5db; text-align: center; width: 20%;">级别</th>
               </tr>
             </thead>
             <tbody>
               ${section.issues
                 .map(
                   (issue, idx) => `
-                <tr>
-                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${idx + 1}</td>
-                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.fact}</td>
-                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.risk}</td>
-                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top;">${issue.suggestion}</td>
-                  <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center; vertical-align: top;">
-                    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: white; background: ${getSeverityColor(issue.severity)};">
-                      ${severityToChinese(issue.severity)}
-                    </span>
-                  </td>
+                <tr style="page-break-inside: avoid;">
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; text-align: center;">${idx + 1}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word;">${issue.fact}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word;">${issue.risk}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word;">${issue.suggestion}</td>
+                  <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center; vertical-align: middle; background-color: ${getSeverityColor(issue.severity)}; color: #ffffff; font-weight: 600;">${severityToChinese(issue.severity)}</td>
                 </tr>
               `
                 )
@@ -740,7 +881,7 @@ function generateContentPagesHTML(
     let findingsHTML = "";
     if (section.findings && section.findings.length > 0) {
       findingsHTML = `
-        <div style="margin-top: 16px;">
+        <div style="margin-top: 16px; page-break-inside: avoid;">
           <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #374151;">核查发现</h4>
           <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #4b5563;">
             ${section.findings.map((f) => `<li style="margin-bottom: 4px;">${f}</li>`).join("")}
@@ -759,8 +900,8 @@ function generateContentPagesHTML(
     }
 
     sectionsHTML += `
-      <div style="margin-bottom: 32px;">
-        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb;">
+      <div style="margin-bottom: 32px; page-break-inside: avoid;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; page-break-after: avoid;">
           ${sectionLabel(section.number, section.title)}
         </h2>
         <div style="font-size: 13px; line-height: 1.8; color: #374151; text-align: justify;">
@@ -842,9 +983,8 @@ export async function exportToPDF(
   const tocHTML = generateTOCPageHTML(sections, templateStyle);
   await renderSectionToPDF(pdf, tocHTML, false);
 
-  // 3. Render Content Pages (new page)
-  const contentHTML = generateContentPagesHTML(sections, metadata, definitions, templateStyle);
-  await renderSectionToPDF(pdf, contentHTML, false);
+  // 3. Render Content Pages (逐块渲染，避免文字被切断)
+  await renderContentByChunks(pdf, sections, metadata, definitions, templateStyle);
 
   // Save the PDF
   pdf.save(`${targetName}_法律尽职调查报告.pdf`);
