@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSupabaseError } from "@/lib/errorUtils";
 
@@ -78,7 +77,6 @@ const toReportJob = (row: Record<string, unknown>): ReportJob => ({
 
 export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   const { projectId, onSuccess, onError, onProgress, pollingInterval = POLLING_INTERVAL } = options;
-  const { session } = useAuth();
 
   const [job, setJob] = useState<ReportJob | null>(null);
   const [report, setReport] = useState<GeneratedReport | null>(null);
@@ -114,18 +112,25 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     setIsPolling(value);
   }, []);
 
-  const getAuthHeaders = useCallback(() => {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-    };
+  // 异步获取最新的认证 headers，确保 token 有效
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    let { data: { session } } = await supabase.auth.getSession();
+    const expiresSoon = !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
 
-    if (session?.access_token) {
-      headers.Authorization = `Bearer ${session.access_token}`;
+    if (!session?.access_token || expiresSoon) {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) throw new Error("用户登录已失效，请重新登录后重试");
+      session = data.session;
     }
 
-    return headers;
-  }, [session]);
+    if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
+
+    return {
+      "Content-Type": "application/json",
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${session.access_token}`,
+    };
+  }, []);
 
   const clearRealtime = useCallback(() => {
     if (channelRef.current) {
@@ -173,9 +178,10 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
 
   const pollJobStatus = useCallback(async (jobId: string): Promise<boolean> => {
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job-status`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: JSON.stringify({ jobId }),
         signal: abortControllerRef.current?.signal,
       });
@@ -324,9 +330,10 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     setReport(null);
 
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: JSON.stringify({ 
           projectId,
           forceRegenerate: options?.forceRegenerate ?? false,
