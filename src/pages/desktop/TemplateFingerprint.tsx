@@ -1180,10 +1180,6 @@ export default function TemplateFingerprint() {
                 <Palette className="w-4 h-4" />
                 模板样式
               </TabsTrigger>
-              <TabsTrigger value="toc" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <BookOpen className="w-4 h-4" />
-                目录结构
-              </TabsTrigger>
               <TabsTrigger value="page" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Settings className="w-4 h-4" />
                 页面设置
@@ -1191,6 +1187,11 @@ export default function TemplateFingerprint() {
               <TabsTrigger value="numbering" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Hash className="w-4 h-4" />
                 编号配置
+              </TabsTrigger>
+              <Separator orientation="vertical" className="h-6 mx-2" />
+              <TabsTrigger value="toc" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                <BookOpen className="w-4 h-4" />
+                目录结构
               </TabsTrigger>
               <TabsTrigger value="intro" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Edit3 className="w-4 h-4" />
