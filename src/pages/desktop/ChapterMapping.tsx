@@ -323,6 +323,7 @@ export default function ChapterMapping() {
                   onFileDragEnd={handleDragEnd}
                   projectId={projectId!}
                   variant="unassigned"
+                  disabled={jobIsRunning}
                 />
               )}
 
@@ -352,6 +353,7 @@ export default function ChapterMapping() {
                       onFileDragStart={(fileId) => handleDragStart(fileId, leaf.id)}
                       onFileDragEnd={handleDragEnd}
                       projectId={projectId!}
+                      disabled={jobIsRunning}
                     />
                   ))}
                 </div>
@@ -503,6 +505,7 @@ interface ChapterBucketProps {
   onFileDragEnd: () => void;
   projectId: string;
   variant?: "default" | "unassigned";
+  disabled?: boolean;
 }
 
 function ChapterBucket({
@@ -518,6 +521,7 @@ function ChapterBucket({
   onFileDragEnd,
   projectId,
   variant = "default",
+  disabled = false,
 }: ChapterBucketProps) {
   const updateChapterMutation = useUpdateFileChapter();
 
@@ -534,12 +538,13 @@ function ChapterBucket({
       className={cn(
         "rounded-lg border transition-colors",
         variant === "unassigned" ? "border-dashed border-muted-foreground/30 bg-muted/5" : "border-border bg-card",
-        isDragOver && "border-primary/60 bg-primary/5",
-        isDragging && !isDragOver && "border-dashed"
+        isDragOver && !disabled && "border-primary/60 bg-primary/5",
+        isDragging && !isDragOver && !disabled && "border-dashed",
+        disabled && "opacity-60 pointer-events-none"
       )}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      onDragOver={(e) => { if (disabled) return; e.preventDefault(); onDragOver(); }}
+      onDragLeave={() => { if (disabled) return; onDragLeave(); }}
+      onDrop={(e) => { if (disabled) return; e.preventDefault(); onDrop(); }}
     >
       {/* 桶头部 */}
       <div className={cn(
@@ -568,10 +573,13 @@ function ChapterBucket({
         {files.map((file) => (
           <div
             key={file.id}
-            draggable
-            onDragStart={() => onFileDragStart(file.id)}
-            onDragEnd={onFileDragEnd}
-            className="flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-muted/40 cursor-grab active:cursor-grabbing group"
+            draggable={!disabled}
+            onDragStart={() => { if (!disabled) onFileDragStart(file.id); }}
+            onDragEnd={() => { if (!disabled) onFileDragEnd(); }}
+            className={cn(
+              "flex items-center gap-1.5 px-1.5 py-1 rounded group",
+              disabled ? "cursor-default" : "hover:bg-muted/40 cursor-grab active:cursor-grabbing"
+            )}
           >
             <GripVertical className="w-2.5 h-2.5 text-muted-foreground/40 flex-shrink-0" />
             <FileText className="w-2.5 h-2.5 text-muted-foreground/60 flex-shrink-0" />
@@ -589,7 +597,7 @@ function ChapterBucket({
                 </span>
               )}
             </div>
-            {chapterId !== null && (
+            {chapterId !== null && !disabled && (
               <button
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity flex-shrink-0"
                 onClick={() => handleRemoveFile(file.id)}
