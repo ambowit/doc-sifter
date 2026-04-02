@@ -192,7 +192,8 @@ export const DEFAULT_TEMPLATE_FINGERPRINT: TemplateFingerprint = {
   },
 };
 
-// 按项目类型的引言内容配置 - 根据新建项目时选择的类型显示不同模板
+// 按项目类型的引言内容配置
+// 根据新建项目时选择的类型显示不同模板
 export const PROJECT_TYPE_INTRO_CONTENT: Record<string, {
   introContent: {
     background: string;
@@ -202,7 +203,7 @@ export const PROJECT_TYPE_INTRO_CONTENT: Record<string, {
   };
   introVariables: Array<{ id: string; name: string; value: string; placeholder: string; required: boolean }>;
 }> = {
-  // 股权收购
+  // 股权收购尽调
   equity_acquisition: {
     introContent: {
       background: "受{客户名称}委托，就其拟收购{标的公司名称}股权事宜，本所律师对{标的公司名称}（以下简称「目标公司」）进行法律尽职调查，并出具本报告。",
