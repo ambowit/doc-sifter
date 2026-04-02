@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   useProjects,
   useCreateProject,
+  useUpdateProject,
   useDeleteProject,
   setCurrentProjectId,
   type CreateProjectData,
@@ -56,6 +57,7 @@ import {
   Loader2,
   GitBranch,
   Eye,
+  Edit3,
 } from "lucide-react";
 
 const statusConfig: Record<ProjectStatus, { label: string; color: string; icon: React.ReactNode }> = {
@@ -86,6 +88,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { data: projects = [], isLoading, error } = useProjects();
   const createProjectMutation = useCreateProject();
+  const updateProjectMutation = useUpdateProject();
   const deleteProjectMutation = useDeleteProject();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,6 +96,7 @@ export default function Dashboard() {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [newProject, setNewProject] = useState<CreateProjectData>(initialFormData);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
 
   // Filter projects based on search
   const filteredProjects = projects.filter(
@@ -133,18 +137,31 @@ export default function Dashboard() {
 
   const handleCreateProject = async () => {
     // Prevent double submission
-    if (createProjectMutation.isPending) {
+    if (createProjectMutation.isPending || updateProjectMutation.isPending) {
       return;
     }
-
+    
     if (!validateForm()) {
       toast.error("请完善必填信息", {
         description: "项目名称、客户名称和标的公司为必填项",
       });
       return;
     }
-
+    
     try {
+      // 编辑模式
+      if (editingProjectId) {
+        console.log("[Dashboard] Updating project:", editingProjectId);
+        await updateProjectMutation.mutateAsync({
+          projectId: editingProjectId,
+          data: newProject,
+        });
+        toast.success("项目更新成功");
+        handleCloseDialog();
+        return;
+      }
+      
+      // 新建模式
       console.log("[Dashboard] Creating project:", newProject.name);
       const project = await createProjectMutation.mutateAsync(newProject);
       console.log("[Dashboard] Project created:", project.id);
@@ -177,6 +194,7 @@ export default function Dashboard() {
     setIsNewProjectOpen(false);
     setNewProject(initialFormData);
     setFormErrors({});
+    setEditingProjectId(null);
   };
 
   const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
@@ -232,7 +250,7 @@ export default function Dashboard() {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
         <AlertCircle className="w-12 h-12 text-destructive mb-4" />
-        <h2 className="text-lg font-semibold mb-2">加载失败</h2>
+        <h2 className="text-lg font-semibold mb-2">加载失���</h2>
         <p className="text-muted-foreground mb-4">{error.message}</p>
         <Button onClick={() => window.location.reload()}>重试</Button>
       </div>
@@ -305,9 +323,8 @@ export default function Dashboard() {
           <div className="col-span-2">标的公司</div>
           <div className="col-span-1">类型</div>
           <div className="col-span-1">状态</div>
-          <div className="col-span-1">进度</div>
           <div className="col-span-1">更新时间</div>
-          <div className="col-span-1 text-right">操作</div>
+          <div className="col-span-2 text-right">操作</div>
         </div>
 
         {/* Table Body */}
@@ -343,7 +360,7 @@ export default function Dashboard() {
                 <div className="col-span-2 text-[13px] truncate">{project.target}</div>
                 <div className="col-span-1">
                   <span className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                    {project.projectType.length > 4 ? project.projectType.slice(0, 4) : project.projectType}
+                    {ProjectTypeLabels[project.projectType as keyof typeof ProjectTypeLabels] || project.projectType}
                   </span>
                 </div>
                 <div className="col-span-1">
@@ -357,23 +374,32 @@ export default function Dashboard() {
                     {status.label}
                   </span>
                 </div>
-                <div className="col-span-1">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all"
-                        style={{ width: `${project.progress}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] text-muted-foreground tabular-nums w-8">
-                      {project.progress}%
-                    </span>
-                  </div>
-                </div>
                 <div className="col-span-1 text-[12px] text-muted-foreground font-mono tabular-nums">
                   {updatedDate}
                 </div>
-                <div className="col-span-1 text-right flex items-center justify-end gap-1">
+                <div className="col-span-2 text-right flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[12px] gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNewProject({
+                        name: project.name,
+                        client: project.client,
+                        target: project.target,
+                        projectType: project.projectType as ProjectTypeEnum,
+                        reportLanguage: project.reportLanguage as ReportLanguageEnum,
+                        strictEvidenceMode: project.strictEvidenceMode,
+                        description: project.description || "",
+                      });
+                      setEditingProjectId(project.id);
+                      setIsNewProjectOpen(true);
+                    }}
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    编辑
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -411,11 +437,13 @@ export default function Dashboard() {
         <DialogContent className="sm:max-w-lg" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileCheck className="w-5 h-5" />
-              新建尽调项目
+              {editingProjectId ? <Edit3 className="w-5 h-5" /> : <FileCheck className="w-5 h-5" />}
+              {editingProjectId ? "编辑项目" : "新建尽调项目"}
             </DialogTitle>
             <DialogDescription>
-              创建新的尽职调查项目，系统将引导您完成文件上传和报告生成
+              {editingProjectId 
+                ? "修改项目的基本信息" 
+                : "创建新的尽职调查项目，系统将引导您完成文件上传和报告生成"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -545,17 +573,17 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateProject}
               className="gap-2"
-              disabled={createProjectMutation.isPending}
+              disabled={createProjectMutation.isPending || updateProjectMutation.isPending}
             >
-              {createProjectMutation.isPending ? (
+              {(createProjectMutation.isPending || updateProjectMutation.isPending) ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  创建中...
+                  {editingProjectId ? "保存中..." : "创建中..."}
                 </>
               ) : (
                 <>
-                  创建项目
-                  <ArrowRight className="w-4 h-4" />
+                  {editingProjectId ? "保存" : "创建项目"}
+                  {!editingProjectId && <ArrowRight className="w-4 h-4" />}
                 </>
               )}
             </Button>
