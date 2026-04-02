@@ -4,6 +4,7 @@ import { normalizeSupabaseError } from "@/lib/errorUtils";
 import {
   DEFAULT_TEMPLATE_FINGERPRINT,
   createDefaultTemplateFingerprint,
+  createTemplateFingerprintByProjectType,
   type TemplateFingerprint,
 } from "@/lib/templateDefaults";
 
@@ -212,12 +213,18 @@ export function useTemplateFingerprint(projectId: string | undefined) {
   });
 
   // Initialize with default template if none exists
-  const initializeTemplate = async () => {
+  // projectType: 项目类型，用于选择对应的模板内容
+  const initializeTemplate = async (projectType?: string) => {
     if (!projectId) return null;
+
+    // 根据项目类型创建对应的模板
+    const template = projectType 
+      ? createTemplateFingerprintByProjectType(projectType)
+      : createDefaultTemplateFingerprint();
 
     return saveMutation.mutateAsync({
       projectId,
-      ...createDefaultTemplateFingerprint(),
+      ...template,
     });
   };
 

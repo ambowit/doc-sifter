@@ -187,7 +187,7 @@ function EmptyTemplateState({
         </Button>
       </div>
       <p className="text-[12px] text-muted-foreground mt-4">
-        支持 PDF、Word (.docx) 格式
+        支持 PDF���Word (.docx) 格式
       </p>
     </div>
   );
@@ -841,12 +841,14 @@ export default function TemplateFingerprint() {
   useEffect(() => {
     if (!templateFingerprint && !templateLoading && currentProjectId && !hasInitializedRef.current) {
       hasInitializedRef.current = true;
-      initializeTemplate().catch((error) => {
+      // 传入项目类型，根据项目类型初始化对应的模板内容
+      const projectType = currentProject?.project_type || "other";
+      initializeTemplate(projectType).catch((error) => {
         console.error("[TemplateFingerprint] Initialize template failed:", error);
         toast.error("初始化模板失败，请稍后重试");
       });
     }
-  }, [templateFingerprint, templateLoading, currentProjectId, initializeTemplate]);
+  }, [templateFingerprint, templateLoading, currentProjectId, currentProject?.project_type, initializeTemplate]);
 
   // 清理上传的文件 URL（组件卸载或项目切换时）
   useEffect(() => {
