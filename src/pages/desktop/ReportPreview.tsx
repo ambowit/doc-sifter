@@ -101,20 +101,97 @@ interface ReportMetadata {
   }>;
 }
 
-// Introduction Template - Fixed content with project variables
+// Introduction Template - Use template content with variable substitution
+interface IntroVariable {
+  id: string;
+  name: string;
+  value: string;
+  placeholder?: string;
+  required?: boolean;
+}
+
+interface IntroContent {
+  background?: string;
+  scope?: string;
+  methodology?: string;
+  disclaimer?: string;
+}
+
 function IntroductionSection({
   project,
-  fileCount
+  fileCount,
+  introContent,
+  introVariables,
 }: {
   project: { name: string; target?: string; client?: string };
   fileCount: number;
+  introContent?: IntroContent | null;
+  introVariables?: IntroVariable[] | null;
 }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString("zh-CN");
 
+  // 替换变量占位符
+  const replaceVariables = (text: string): string => {
+    if (!text) return "";
+    let result = text;
+    
+    // 使用模板变量替换
+    if (introVariables && introVariables.length > 0) {
+      introVariables.forEach(v => {
+        const value = v.value || v.placeholder || `[${v.name}]`;
+        result = result.replace(new RegExp(`\\{${v.name}\\}`, "g"), value);
+      });
+    }
+    
+    // 备用：直接替换项目数据
+    result = result.replace(/\{客户名称\}/g, project.client || "[客户名称]");
+    result = result.replace(/\{标的公司名称\}/g, project.target || project.name || "[标的公司]");
+    result = result.replace(/\{报告日期\}/g, today);
+    result = result.replace(/\{文件数量\}/g, String(fileCount));
+    
+    return result;
+  };
+
+  // 如果有模板内容，使用模板
+  if (introContent && (introContent.background || introContent.scope || introContent.methodology || introContent.disclaimer)) {
+    return (
+      <div className="text-[13px] leading-relaxed text-foreground/90 space-y-4">
+        {introContent.background && (
+          <div>
+            <p className="font-medium mb-2">一、调查背景</p>
+            <p className="text-justify">{replaceVariables(introContent.background)}</p>
+          </div>
+        )}
+
+        {introContent.scope && (
+          <div>
+            <p className="font-medium mb-2">二、尽调范围</p>
+            <p className="text-justify">{replaceVariables(introContent.scope)}</p>
+          </div>
+        )}
+
+        {introContent.methodology && (
+          <div>
+            <p className="font-medium mb-2">三、调查方法</p>
+            <p className="text-justify">{replaceVariables(introContent.methodology)}</p>
+          </div>
+        )}
+
+        {introContent.disclaimer && (
+          <div>
+            <p className="font-medium mb-2">四、免责声明</p>
+            <p className="text-justify">{replaceVariables(introContent.disclaimer)}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 默认模板
   return (
     <div className="text-[13px] leading-relaxed text-foreground/90 space-y-4">
       <p className="text-justify">
-        受<strong>{project.client || "[委托方]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>{project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。
+        受<strong>{project.client || "[客户名称]"}</strong>（以下简称"委托方"）委托，本所律师对<strong>{project.target || project.name}</strong>（以下简称"目标公司"或"公司"）进行法律尽职调查，并出具本法律尽职调查报告（以下简称"本报告"）。
       </p>
 
       <div>
@@ -136,7 +213,7 @@ function IntroductionSection({
         <ul className="list-decimal pl-5 space-y-1">
           <li>本报告仅供委托方内部决策参考使用，未经本所书面同意，不得向任何第三方披露或提供。</li>
           <li>本报告中的法律意见基于现行有效的中国法律法规，如相关法律法规发生变化，本所不承担更新义务。</li>
-          <li>本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在���漏、不完整或不真实，本所不对由此产生的后果承担责任。</li>
+          <li>本报告的结论基于委托方及目标公司提供的文件资料，如相关文件存在遗漏、不完整或不真实，本所不对由此产生的后果承担责任。</li>
         </ul>
       </div>
     </div>
@@ -258,6 +335,8 @@ function SectionRenderer({
   onUploadClick,
   isLocked,
   onToggleLock,
+  introContent,
+  introVariables,
 }: {
   section: ReportSection;
   mappedFiles: Array<{ name: string; id: string }>; // 从 chapter_file_mappings 获取
@@ -271,6 +350,8 @@ function SectionRenderer({
   onUploadClick?: (sectionTitle: string) => void;
   isLocked?: boolean;
   onToggleLock?: (sectionId: string) => void;
+  introContent?: IntroContent | null;
+  introVariables?: IntroVariable[] | null;
 }) {
   const hasIssues = section.issues && section.issues.length > 0;
   const hasFindings = section.findings && section.findings.length > 0;
@@ -380,9 +461,14 @@ function SectionRenderer({
       {/* Content */}
       <div className="space-y-4">
         {/* Special rendering based on section type */}
-        {isIntroSection && project ? (
-          // Introduction - Use fixed template
-          <IntroductionSection project={project} fileCount={fileCount || 0} />
+  {isIntroSection && project ? (
+  // Introduction - Use template content
+  <IntroductionSection 
+    project={project} 
+    fileCount={fileCount || 0} 
+    introContent={introContent}
+    introVariables={introVariables}
+  />
         ) : isDefinitionSection && definitions && definitions.length > 0 ? (
           // Definitions - Use database definitions
           <DefinitionsSection definitions={definitions} />
@@ -869,7 +955,6 @@ export default function ReportPreview() {
 
   // 打开上传对话框
   const handleOpenUploadDialog = (sectionId: string, sectionTitle: string) => {
-    console.log("[v0] handleOpenUploadDialog called with:", { sectionId, sectionTitle });
     setUploadingSectionId(sectionId);
     setUploadingSectionTitle(sectionTitle);
     setUploadingFiles([]);
@@ -913,7 +998,6 @@ export default function ReportPreview() {
 
         // 3. 创建章节-文件映射（直接关联，不走 AI 匹配）
         setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 50 } : f));
-        console.log("[v0] Creating mapping:", { chapterId: uploadingSectionId, fileId: createdFile.id, fileName: file.name });
         await createMappingMutation.mutateAsync({
           chapterId: uploadingSectionId,
           fileId: createdFile.id,
@@ -1053,7 +1137,6 @@ export default function ReportPreview() {
       return;
     }
 
-    console.log("[v0] handleRetrySection called with:", { sectionId, sectionTitle });
     console.log("[ReportPreview] Starting retry for section:", sectionId, sectionTitle);
     setRetryingSectionId(sectionId);
 
@@ -1102,7 +1185,7 @@ export default function ReportPreview() {
 
       // 跳过（无关联文件）
       if (data?.skipped === true) {
-        toast.warning(`「${sectionTitle}」无关联文件，已跳过生成。请在文件映射页面为该章节关联相关文件`);
+        toast.warning(`「${sectionTitle}」无关联文件，已跳过生成。请在文件映射��面为该章节关联相关文件`);
         return;
       }
 
@@ -1651,22 +1734,24 @@ export default function ReportPreview() {
                 <div className="max-w-4xl mx-auto py-8 px-12">
                   <AnimatePresence mode="wait">
                     {activeSection && (
-                      <SectionRenderer
-                        key={activeSection.id}
-                        section={activeSection}
-                        mappedFiles={activeSectionFiles}
-                        metadata={metadata}
-                        project={currentProject}
-                        fileCount={files.length}
-                        definitions={definitions}
-                        onRetry={handleRetrySection}
-                        isRetrying={retryingSectionId === activeSection.id}
-                        templateStyle={currentStyle}
-                        isLocked={lockedSectionIds.has(activeSection.id)}
-                        onToggleLock={handleToggleLock}
-                        onUploadClick={(sectionTitle) => {
-                          // 打开上传对话框
-                          if (activeSection) {
+<SectionRenderer
+  key={activeSection.id}
+  section={activeSection}
+  mappedFiles={activeSectionFiles}
+  metadata={metadata}
+  project={currentProject}
+  fileCount={files.length}
+  definitions={definitions}
+  onRetry={handleRetrySection}
+  isRetrying={retryingSectionId === activeSection.id}
+  templateStyle={currentStyle}
+  isLocked={lockedSectionIds.has(activeSection.id)}
+  onToggleLock={handleToggleLock}
+  introContent={currentTemplate?.introContent}
+  introVariables={currentTemplate?.introVariables}
+  onUploadClick={(sectionTitle) => {
+  // 打开上传对话框
+  if (activeSection) {
                             handleOpenUploadDialog(activeSection.id, sectionTitle);
                           }
                         }}
