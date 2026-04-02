@@ -646,7 +646,7 @@ export default function ReportPreview() {
     if (typeof issue === "string") {
       const str = issue.trim();
       let severity: "high" | "medium" | "low" = "low";
-      if (str.includes("重大") || str.includes("严重") || str.includes("违法")) {
+      if (str.includes("重大") || str.includes("���重") || str.includes("违法")) {
         severity = "high";
       } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
         severity = "medium";
@@ -924,15 +924,50 @@ export default function ReportPreview() {
         setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 55, status: "extracting" } : f));
         setUploadingStatus("extracting");
 
-        const { error: parseError } = await supabase.functions.invoke("parse", {
-          body: { fileId: createdFile.id, projectId, mode: "ocr" },
+        const { error: ocrError } = await supabase.functions.invoke("ocr-extract", {
+          body: { 
+            fileId: createdFile.id,
+            mimeType: file.type || "application/octet-stream",
+            fileName: file.name,
+          },
         });
 
-        if (parseError) {
-          console.warn("[ReportPreview] OCR parse failed:", parseError);
+        if (ocrError) {
+          console.warn("[ReportPreview] OCR extract failed:", ocrError);
           setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "error" } : f));
         } else {
-          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 100, status: "done" } : f));
+          // OCR 可能是异步的（PDF/图片），需要轮询等待完成
+          // 对于 Office 文档，通常是同步完成的
+          setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 80, status: "extracting" } : f));
+          
+          // 等待 OCR 完成（最多等待 30 秒）
+          let ocrCompleted = false;
+          for (let retry = 0; retry < 15; retry++) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            const { data: fileData } = await supabase
+              .from("files")
+              .select("ocr_processed, ocr_task_status, extracted_text")
+              .eq("id", createdFile.id)
+              .single();
+            
+            if (fileData?.ocr_processed || fileData?.extracted_text) {
+              ocrCompleted = true;
+              break;
+            }
+            
+            if (fileData?.ocr_task_status === "failed") {
+              break;
+            }
+            
+            setUploadingFiles(prev => prev.map((f, idx) => 
+              idx === i ? { ...f, progress: Math.min(80 + retry * 1.5, 95) } : f
+            ));
+          }
+          
+          setUploadingFiles(prev => prev.map((f, idx) => 
+            idx === i ? { ...f, progress: 100, status: ocrCompleted ? "done" : "error" } : f
+          ));
         }
       } catch (error) {
         console.error("[ReportPreview] Upload failed:", error);
@@ -946,22 +981,25 @@ export default function ReportPreview() {
     // 检查是否所有文件都处理完成
     setUploadingStatus("done");
     
-    // 等待一下确保 uploadingFiles 状态已更新
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
     // 关闭对话框
     setUploadDialogOpen(false);
     
-    toast.success(`已上传 ${acceptedFiles.length} 个文件并关联到「${uploadingSectionTitle}」`, {
-      description: "正在重新生成章节内容...",
-    });
+    // 检查是否有成功提取内容的文件
+    const successFiles = uploadingFiles.filter(f => f.status === "done").length;
     
-    // 自动触发章节重新生成
-    if (uploadingSectionId && uploadingSectionTitle) {
-      // 稍微延迟一下确保数据库已更新
-      setTimeout(() => {
+    if (successFiles > 0) {
+      toast.success(`已上传 ${successFiles} 个文件并关联到「${uploadingSectionTitle}」`, {
+        description: "正在根据新文件重新生成章节内容...",
+      });
+      
+      // 自动触发章节重新生成
+      if (uploadingSectionId && uploadingSectionTitle) {
         handleRetrySection(uploadingSectionId, uploadingSectionTitle);
-      }, 1000);
+      }
+    } else {
+      toast.warning(`文件上传完成，但内容提取失败`, {
+        description: "请稍后手动点击重新生成按钮",
+      });
     }
   };
 
