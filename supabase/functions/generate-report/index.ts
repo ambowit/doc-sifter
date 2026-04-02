@@ -580,11 +580,75 @@ ${allFilesContent}
         });
       }
 
-      // 只使用已关联的文件构建内容摘要
-      const singleRelevantFiles = processedFiles.filter(f => f.id && singleMappedFileIds.has(f.id));
+      // 重新查询关联文件的最新内容（确保获取到刚完成OCR的文件内容）
+      const { data: freshMappedFiles, error: freshFilesError } = await supabase
+        .from("files")
+        .select("id, original_name, name, file_type, extracted_text, text_summary")
+        .in("id", Array.from(singleMappedFileIds));
+
+      if (freshFilesError) {
+        logStep("Single mode: failed to fetch fresh file content", { error: freshFilesError.message });
+      }
+
+      // 使用最新查询的文件内容
+      const singleRelevantFiles: FileInfo[] = (freshMappedFiles || []).map(f => ({
+        id: f.id,
+        name: f.original_name || f.name,
+        type: f.file_type,
+        category: categorizeFile(f.original_name || f.name || ""),
+        ocrText: f.extracted_text || null,
+        textSummary: f.text_summary || null,
+      }));
+
+      logStep("Single mode: fresh file content fetched", {
+        mappedFileIds: Array.from(singleMappedFileIds),
+        filesWithContent: singleRelevantFiles.filter(f => f.ocrText || f.textSummary).length,
+        totalFiles: singleRelevantFiles.length,
+      });
       const filesWithContent = singleRelevantFiles.filter(f => f.ocrText || f.textSummary).length;
-      const contentMaxLength = filesWithContent > 50 ? 20000 : filesWithContent > 30 ? 25000 : 30000;
+      const contentMaxLength = filesWithContent > 50 ? 20000 : filesWithContent > 30 ? 25000 : 50000; // 增加单章节的内容限制
       const allFilesContent = buildFilesContentSummary(contentMaxLength, singleRelevantFiles);
+
+      // 详细日志：打印每个文件的内容情况
+      logStep("Single mode: file content details", {
+        files: singleRelevantFiles.map(f => ({
+          id: f.id,
+          name: f.name,
+          hasOcrText: !!f.ocrText,
+          ocrTextLength: f.ocrText?.length || 0,
+          hasTextSummary: !!f.textSummary,
+          textSummaryLength: f.textSummary?.length || 0,
+          contentPreview: (f.ocrText || f.textSummary || "").substring(0, 200),
+        })),
+        totalContentLength: allFilesContent.length,
+      });
+
+      // 如果关联文件都没有提取到内容，提示用户等待
+      if (filesWithContent === 0 && singleRelevantFiles.length > 0) {
+        logStep("Single mode: files have no extracted content yet", { 
+          totalFiles: singleRelevantFiles.length,
+          fileNames: singleRelevantFiles.map(f => f.name),
+        });
+        return jsonResponse({
+          success: true,
+          mode: "single",
+          skipped: true,
+          skipReason: "no_content_extracted",
+          section: {
+            id: chapterId,
+            title: chapterTitle,
+            number: chapterNumber || "",
+            content: `【${chapterTitle}】\n\n已关联 ${singleRelevantFiles.length} 个文件，但文件内容尚未提取完成。\n\n关联文件：\n${singleRelevantFiles.map(f => `- ${f.name}`).join('\n')}\n\n请等待文件内容提取完成后再重新生成该章节。`,
+            findings: [],
+            issues: [{
+              fact: `经核查，章节「${chapterTitle}」关联了 ${singleRelevantFiles.length} 个文件，但文件内容尚未提取`,
+              risk: "无法基于文件内容生成报告",
+              suggestion: "请等待文件 OCR 提取完成后重新生成，或手动检查文件是否支持内容提取",
+              severity: "low",
+            }],
+          },
+        });
+      }
 
       const singleChapterPrompt = `你是中国顶级PE/VC投资法律尽职调查合伙人。
 
