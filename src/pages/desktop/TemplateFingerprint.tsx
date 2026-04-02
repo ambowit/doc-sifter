@@ -1,10 +1,11 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,6 +14,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText,
@@ -43,14 +54,28 @@ import {
   Trash2,
   FolderOpen,
   ArrowRight,
+  X,
 } from "lucide-react";
 import { useCurrentProject } from "@/hooks/useProjects";
 import { useChapters, useDeleteProjectChapters, type Chapter } from "@/hooks/useChapters";
-import { useParseTemplate, fileToBase64, DEMO_TEMPLATE_CONTENT } from "@/hooks/useAIParser";
+import { useParseTemplate, fileToBase64, extractFileText } from "@/hooks/useAIParser";
 import { ChapterStatus, ChapterStatusLabels, type ChapterStatusType } from "@/lib/enums";
 import { toast } from "sonner";
-import { mockTemplateFingerprint } from "@/lib/reportMockData";
+import mammoth from "mammoth";
+import { useTemplateFingerprint } from "@/hooks/useTemplateFingerprint";
+import { useTemplateStyles } from "@/hooks/useTemplateStyles";
+import { DEFAULT_TEMPLATE_FINGERPRINT, type TemplateFingerprint } from "@/lib/templateDefaults";
 import type { TemplateFingerprint as TFType, TOCItem } from "@/lib/reportTypes";
+import { normalizeTemplateStyle, type TemplateStyle } from "@/lib/templateStyles";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // =============================================================================
 // COMPONENTS
@@ -579,17 +604,236 @@ export default function TemplateFingerprint() {
   const currentProjectId = projectId || null;
   const { data: currentProject, isLoading: projectLoading } = useCurrentProject();
   const { data: chapters = [], isLoading: chaptersLoading } = useChapters(currentProjectId || undefined);
-  
+
   const parseTemplateMutation = useParseTemplate();
   const deleteChaptersMutation = useDeleteProjectChapters();
-  
+  const {
+    templateFingerprint,
+    isLoading: templateLoading,
+    initializeTemplate,
+    saveTemplate,
+    updateSelectedStyle,
+  } = useTemplateFingerprint(currentProjectId || undefined);
+  const {
+    data: templateStyles = [],
+    isLoading: stylesLoading,
+    updateStyle,
+    isUpdating: isStyleUpdating,
+    customStyle,
+    upsertCustomStyle,
+    isUpsertingCustom,
+  } = useTemplateStyles(currentProjectId || undefined);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [variables, setVariables] = useState(mockTemplateFingerprint.introVariables);
-  const [activeTab, setActiveTab] = useState("toc");
+  const [draftTemplate, setDraftTemplate] = useState<TemplateFingerprint | null>(null);
+  const [variables, setVariables] = useState<TemplateFingerprint["introVariables"]>(
+    DEFAULT_TEMPLATE_FINGERPRINT.introVariables
+  );
+  const [activeTab, setActiveTab] = useState("styles");
+  const [localSelectedStyleId, setLocalSelectedStyleId] = useState<string | null>(null);
+  const [styleDraft, setStyleDraft] = useState<TemplateStyle | null>(null);
+  const [styleDraftDirty, setStyleDraftDirty] = useState(false);
+  const [isEditingStyle, setIsEditingStyle] = useState(false);
+
+  // 上传的模板文件预览状态
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedFileType, setUploadedFileType] = useState<string | null>(null);
+  const [uploadedFileHtml, setUploadedFileHtml] = useState<string | null>(null);
+  const [isConvertingFile, setIsConvertingFile] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"file" | "style">("style");
+
+  const currentTemplate = draftTemplate;
+
+  // 自定义模板的特殊 ID 标识
+  const CUSTOM_STYLE_ID = "__custom__";
+
+  const fallbackStyle: TemplateStyle = useMemo(
+    () => ({
+      id: "fallback",
+      projectId: currentProjectId || "",
+      name: "标准模板",
+      description: null,
+      preview: {
+        primaryColor: "#111827",
+        accentColor: "#374151",
+        fontFamily: "宋体",
+        headerStyle: "classic",
+      },
+      styles: DEFAULT_TEMPLATE_FINGERPRINT.styles as Record<string, unknown>,
+      tables: DEFAULT_TEMPLATE_FINGERPRINT.tables as Record<string, unknown>,
+      page: DEFAULT_TEMPLATE_FINGERPRINT.page as Record<string, unknown>,
+    }),
+    [currentProjectId]
+  );
+
+  const selectedStyleId =
+    localSelectedStyleId || templateFingerprint?.selectedStyleId || (templateStyles.length > 0 ? templateStyles[0].id : null);
+  const rawStyle =
+    (isEditingStyle && styleDraft && styleDraft.id === selectedStyleId ? styleDraft : null)
+    || templateStyles.find((style) => style.id === selectedStyleId)
+    || templateStyles[0]
+    || fallbackStyle;
+  const currentStyle = useMemo(() => normalizeTemplateStyle(rawStyle), [rawStyle]);
+  const currentPage = currentTemplate?.page || DEFAULT_TEMPLATE_FINGERPRINT.page;
+  const currentNumbering = currentTemplate?.numbering || DEFAULT_TEMPLATE_FINGERPRINT.numbering;
+
+  const updateStyleProperty = useCallback((path: string[], value: unknown) => {
+    if (!isEditingStyle) return;
+    setStyleDraftDirty(true);
+    setStyleDraft((prev) => {
+      if (!prev) return prev;
+      const next = JSON.parse(JSON.stringify(prev)) as TemplateStyle;
+      let current: Record<string, unknown> = next as Record<string, unknown>;
+      for (let i = 0; i < path.length - 1; i++) {
+        if (!current[path[i]]) {
+          current[path[i]] = {};
+        }
+        current = current[path[i]] as Record<string, unknown>;
+      }
+      current[path[path.length - 1]] = value;
+      return next;
+    });
+  }, [isEditingStyle]);
+
+  const saveCurrentStyle = useCallback(async () => {
+    if (!styleDraft || !isEditingStyle || !currentProjectId) return;
+    try {
+      // 判断是否是自定义模板（ID 为特殊标识或有 projectId）
+      const isCustom = styleDraft.id === CUSTOM_STYLE_ID || styleDraft.projectId === currentProjectId;
+
+      if (isCustom) {
+        // 保存为项目专属自定义模板
+        const savedStyle = await upsertCustomStyle({
+          projectId: currentProjectId,
+          style: {
+            name: styleDraft.name || "自定义模板",
+            description: styleDraft.description || "仅对当前项目生效的自定义样式",
+            preview: styleDraft.preview,
+            styles: styleDraft.styles,
+            tables: styleDraft.tables,
+            page: styleDraft.page,
+          },
+        });
+        // 更新本地选中的样式 ID 为实际保存后的 ID
+        setLocalSelectedStyleId(savedStyle.id);
+        setStyleDraft({ ...styleDraft, id: savedStyle.id, projectId: savedStyle.projectId });
+        // 同步更新 templateFingerprint 的 selectedStyleId
+        await updateSelectedStyle(savedStyle.id);
+        toast.success("自定义模板已保存", { description: "样式仅对当前项目生效" });
+      } else {
+        // 更新全局模板
+        await updateStyle(styleDraft);
+        toast.success("样式已保存", { description: "模板样式已更新" });
+      }
+      setStyleDraftDirty(false);
+    } catch (error) {
+      console.error("Failed to save styles:", error);
+      toast.error("保存失败", { description: "无法保存样式配置" });
+    }
+  }, [styleDraft, updateStyle, upsertCustomStyle, isEditingStyle, currentProjectId, updateSelectedStyle, CUSTOM_STYLE_ID]);
+
+  const resetStyleToDefault = useCallback(() => {
+    const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+    if (baseStyle) {
+      setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+      setStyleDraftDirty(false);
+      toast.success("已重置为默认样式", { description: "样式已恢复为初始设置" });
+    }
+  }, [selectedStyleId, templateStyles]);
+
+  const handleSelectStyle = useCallback(
+    (styleId: string) => {
+      if (selectedStyleId === styleId) return;
+      const previous = selectedStyleId;
+      const previousDraft = styleDraft;
+      const previousDirty = styleDraftDirty;
+      setIsEditingStyle(false);
+      setLocalSelectedStyleId(styleId);
+      const nextStyle = templateStyles.find((style) => style.id === styleId);
+      if (nextStyle) {
+        setStyleDraft(JSON.parse(JSON.stringify(nextStyle)));
+        setStyleDraftDirty(false);
+      }
+      updateSelectedStyle(styleId)
+        .then((data) => {
+          setLocalSelectedStyleId(null);
+          console.info("[TemplateFingerprint] style selection saved", {
+            styleId,
+            projectId: currentProjectId,
+          });
+          toast.success("已切换模板样式", { description: "样式选择已保存" });
+        })
+        .catch((error) => {
+          console.warn("[TemplateFingerprint] style selection failed", error);
+          setLocalSelectedStyleId(previous || null);
+          setStyleDraft(previousDraft || null);
+          setStyleDraftDirty(previousDirty);
+          toast.error("保存失败，已回滚", { description: "无法保存模板样式选择" });
+        });
+    },
+    [selectedStyleId, updateSelectedStyle, templateStyles, styleDraft, styleDraftDirty, currentProjectId]
+  );
 
   const hasTemplate = chapters.length > 0;
-  const isLoading = projectLoading || chaptersLoading;
+  const isLoading = projectLoading || chaptersLoading || templateLoading || stylesLoading;
+  const hasInitializedRef = useRef(false);
+
+  useEffect(() => {
+    if (templateFingerprint) {
+      setDraftTemplate(templateFingerprint);
+    }
+  }, [templateFingerprint]);
+
+  useEffect(() => {
+    if (localSelectedStyleId) return;
+    if (templateFingerprint?.selectedStyleId) {
+      setLocalSelectedStyleId(templateFingerprint.selectedStyleId);
+      return;
+    }
+    if (templateStyles.length > 0) {
+      setLocalSelectedStyleId(templateStyles[0].id);
+    }
+  }, [templateFingerprint?.selectedStyleId, templateStyles, localSelectedStyleId]);
+
+  useEffect(() => {
+    if (styleDraftDirty || isEditingStyle) return;
+    const style = templateStyles.find((item) => item.id === selectedStyleId);
+    if (style && styleDraft?.id !== style.id) {
+      setStyleDraft(JSON.parse(JSON.stringify(style)));
+    }
+  }, [selectedStyleId, templateStyles, styleDraftDirty, styleDraft?.id, isEditingStyle]);
+
+  useEffect(() => {
+    if (draftTemplate?.introVariables) {
+      setVariables(draftTemplate.introVariables);
+    }
+  }, [draftTemplate?.introVariables]);
+
+  useEffect(() => {
+    if (!templateFingerprint || templateFingerprint.selectedStyleId || templateStyles.length === 0) return;
+    updateSelectedStyle(templateStyles[0].id).catch(() => { });
+  }, [templateFingerprint, templateStyles, updateSelectedStyle]);
+
+  useEffect(() => {
+    if (!templateFingerprint && !templateLoading && currentProjectId && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      initializeTemplate().catch((error) => {
+        console.error("[TemplateFingerprint] Initialize template failed:", error);
+        toast.error("初始化模板失败，请稍后重试");
+      });
+    }
+  }, [templateFingerprint, templateLoading, currentProjectId, initializeTemplate]);
+
+  // 清理上传的文件 URL（组件卸载或项目切换时）
+  useEffect(() => {
+    return () => {
+      if (uploadedFileUrl) {
+        URL.revokeObjectURL(uploadedFileUrl);
+      }
+    };
+  }, [uploadedFileUrl]);
 
   // Count chapters
   const countChapters = useCallback((chapters: Chapter[]): { level1: number; level2: number } => {
@@ -617,7 +861,7 @@ export default function TemplateFingerprint() {
     try {
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: DEMO_TEMPLATE_CONTENT,
+        content: "",
         filename: "标准法律尽调报告模板",
       });
       toast.success("报告模板已生成", {
@@ -650,6 +894,37 @@ export default function TemplateFingerprint() {
     // Clear input value for re-upload
     event.target.value = "";
 
+    // 创建文件预览 URL
+    const fileUrl = URL.createObjectURL(file);
+    setUploadedFileUrl(fileUrl);
+    setUploadedFileName(file.name);
+    setUploadedFileType(file.type);
+    setUploadedFileHtml(null); // 重置 HTML
+    // 保持样式效果预览模式，用户可以手动切换到原文件预览
+
+    // 如果是 Word 文件，转换为 HTML 预览
+    const isWordFile = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      || file.type === "application/msword"
+      || file.name.endsWith(".docx")
+      || file.name.endsWith(".doc");
+
+    if (isWordFile) {
+      setIsConvertingFile(true);
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setUploadedFileHtml(result.value);
+        if (result.messages.length > 0) {
+          console.log("[TemplateFingerprint] Word conversion messages:", result.messages);
+        }
+      } catch (err) {
+        console.error("[TemplateFingerprint] Word conversion error:", err);
+        toast.error("Word 文件预览转换失败", { description: "将继续解析章节结构" });
+      } finally {
+        setIsConvertingFile(false);
+      }
+    }
+
     const validTypes = [
       "application/pdf",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -664,19 +939,29 @@ export default function TemplateFingerprint() {
     }
 
     try {
-      toast.info(`正在解析 ${file.name}，AI 正在提取报告结构...`, { duration: 5000 });
+      toast.info(`正在读取 ${file.name}，AI 正在提取报告结构...`, { duration: 10000 });
 
-      // Convert file to base64 for server-side parsing
-      const fileData = await fileToBase64(file);
-      
-      console.log("[TemplateFingerprint] File converted to base64:", {
-        fileDataLength: fileData.length,
-        mimeType: file.type,
+      // Extract text from file in browser first
+      const extractedText = await extractFileText(file);
+
+      console.log("[TemplateFingerprint] Text extracted from file:", {
+        length: extractedText.length,
+        preview: extractedText.substring(0, 200),
       });
-      
+
+      // 如果浏览器提取文本不足100字，传 fileData 让服务端重新提取
+      const needServerExtract = extractedText.length < 100;
+      const fileData = needServerExtract ? await fileToBase64(file) : undefined;
+
+      console.log("[TemplateFingerprint] Sending to AI", {
+        contentLen: extractedText.length,
+        needServerExtract,
+        hasFileData: !!fileData,
+      });
+
       await parseTemplateMutation.mutateAsync({
         projectId: currentProjectId,
-        content: "", // Empty content, will use fileData for extraction
+        content: extractedText,
         filename: file.name,
         fileData,
         mimeType: file.type,
@@ -693,9 +978,18 @@ export default function TemplateFingerprint() {
     }
   };
 
-  // Handle reset template
+  // State for reset confirmation
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // Handle reset template with confirmation
   const handleResetTemplate = async () => {
     if (!currentProjectId) return;
+    setShowResetConfirm(true);
+  };
+
+  const confirmResetTemplate = async () => {
+    if (!currentProjectId) return;
+    setShowResetConfirm(false);
 
     try {
       await deleteChaptersMutation.mutateAsync(currentProjectId);
@@ -712,13 +1006,25 @@ export default function TemplateFingerprint() {
     setVariables((prev) => prev.map((v) => (v.id === id ? { ...v, value } : v)));
   };
 
-  const handleSaveVariables = () => {
-    toast.success("变量已保存", { description: "引言变量已更新" });
+  const handleSaveVariables = async () => {
+    if (!currentProjectId || !currentTemplate) return;
+    const updatedTemplate = {
+      ...currentTemplate,
+      introVariables: variables,
+    };
+    setDraftTemplate(updatedTemplate);
+    try {
+      await saveTemplate({ projectId: currentProjectId, ...updatedTemplate });
+      toast.success("变量已保存", { description: "引言变量已更新" });
+    } catch (error) {
+      console.error("[TemplateFingerprint] Save variables error:", error);
+      toast.error("保存失败");
+    }
   };
 
   // Replace variables in intro content
   const processedIntro = useMemo(() => {
-    const content = { ...mockTemplateFingerprint.introContent };
+    const content = { ...(currentTemplate?.introContent || DEFAULT_TEMPLATE_FINGERPRINT.introContent) };
     variables.forEach((v) => {
       const placeholder = `{${v.name}}`;
       const value = v.value || `[${v.placeholder}]`;
@@ -820,6 +1126,40 @@ export default function TemplateFingerprint() {
         </div>
       </div>
 
+      {/* Parsing Progress Bar */}
+      <AnimatePresence>
+        {parseTemplateMutation.isPending && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-6 py-3 bg-blue-50 border-b border-blue-200"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                <span className="text-[13px] font-medium text-blue-900">
+                  正在解析模板文件...
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  parseTemplateMutation.abort();
+                  toast.info("已取消解析");
+                }}
+                className="h-7 px-2 text-[12px] text-blue-700 hover:text-blue-900 hover:bg-blue-100"
+              >
+                <X className="w-3.5 h-3.5 mr-1" />
+                取消
+              </Button>
+            </div>
+            <Progress value={undefined} className="h-1.5" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* No template state */}
       {!hasTemplate && (
         <EmptyTemplateState
@@ -835,6 +1175,10 @@ export default function TemplateFingerprint() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border bg-background px-6">
             <TabsList className="h-12 bg-transparent p-0 gap-1">
+              <TabsTrigger value="styles" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                <Palette className="w-4 h-4" />
+                模板样式
+              </TabsTrigger>
               <TabsTrigger value="toc" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <BookOpen className="w-4 h-4" />
                 目录结构
@@ -847,80 +1191,1062 @@ export default function TemplateFingerprint() {
                 <Hash className="w-4 h-4" />
                 编号配置
               </TabsTrigger>
-              <TabsTrigger value="typography" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Type className="w-4 h-4" />
-                排版样式
-              </TabsTrigger>
-              <TabsTrigger value="tables" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <Table2 className="w-4 h-4" />
-                表格样式
-              </TabsTrigger>
               <TabsTrigger value="intro" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
                 <Edit3 className="w-4 h-4" />
                 引言编辑
               </TabsTrigger>
-              <TabsTrigger value="json" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
-                <FileCode className="w-4 h-4" />
-                JSON
-              </TabsTrigger>
+              {/* JSON Tab 暂时隐藏
+                        <TabsTrigger value="json" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none gap-2">
+                          <FileCode className="w-4 h-4" />
+                          JSON
+                        </TabsTrigger>
+*/}
             </TabsList>
           </div>
 
           {/* Tab Contents */}
           <div className="flex-1 overflow-hidden min-h-0 relative">
+            {/* Styles Tab - Template Style Selection and Editing */}
+            <TabsContent value="styles" className="absolute inset-0 m-0">
+              <div className="absolute inset-0 flex">
+                {/* Left: Style list */}
+                <div className="w-72 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">模板样式</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      选择并编辑样式配置
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-3 space-y-2">
+                      {/* 全局模板列表（排除项目专属的自定义模板） */}
+                      {templateStyles.filter(s => !s.projectId).map((style) => {
+                        const displayStyle =
+                          isEditingStyle && style.id === selectedStyleId && styleDraft?.id === style.id ? styleDraft : style;
+                        return (
+                          <div
+                            key={style.id}
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-colors",
+                              selectedStyleId === style.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-muted-foreground/50 bg-card"
+                            )}
+                            onClick={() => handleSelectStyle(style.id)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-border overflow-hidden">
+                                <div
+                                  className="h-1/2"
+                                  style={{ backgroundColor: displayStyle.preview?.primaryColor || "#111827" }}
+                                />
+                                <div
+                                  className="h-1/2"
+                                  style={{ backgroundColor: displayStyle.preview?.accentColor || "#374151" }}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">{displayStyle.name}</h4>
+                                  {selectedStyleId === style.id && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {displayStyle.preview.fontFamily}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* 分隔线 */}
+                      <div className="border-t border-border my-2" />
+
+                      {/* 自定义模板选项 */}
+                      {(() => {
+                        const isCustomSelected = selectedStyleId === CUSTOM_STYLE_ID || (customStyle && selectedStyleId === customStyle.id);
+                        const displayCustomStyle = isCustomSelected && styleDraft ? styleDraft : (customStyle || templateStyles[0]);
+                        return (
+                          <div
+                            className={cn(
+                              "p-3 rounded-lg border-2 cursor-pointer transition-colors",
+                              isCustomSelected
+                                ? "border-primary bg-primary/5"
+                                : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50 bg-muted/10"
+                            )}
+                            onClick={() => {
+                              if (customStyle) {
+                                handleSelectStyle(customStyle.id);
+                              } else {
+                                // 没有自定义模板时，使用特殊 ID 并进入编辑模式
+                                setLocalSelectedStyleId(CUSTOM_STYLE_ID);
+                                const baseStyle = templateStyles[0] || fallbackStyle;
+                                setStyleDraft({
+                                  ...JSON.parse(JSON.stringify(baseStyle)),
+                                  id: CUSTOM_STYLE_ID,
+                                  name: "自定义模板",
+                                  description: "仅对当前项目生效的自定义样式",
+                                  projectId: currentProjectId,
+                                });
+                                setStyleDraftDirty(true);
+                                setIsEditingStyle(true);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded border border-dashed border-muted-foreground/30 overflow-hidden relative bg-muted/20">
+                                {customStyle ? (
+                                  <>
+                                    <div
+                                      className="absolute inset-x-0 top-0 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.primaryColor || "#111827" }}
+                                    />
+                                    <div
+                                      className="absolute inset-x-0 bottom-0 h-1/2"
+                                      style={{ backgroundColor: displayCustomStyle?.preview?.accentColor || "#374151" }}
+                                    />
+                                  </>
+                                ) : (
+                                  <span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground">+</span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-[12px] font-semibold truncate">
+                                    {customStyle ? customStyle.name : "自定义模板"}
+                                  </h4>
+                                  {isCustomSelected && (
+                                    <Badge variant="default" className="text-[9px] px-1">
+                                      当前
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline" className="text-[9px] px-1 text-muted-foreground">
+                                    仅本项目
+                                  </Badge>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  {customStyle ? (displayCustomStyle?.preview?.fontFamily || "自定义") : "基于其他模板创建专属样式"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Middle: Style Editor */}
+                <div className="w-80 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Edit3 className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">编辑样式</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => resetStyleToDefault()}
+                          disabled={!isEditingStyle}
+                        >
+                          重置
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => {
+                            const next = !isEditingStyle;
+                            setIsEditingStyle(next);
+                            if (next) {
+                              // 如果已有 styleDraft 且和当前选中样式ID匹配，保留当前编辑状态
+                              // 否则从 templateStyles 获取基础样式
+                              if (!styleDraft || styleDraft.id !== selectedStyleId) {
+                                const baseStyle = templateStyles.find((style) => style.id === selectedStyleId) || templateStyles[0];
+                                if (baseStyle) {
+                                  setStyleDraft(JSON.parse(JSON.stringify(baseStyle)));
+                                  setStyleDraftDirty(false);
+                                }
+                              }
+                              // 如果已有匹配的 styleDraft，保持不变，继续编辑
+                            } else {
+                              // 停止编辑时不重置 dirty 状态，保留修改
+                            }
+                          }}
+                        >
+                          {isEditingStyle ? "停止编辑" : "编辑"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={saveCurrentStyle}
+                          disabled={!isEditingStyle || !styleDraftDirty || isStyleUpdating || isUpsertingCustom}
+                        >
+                          {isStyleUpdating || isUpsertingCustom ? "保存中..." : "保存"}
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {currentStyle.name}
+                    </p>
+                  </div>
+                  <ScrollArea className="h-0 grow">
+                    <div className="p-4 space-y-6">
+                      {/* Basic Info */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">基本信息</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-[11px]">样式名称</Label>
+                            <Input
+                              value={currentStyle.name}
+                              onChange={(e) => updateStyleProperty(['name'], e.target.value)}
+                              className="h-8 text-[12px] mt-1"
+                              disabled={!isEditingStyle}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">主色调</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input
+                                type="color"
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
+                                disabled={!isEditingStyle}
+                              />
+                              <Input
+                                value={currentStyle.preview.primaryColor}
+                                onChange={(e) => updateStyleProperty(['preview', 'primaryColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">辅助色</Label>
+                            <div className="flex gap-2 mt-1">
+                              <Input
+                                type="color"
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(['preview', 'accentColor'], e.target.value)}
+                                className="h-8 w-12 p-1"
+                                disabled={!isEditingStyle}
+                              />
+                              <Input
+                                value={currentStyle.preview.accentColor}
+                                onChange={(e) => updateStyleProperty(['preview', 'accentColor'], e.target.value)}
+                                className="h-8 text-[12px] flex-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Heading Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">标题样式 (H1)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select
+                                value={currentStyle.styles.h1.font}
+                                onValueChange={(v) => updateStyleProperty(['styles', 'h1', 'font'], v)}
+                                disabled={!isEditingStyle}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input
+                                type="number"
+                                value={currentStyle.styles.h1.sizePt}
+                                onChange={(e) => updateStyleProperty(['styles', 'h1', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 text-[11px]">
+                              <input
+                                type="checkbox"
+                                checked={currentStyle.styles.h1.bold}
+                                onChange={(e) => updateStyleProperty(['styles', 'h1', 'bold'], e.target.checked)}
+                                className="rounded"
+                                disabled={!isEditingStyle}
+                              />
+                              加粗
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* H2 Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">二级标题 (H2)</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select
+                                value={currentStyle.styles.h2.font}
+                                onValueChange={(v) => updateStyleProperty(['styles', 'h2', 'font'], v)}
+                                disabled={!isEditingStyle}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input
+                                type="number"
+                                value={currentStyle.styles.h2.sizePt}
+                                onChange={(e) => updateStyleProperty(['styles', 'h2', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Body Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">正文样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">字体</Label>
+                              <Select
+                                value={currentStyle.styles.body.font}
+                                onValueChange={(v) => updateStyleProperty(['styles', 'body', 'font'], v)}
+                                disabled={!isEditingStyle}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="宋体">宋体</SelectItem>
+                                  <SelectItem value="黑体">黑体</SelectItem>
+                                  <SelectItem value="楷体">楷体</SelectItem>
+                                  <SelectItem value="仿宋">仿宋</SelectItem>
+                                  <SelectItem value="微软雅黑">微软雅黑</SelectItem>
+                                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">字号 (pt)</Label>
+                              <Input
+                                type="number"
+                                value={currentStyle.styles.body.sizePt}
+                                onChange={(e) => updateStyleProperty(['styles', 'body', 'sizePt'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">行距</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.lineSpacing}
+                                onChange={(e) => updateStyleProperty(['styles', 'body', 'lineSpacing'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">首行缩进 (cm)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                value={currentStyle.styles.body.firstLineIndentCm}
+                                onChange={(e) => updateStyleProperty(['styles', 'body', 'firstLineIndentCm'], Number(e.target.value))}
+                                className="h-8 text-[12px] mt-1"
+                                disabled={!isEditingStyle}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px]">对齐方式</Label>
+                            <Select
+                              value={currentStyle.styles.body.align}
+                              onValueChange={(v) => updateStyleProperty(['styles', 'body', 'align'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="left">左对齐</SelectItem>
+                                <SelectItem value="center">居中</SelectItem>
+                                <SelectItem value="right">右对齐</SelectItem>
+                                <SelectItem value="justify">两端对齐</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Table Styles */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">表格样式</h4>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[11px]">边框样式</Label>
+                              <Select
+                                value={currentStyle.tables.default.border}
+                                onValueChange={(v) => updateStyleProperty(['tables', 'default', 'border'], v)}
+                                disabled={!isEditingStyle}
+                              >
+                                <SelectTrigger className="h-8 text-[12px] mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="single">单线边框</SelectItem>
+                                  <SelectItem value="threeLines">三线表</SelectItem>
+                                  <SelectItem value="none">无边框</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px]">表头背景色</Label>
+                              <div className="flex gap-1 mt-1">
+                                <Input
+                                  type="color"
+                                  value={currentStyle.tables.default.headerFill === "transparent" ? "#ffffff" : currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 w-10 p-1"
+                                  disabled={!isEditingStyle}
+                                />
+                                <Input
+                                  value={currentStyle.tables.default.headerFill}
+                                  onChange={(e) => updateStyleProperty(['tables', 'default', 'headerFill'], e.target.value)}
+                                  className="h-8 text-[11px] flex-1"
+                                  disabled={!isEditingStyle}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Decorations */}
+                      <div>
+                        <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">装饰素材</h4>
+                        <div className="space-y-3">
+                          {/* Header Decoration */}
+                          <div>
+                            <Label className="text-[11px]">页眉装饰</Label>
+                            <Select
+                              value={currentStyle.preview.headerDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'headerDecoration'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="line">简约线条</SelectItem>
+                                <SelectItem value="double-line">双线装饰</SelectItem>
+                                <SelectItem value="gradient">渐变色带</SelectItem>
+                                <SelectItem value="pattern">几何图案</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Section Divider */}
+                          <div>
+                            <Label className="text-[11px]">章节分隔线</Label>
+                            <Select
+                              value={currentStyle.preview.sectionDivider || "simple"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'sectionDivider'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="simple">简单线条</SelectItem>
+                                <SelectItem value="dotted">点线</SelectItem>
+                                <SelectItem value="diamond">菱形装饰</SelectItem>
+                                <SelectItem value="wave">波浪线</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Quote Style */}
+                          <div>
+                            <Label className="text-[11px]">引用块��式</Label>
+                            <Select
+                              value={currentStyle.preview.quoteStyle || "border-left"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'quoteStyle'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="border-left">左边框</SelectItem>
+                                <SelectItem value="background">背景填充</SelectItem>
+                                <SelectItem value="quotes">引号装饰</SelectItem>
+                                <SelectItem value="bracket">方括号</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Title Decoration */}
+                          <div>
+                            <Label className="text-[11px]">标题装饰</Label>
+                            <Select
+                              value={currentStyle.preview.titleDecoration || "none"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'titleDecoration'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="underline">下划线</SelectItem>
+                                <SelectItem value="box">方框</SelectItem>
+                                <SelectItem value="ribbon">丝带效果</SelectItem>
+                                <SelectItem value="badge">徽章样式</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Page Corner */}
+                          <div>
+                            <Label className="text-[11px]">页面角标</Label>
+                            <Select
+                              value={currentStyle.preview.pageCorner || "none"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'pageCorner'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">无</SelectItem>
+                                <SelectItem value="fold">折角效果</SelectItem>
+                                <SelectItem value="stamp">印章图标</SelectItem>
+                                <SelectItem value="watermark">水印文字</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* List Bullet Style */}
+                          <div>
+                            <Label className="text-[11px]">列表项目符号</Label>
+                            <Select
+                              value={currentStyle.preview.bulletStyle || "disc"}
+                              onValueChange={(v) => updateStyleProperty(['preview', 'bulletStyle'], v)}
+                              disabled={!isEditingStyle}
+                            >
+                              <SelectTrigger className="h-8 text-[12px] mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="disc">实心圆点</SelectItem>
+                                <SelectItem value="circle">空心圆点</SelectItem>
+                                <SelectItem value="square">方块</SelectItem>
+                                <SelectItem value="arrow">箭头</SelectItem>
+                                <SelectItem value="check">勾选标记</SelectItem>
+                                <SelectItem value="number">数字序号</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                {/* Right: Style preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[13px] font-medium">实时预览</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* 预览模式切换按钮 */}
+                        {uploadedFileUrl && (
+                          <div className="flex rounded-md border border-border overflow-hidden">
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "file" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("file")}
+                            >
+                              上传文件
+                            </button>
+                            <button
+                              className={cn(
+                                "px-2 py-1 text-[10px] transition-colors",
+                                previewMode === "style" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              样式效果
+                            </button>
+                          </div>
+                        )}
+                        <Badge variant="outline" className="text-[10px]">
+                          {previewMode === "file" && uploadedFileName ? uploadedFileName : currentStyle.name}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 文件预览模式 */}
+                  {previewMode === "file" && uploadedFileUrl && (
+                    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                      {/* PDF 预览 */}
+                      {uploadedFileType?.includes("pdf") && (
+                        <iframe
+                          src={uploadedFileUrl}
+                          className="w-full h-full border-0"
+                          title="PDF 预览"
+                        />
+                      )}
+
+                      {/* Word 文件预览 - 转换中 */}
+                      {!uploadedFileType?.includes("pdf") && isConvertingFile && (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+                            <p className="text-sm text-muted-foreground">
+                              正在转换 Word 文档...
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Word 文件预览 - 已转换 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && uploadedFileHtml && (
+                        <ScrollArea className="h-full">
+                          <div className="p-6">
+                            <div className="max-w-3xl mx-auto bg-white border border-border shadow-sm p-8">
+                              <div
+                                className="prose prose-sm max-w-none word-preview"
+                                dangerouslySetInnerHTML={{ __html: uploadedFileHtml }}
+                                style={{
+                                  fontSize: '12pt',
+                                  lineHeight: 1.6,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </ScrollArea>
+                      )}
+
+                      {/* Word 文件预览 - 转换失败 */}
+                      {!uploadedFileType?.includes("pdf") && !isConvertingFile && !uploadedFileHtml && (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                          <div className="text-center">
+                            <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                            <p className="text-sm font-medium mb-2">
+                              {uploadedFileName}
+                            </p>
+                            <p className="text-xs text-muted-foreground mb-4">
+                              无法预览此文件格式，请切换到"样式效果"查看章节预览
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPreviewMode("style")}
+                            >
+                              查看样式效果
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 样式预览模式 */}
+                  {(previewMode === "style" || !uploadedFileUrl) && (
+                    <ScrollArea className="h-0 grow">
+                      <div className="p-8">
+                        <div
+                          key={`${currentStyle.id}-${JSON.stringify(currentStyle.styles.h1)}-${currentStyle.preview.primaryColor}`}
+                          className="max-w-2xl mx-auto bg-card border border-border shadow-sm"
+                          style={{
+                            padding: `${currentStyle.page.margin.top}cm ${currentStyle.page.margin.right}cm`,
+                            minHeight: "600px"
+                          }}
+                        >
+                          {/* Header Decoration */}
+                          {currentStyle.preview.headerDecoration && currentStyle.preview.headerDecoration !== 'none' && (
+                            <div className="mb-4">
+                              {currentStyle.preview.headerDecoration === 'line' && (
+                                <div className="h-1 rounded-full" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                              )}
+                              {currentStyle.preview.headerDecoration === 'double-line' && (
+                                <div className="space-y-1">
+                                  <div className="h-0.5" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                  <div className="h-1" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                </div>
+                              )}
+                              {currentStyle.preview.headerDecoration === 'gradient' && (
+                                <div
+                                  className="h-2 rounded-full"
+                                  style={{
+                                    background: `linear-gradient(90deg, ${currentStyle.preview.primaryColor}, ${currentStyle.preview.accentColor || currentStyle.preview.secondaryColor})`
+                                  }}
+                                />
+                              )}
+                              {currentStyle.preview.headerDecoration === 'pattern' && (
+                                <div className="flex items-center gap-1">
+                                  {Array.from({ length: 12 }).map((_, i) => (
+                                    <div
+                                      key={i}
+                                      className="flex-1 h-2"
+                                      style={{
+                                        backgroundColor: i % 2 === 0 ? currentStyle.preview.primaryColor : 'transparent',
+                                        transform: 'skewX(-15deg)'
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Page Corner Decoration */}
+                          {currentStyle.preview.pageCorner && currentStyle.preview.pageCorner !== 'none' && (
+                            <div className="absolute top-4 right-4">
+                              {currentStyle.preview.pageCorner === 'fold' && (
+                                <div
+                                  className="w-8 h-8"
+                                  style={{
+                                    background: `linear-gradient(135deg, transparent 50%, ${currentStyle.preview.primaryColor}20 50%)`,
+                                    borderBottomLeftRadius: '8px',
+                                  }}
+                                />
+                              )}
+                              {currentStyle.preview.pageCorner === 'stamp' && (
+                                <div
+                                  className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-[8px] font-bold opacity-30"
+                                  style={{
+                                    borderColor: currentStyle.preview.primaryColor,
+                                    color: currentStyle.preview.primaryColor,
+                                  }}
+                                >
+                                  LEGAL
+                                </div>
+                              )}
+                              {currentStyle.preview.pageCorner === 'watermark' && (
+                                <div
+                                  className="text-[10px] font-bold opacity-10 transform rotate-[-30deg]"
+                                  style={{ color: currentStyle.preview.primaryColor }}
+                                >
+                                  CONFIDENTIAL
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Report Header Preview */}
+                          <div
+                            className={cn(
+                              "text-center mb-8 pb-4",
+                              currentStyle.preview.titleDecoration === 'box' && "border-2 p-4 rounded",
+                              currentStyle.preview.titleDecoration === 'ribbon' && "relative",
+                              currentStyle.preview.titleDecoration === 'underline' && "border-b-2",
+                              (!currentStyle.preview.titleDecoration || currentStyle.preview.titleDecoration === 'none') && "border-b-2"
+                            )}
+                            style={{
+                              borderColor: currentStyle.preview.primaryColor,
+                              backgroundColor: currentStyle.preview.titleDecoration === 'box' ? `${currentStyle.preview.primaryColor}08` : 'transparent'
+                            }}
+                          >
+                            {currentStyle.preview.titleDecoration === 'badge' && (
+                              <div
+                                className="inline-block px-4 py-1 rounded-full text-[10px] mb-3"
+                                style={{
+                                  backgroundColor: `${currentStyle.preview.primaryColor}15`,
+                                  color: currentStyle.preview.primaryColor,
+                                }}
+                              >
+                                法律文书
+                              </div>
+                            )}
+                            {currentStyle.preview.titleDecoration === 'ribbon' && (
+                              <div
+                                className="absolute -left-2 top-0 w-1 h-full rounded-r"
+                                style={{ backgroundColor: currentStyle.preview.primaryColor }}
+                              />
+                            )}
+                            <h1
+                              style={{
+                                fontFamily: currentStyle.styles.h1.font,
+                                fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                                fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                                color: currentStyle.preview.primaryColor,
+                                marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                                textDecoration: currentStyle.preview.titleDecoration === 'underline' ? 'none' : 'none',
+                              }}
+                            >
+                              法律尽职调查报告
+                            </h1>
+                            <p
+                              style={{
+                                fontFamily: currentStyle.styles.body.font,
+                                fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                color: "#666",
+                              }}
+                            >
+                              {currentProject?.target || "目标公司名称"}
+                            </p>
+                          </div>
+
+                          {/* Real chapters preview - show ALL chapters with their children */}
+                          {chapters.map((chapter, chapterIdx) => (
+                            <div key={chapter.id} className="mb-6 pt-4">
+                              {/* Section Divider (not for first chapter) */}
+                              {chapterIdx > 0 && (
+                                <>
+                                  {(!currentStyle.preview.sectionDivider || currentStyle.preview.sectionDivider === 'simple') && (
+                                    <div className="mb-4 border-t" style={{ borderColor: currentStyle.preview.primaryColor + '30' }} />
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'dotted' && (
+                                    <div className="mb-4 border-t border-dotted" style={{ borderColor: currentStyle.preview.primaryColor + '60' }} />
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'diamond' && (
+                                    <div className="mb-4 flex items-center gap-2">
+                                      <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                      <div className="w-2 h-2 transform rotate-45" style={{ backgroundColor: currentStyle.preview.primaryColor }} />
+                                      <div className="flex-1 h-px" style={{ backgroundColor: currentStyle.preview.primaryColor + '30' }} />
+                                    </div>
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'wave' && (
+                                    <div className="mb-4">
+                                      <svg viewBox="0 0 100 8" className="w-full h-2" preserveAspectRatio="none">
+                                        <path d="M0,4 Q10,0 20,4 T40,4 T60,4 T80,4 T100,4" fill="none" stroke={currentStyle.preview.primaryColor + '60'} strokeWidth="1" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                  {currentStyle.preview.sectionDivider === 'none' && <div className="mb-4" />}
+                                </>
+                              )}
+
+                              {/* Chapter H1 */}
+                              <h2
+                                style={{
+                                  fontFamily: currentStyle.styles.h1.font,
+                                  fontSize: `${currentStyle.styles.h1.sizePt}pt`,
+                                  fontWeight: currentStyle.styles.h1.bold ? "bold" : "normal",
+                                  color: currentStyle.preview.primaryColor,
+                                  marginBottom: `${currentStyle.styles.h1.spaceAfterPt}pt`,
+                                }}
+                              >
+                                {chapter.number && chapter.number !== chapter.title ? `${chapter.number}、` : ""}{chapter.title}
+                              </h2>
+
+                              {/* Chapter description/content */}
+                              <p
+                                style={{
+                                  fontFamily: currentStyle.styles.body.font,
+                                  fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                  lineHeight: currentStyle.styles.body.lineSpacing,
+                                  textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                  textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                  marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                  color: "#444",
+                                }}
+                              >
+                                {chapter.description || `本章将对${chapter.title}相关事项进行详细核查和分析，包括相关文件的合规性审查、法律风险识别及应对建议等内容。`}
+                              </p>
+
+                              {/* Sub-chapters H2 - show ALL children */}
+                              {chapter.children && chapter.children.map((child) => (
+                                <div key={child.id}>
+                                  <h3
+                                    style={{
+                                      fontFamily: currentStyle.styles.h2.font,
+                                      fontSize: `${currentStyle.styles.h2.sizePt}pt`,
+                                      fontWeight: currentStyle.styles.h2.bold ? "bold" : "normal",
+                                      color: currentStyle.preview.secondaryColor,
+                                      marginTop: `${currentStyle.styles.h2.spaceBeforePt}pt`,
+                                      marginBottom: `${currentStyle.styles.h2.spaceAfterPt}pt`,
+                                    }}
+                                  >
+                                    {child.number && child.number !== child.title ? `${child.number} ` : ""}{child.title}
+                                  </h3>
+                                  {/* Sub-chapter content - always show */}
+                                  <p
+                                    style={{
+                                      fontFamily: currentStyle.styles.body.font,
+                                      fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                      lineHeight: currentStyle.styles.body.lineSpacing,
+                                      textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                      textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                      marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                      color: "#555",
+                                    }}
+                                  >
+                                    {child.description || `针对${child.title}，我们核查了相关文件资料，审阅了公司提供的证明材料，并对关键事项进行了法律分析。`}
+                                  </p>
+
+                                  {/* Show H3 level children if exist */}
+                                  {child.children && child.children.map((subChild) => (
+                                    <div key={subChild.id} className="ml-4">
+                                      <h4
+                                        style={{
+                                          fontFamily: currentStyle.styles.h3?.font || currentStyle.styles.h2.font,
+                                          fontSize: `${currentStyle.styles.h3?.sizePt || Number(currentStyle.styles.h2.sizePt) - 2}pt`,
+                                          fontWeight: currentStyle.styles.h3?.bold ? "bold" : "normal",
+                                          color: currentStyle.preview.secondaryColor,
+                                          marginTop: `${currentStyle.styles.h3?.spaceBeforePt || 6}pt`,
+                                          marginBottom: `${currentStyle.styles.h3?.spaceAfterPt || 4}pt`,
+                                        }}
+                                      >
+                                        {subChild.number && subChild.number !== subChild.title ? `${subChild.number} ` : ""}{subChild.title}
+                                      </h4>
+                                      {/* H3 level content - always show */}
+                                      <p
+                                        style={{
+                                          fontFamily: currentStyle.styles.body.font,
+                                          fontSize: `${currentStyle.styles.body.sizePt}pt`,
+                                          lineHeight: currentStyle.styles.body.lineSpacing,
+                                          textIndent: `${currentStyle.styles.body.firstLineIndentCm}cm`,
+                                          textAlign: currentStyle.styles.body.align as "justify" | "left" | "center" | "right" || "justify",
+                                          marginBottom: `${currentStyle.styles.body.spaceAfterPt}pt`,
+                                          color: "#666",
+                                        }}
+                                      >
+                                        {subChild.description || `经核查，${subChild.title}相关情况如下：（此处将显示具体核查内容和法律意见）`}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+
+                          {/* Footer showing total count */}
+                          {chapters.length > 0 && (
+                            <div
+                              className="mt-6 pt-4 border-t text-center text-[11px]"
+                              style={{
+                                borderColor: currentStyle.preview.primaryColor + '20',
+                                color: currentStyle.preview.primaryColor + '80',
+                              }}
+                            >
+                              共 {chapters.length} 个一级章节
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+
             {/* TOC Tab - Real Data */}
             <TabsContent value="toc" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Chapter list */}
-              <div className="w-5/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">报告目录</span>
+                {/* Left: Chapter list */}
+                <div className="w-5/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">报告目录</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    共 {chapterCounts.level1} 个一级章节 · {chapterCounts.level2} 个二级章节
-                  </p>
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <ChapterTree chapters={chapters} />
+                  </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <ChapterTree chapters={chapters} />
-                </div>
-              </div>
 
-              {/* Right: TOC preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">目录预览</span>
+                {/* Right: TOC preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">目录预览</span>
+                    </div>
                   </div>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
-                    <div className="space-y-2 text-[14px]">
-                      {chapters.map((chapter, idx) => (
-                        <div key={chapter.id}>
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono w-8">{chapter.number || String(idx + 1)}</span>
-                            <span className="flex-1 font-semibold">{chapter.title}</span>
-                            <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                            <span className="text-muted-foreground">1</span>
-                          </div>
-                          {chapter.children?.map((child, childIdx) => (
-                            <div key={child.id} className="flex items-baseline gap-2 ml-8 mt-1">
-                              <span className="font-mono w-8">{child.number || `${idx + 1}.${childIdx + 1}`}</span>
-                              <span className="flex-1">{child.title}</span>
-                              <span className="text-muted-foreground border-b border-dotted border-muted-foreground flex-1 mx-2" />
-                              <span className="text-muted-foreground">1</span>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-2xl font-bold text-center mb-8">目 录</h1>
+                      <div className="space-y-2 text-[14px]">
+                        {chapters.map((chapter) => (
+                          <div key={chapter.id}>
+                            <div className="flex items-baseline gap-2">
+                              {/* 有编号时单独展示编号列，无编号则列保持空白 */}
+                              <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                {chapter.number && chapter.number !== chapter.title ? chapter.number : ""}
+                              </span>
+                              <span className="flex-1 font-semibold">{chapter.title}</span>
+                              <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                              <span className="text-muted-foreground flex-shrink-0">1</span>
                             </div>
-                          ))}
-                        </div>
-                      ))}
+                            {chapter.children?.map((child) => (
+                              <div key={child.id} className="flex items-baseline gap-2 ml-10 mt-1">
+                                <span className="font-mono w-10 flex-shrink-0 text-muted-foreground">
+                                  {child.number && child.number !== child.title ? child.number : ""}
+                                </span>
+                                <span className="flex-1">{child.title}</span>
+                                <span className="border-b border-dotted border-muted-foreground flex-1 mx-2" />
+                                <span className="text-muted-foreground flex-shrink-0">1</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
@@ -941,7 +2267,7 @@ export default function TemplateFingerprint() {
                       </div>
                     </div>
                   </motion.div>
-                  <PageSettingsPanel page={mockTemplateFingerprint.page} />
+                  <PageSettingsPanel page={currentPage} />
                 </div>
               </div>
             </TabsContent>
@@ -963,122 +2289,7 @@ export default function TemplateFingerprint() {
                       </div>
                     </div>
                   </motion.div>
-                  <NumberingPanel numbering={mockTemplateFingerprint.numbering} />
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Typography Tab */}
-            <TabsContent value="typography" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8 space-y-6">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3"
-                  >
-                    <Palette className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">排版样式已提取</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        以下样式Token从样本报告中自动提取，将应用于最终生成的DOCX报告。样式已锁定。
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      标题样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="一级标��� H1" token={mockTemplateFingerprint.styles.h1} description="用于报告主要章节标题" />
-                      <StyleTokenCard label="二级标题 H2" token={mockTemplateFingerprint.styles.h2} description="用于章节下的子���题" />
-                      <StyleTokenCard label="三级标题 H3" token={mockTemplateFingerprint.styles.h3} description="用于细分内容标题" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <AlignJustify className="w-4 h-4" />
-                      正文样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard label="正文 Body" token={mockTemplateFingerprint.styles.body} description="报告主体内容的段落样式" />
-                      <StyleTokenCard label="引用 Quote" token={mockTemplateFingerprint.styles.quote} description="用于引用原始文件内容" />
-                      <StyleTokenCard label="图注 Caption" token={mockTemplateFingerprint.styles.caption} description="图表的标题和注释" />
-                      <StyleTokenCard label="脚注 Footnote" token={mockTemplateFingerprint.styles.footnote} description="页面底部的脚注文字" />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <List className="w-4 h-4" />
-                      列表样式
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <StyleTokenCard
-                        label="无序列表 Bullet"
-                        token={{
-                          glyph: mockTemplateFingerprint.lists.bullet.glyph,
-                          indentLeftCm: mockTemplateFingerprint.lists.bullet.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.bullet.hangingCm,
-                        }}
-                      />
-                      <StyleTokenCard
-                        label="有序列表 Ordered"
-                        token={{
-                          format: mockTemplateFingerprint.lists.ordered.format,
-                          indentLeftCm: mockTemplateFingerprint.lists.ordered.indentLeftCm,
-                          hangingCm: mockTemplateFingerprint.lists.ordered.hangingCm,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div>
-                    <h3 className="text-[15px] font-semibold mb-4 flex items-center gap-2">
-                      <Image className="w-4 h-4" />
-                      图表样式
-                    </h3>
-                    <StyleTokenCard
-                      label="图表设置 Figures"
-                      token={{
-                        captionFormat: mockTemplateFingerprint.figures.captionFormat,
-                        captionStyle: mockTemplateFingerprint.figures.captionStyle,
-                        placeCaption: mockTemplateFingerprint.figures.placeCaption === "below" ? "图下方" : "图上方",
-                        maxWidthPercent: `${mockTemplateFingerprint.figures.maxWidthPercent}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Tables Tab */}
-            <TabsContent value="tables" className="absolute inset-0 m-0">
-              <div className="absolute inset-0 overflow-y-auto">
-                <div className="max-w-4xl mx-auto p-8">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-blue-50 border border-blue-200 rounded flex items-start gap-3 mb-6"
-                  >
-                    <Table2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-[13px] text-blue-900">表格样式</div>
-                      <div className="text-[12px] text-blue-700 mt-0.5">
-                        定义报告中表格的边框、颜色、字体等样式，确保与样本一致。
-                      </div>
-                    </div>
-                  </motion.div>
-                  <TableStylePanel tables={mockTemplateFingerprint.tables} />
+                  <NumberingPanel numbering={currentNumbering} />
                 </div>
               </div>
             </TabsContent>
@@ -1086,89 +2297,89 @@ export default function TemplateFingerprint() {
             {/* Intro Tab */}
             <TabsContent value="intro" className="absolute inset-0 m-0">
               <div className="absolute inset-0 flex">
-              {/* Left: Variables */}
-              <div className="w-4/12 border-r border-border flex flex-col min-h-0">
-                <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
-                  <div className="flex items-center gap-2">
-                    <Edit3 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">可编辑变量</span>
+                {/* Left: Variables */}
+                <div className="w-4/12 border-r border-border flex flex-col min-h-0">
+                  <div className="shrink-0 px-4 py-3 border-b border-border bg-surface-subtle">
+                    <div className="flex items-center gap-2">
+                      <Edit3 className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">可编辑变量</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      填写变量值，将自动替换引言中的占位符
+                    </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    填写变量值，将自动替换引言中的占位符
-                  </p>
-                </div>
-                <div className="h-0 grow overflow-y-auto p-4">
-                  <div className="space-y-4">
-                    {variables.map((v) => (
-                      <div key={v.id}>
-                        <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
-                          {v.name}
-                          {v.required && <span className="text-red-500">*</span>}
-                        </Label>
-                        <Input
-                          value={v.value}
-                          onChange={(e) => handleVariableChange(v.id, e.target.value)}
-                          placeholder={v.placeholder}
-                          className="mt-1"
-                        />
-                      </div>
-                    ))}
+                  <div className="h-0 grow overflow-y-auto p-4">
+                    <div className="space-y-4">
+                      {variables.map((v) => (
+                        <div key={v.id}>
+                          <Label className="text-[12px] text-muted-foreground flex items-center gap-1">
+                            {v.name}
+                            {v.required && <span className="text-red-500">*</span>}
+                          </Label>
+                          <Input
+                            value={v.value}
+                            onChange={(e) => handleVariableChange(v.id, e.target.value)}
+                            placeholder={v.placeholder}
+                            className="mt-1"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 p-4 border-t border-border">
-                  <Button onClick={handleSaveVariables} className="w-full gap-2">
-                    <Save className="w-4 h-4" />
-                    保存变量
-                  </Button>
-                </div>
-              </div>
-
-              {/* Right: Intro preview */}
-              <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
-                <div className="shrink-0 px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">引言预览</span>
+                  <div className="shrink-0 p-4 border-t border-border">
+                    <Button onClick={handleSaveVariables} className="w-full gap-2">
+                      <Save className="w-4 h-4" />
+                      保存变量
+                    </Button>
                   </div>
                 </div>
-                <div className="h-0 grow overflow-y-auto p-8">
-                  <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
-                    <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.background}
-                      </p>
-                    </section>
+                {/* Right: Intro preview */}
+                <div className="flex-1 flex flex-col min-h-0 bg-surface-subtle/30">
+                  <div className="shrink-0 px-4 py-3 border-b border-border">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[13px] font-medium">引言预览</span>
+                    </div>
+                  </div>
+                  <div className="h-0 grow overflow-y-auto p-8">
+                    <div className="max-w-2xl mx-auto bg-card border border-border shadow-sm p-12">
+                      <h1 className="text-xl font-bold mb-8">引 言</h1>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.scope}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">一、项目背景</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.background}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.methodology}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">二、工作范围</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.scope}
+                        </p>
+                      </section>
 
-                    <section className="mb-6">
-                      <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
-                      <p className="text-[13px] leading-relaxed text-justify indent-8">
-                        {processedIntro.disclaimer}
-                      </p>
-                    </section>
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">三、尽调方法</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.methodology}
+                        </p>
+                      </section>
+
+                      <section className="mb-6">
+                        <h2 className="text-[15px] font-bold mb-3">四、免责声明</h2>
+                        <p className="text-[13px] leading-relaxed text-justify indent-8">
+                          {processedIntro.disclaimer}
+                        </p>
+                      </section>
+                    </div>
                   </div>
                 </div>
-              </div>
               </div>
             </TabsContent>
 
-            {/* JSON Tab */}
+            {/* JSON Tab 暂时隐藏
             <TabsContent value="json" className="absolute inset-0 m-0">
               <div className="absolute inset-0 overflow-y-auto">
                 <div className="max-w-5xl mx-auto p-8">
@@ -1207,9 +2418,28 @@ export default function TemplateFingerprint() {
                 </div>
               </div>
             </TabsContent>
+*/}
           </div>
         </Tabs>
       )}
+
+      {/* Reset Template Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置模板？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作将删除当前所有章节结构，此操作无法撤销。您确定要继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmResetTemplate} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              确认重置
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

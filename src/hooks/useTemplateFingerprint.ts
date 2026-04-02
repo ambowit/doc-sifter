@@ -1,14 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { mockTemplateFingerprint, type TemplateFingerprint as MockTemplateType } from "@/lib/reportMockData";
-
-// Re-export the complete template type from mockData
-export type TemplateFingerprint = MockTemplateType & {
-  id?: string;
-  projectId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+import { normalizeSupabaseError } from "@/lib/errorUtils";
+import {
+  DEFAULT_TEMPLATE_FINGERPRINT,
+  createDefaultTemplateFingerprint,
+  type TemplateFingerprint,
+} from "@/lib/templateDefaults";
 
 interface DbTemplateFingerprint {
   id: string;
@@ -28,6 +25,7 @@ interface DbTemplateFingerprint {
   section_blueprints: Record<string, unknown> | null;
   intro_variables: unknown[] | null;
   intro_content: Record<string, unknown> | null;
+  selected_style_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,30 +33,36 @@ interface DbTemplateFingerprint {
 // Transform DB record to frontend format, merging with defaults
 function transformTemplateFingerprint(db: DbTemplateFingerprint): TemplateFingerprint {
   return {
-    ...mockTemplateFingerprint, // Start with defaults
-    id: db.template_id,
+    ...DEFAULT_TEMPLATE_FINGERPRINT,
+    id: db.id,
     projectId: db.project_id,
-    name: db.name,
-    version: db.version,
-    locale: db.locale || mockTemplateFingerprint.locale,
-    status: (db.status as TemplateFingerprint['status']) || mockTemplateFingerprint.status,
-    numbering: (db.numbering as TemplateFingerprint['numbering']) || mockTemplateFingerprint.numbering,
-    page: (db.page as TemplateFingerprint['page']) || mockTemplateFingerprint.page,
-    styles: (db.styles as TemplateFingerprint['styles']) || mockTemplateFingerprint.styles,
-    lists: (db.lists as TemplateFingerprint['lists']) || mockTemplateFingerprint.lists,
-    tables: (db.tables as TemplateFingerprint['tables']) || mockTemplateFingerprint.tables,
-    figures: (db.figures as TemplateFingerprint['figures']) || mockTemplateFingerprint.figures,
-    toc: (db.toc as TemplateFingerprint['toc']) || mockTemplateFingerprint.toc,
-    sectionBlueprints: (db.section_blueprints as TemplateFingerprint['sectionBlueprints']) || mockTemplateFingerprint.sectionBlueprints,
-    introVariables: (db.intro_variables as TemplateFingerprint['introVariables']) || mockTemplateFingerprint.introVariables,
-    introContent: (db.intro_content as TemplateFingerprint['introContent']) || mockTemplateFingerprint.introContent,
+    templateId: db.template_id || DEFAULT_TEMPLATE_FINGERPRINT.templateId,
+    name: db.name || DEFAULT_TEMPLATE_FINGERPRINT.name,
+    version: db.version || DEFAULT_TEMPLATE_FINGERPRINT.version,
+    locale: db.locale || DEFAULT_TEMPLATE_FINGERPRINT.locale,
+    status: (db.status as TemplateFingerprint["status"]) || DEFAULT_TEMPLATE_FINGERPRINT.status,
+    numbering: (db.numbering as TemplateFingerprint["numbering"]) || DEFAULT_TEMPLATE_FINGERPRINT.numbering,
+    page: (db.page as TemplateFingerprint["page"]) || DEFAULT_TEMPLATE_FINGERPRINT.page,
+    styles: (db.styles as TemplateFingerprint["styles"]) || DEFAULT_TEMPLATE_FINGERPRINT.styles,
+    lists: (db.lists as TemplateFingerprint["lists"]) || DEFAULT_TEMPLATE_FINGERPRINT.lists,
+    tables: (db.tables as TemplateFingerprint["tables"]) || DEFAULT_TEMPLATE_FINGERPRINT.tables,
+    figures: (db.figures as TemplateFingerprint["figures"]) || DEFAULT_TEMPLATE_FINGERPRINT.figures,
+    toc: (db.toc as TemplateFingerprint["toc"]) || DEFAULT_TEMPLATE_FINGERPRINT.toc,
+    sectionBlueprints:
+      (db.section_blueprints as TemplateFingerprint["sectionBlueprints"]) ||
+      DEFAULT_TEMPLATE_FINGERPRINT.sectionBlueprints,
+    introVariables:
+      (db.intro_variables as TemplateFingerprint["introVariables"]) ||
+      DEFAULT_TEMPLATE_FINGERPRINT.introVariables,
+    introContent:
+      (db.intro_content as TemplateFingerprint["introContent"]) || DEFAULT_TEMPLATE_FINGERPRINT.introContent,
+    selectedStyleId: db.selected_style_id || null,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   };
 }
 
-// Default template uses the mock data as baseline
-export const DEFAULT_TEMPLATE = mockTemplateFingerprint;
+export const DEFAULT_TEMPLATE = DEFAULT_TEMPLATE_FINGERPRINT;
 
 export function useTemplateFingerprint(projectId: string | undefined) {
   const queryClient = useQueryClient();
@@ -80,7 +84,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         .eq("project_id", projectId)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) throw new Error(normalizeSupabaseError(error, "获取模板失败"));
 
       if (data) {
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
@@ -96,16 +100,18 @@ export function useTemplateFingerprint(projectId: string | undefined) {
     mutationFn: async (template: Partial<TemplateFingerprint> & { projectId: string }) => {
       const { projectId: pid, ...rest } = template;
 
+      const stylesPayload = rest.styles || DEFAULT_TEMPLATE.styles;
+
       const payload = {
         project_id: pid,
-        template_id: rest.id || DEFAULT_TEMPLATE.id,
+        template_id: rest.templateId || DEFAULT_TEMPLATE.templateId,
         name: rest.name || DEFAULT_TEMPLATE.name,
         version: rest.version || DEFAULT_TEMPLATE.version,
         locale: rest.locale || DEFAULT_TEMPLATE.locale,
         status: rest.status || DEFAULT_TEMPLATE.status,
         numbering: rest.numbering || DEFAULT_TEMPLATE.numbering,
         page: rest.page || DEFAULT_TEMPLATE.page,
-        styles: rest.styles || DEFAULT_TEMPLATE.styles,
+        styles: stylesPayload,
         lists: rest.lists || DEFAULT_TEMPLATE.lists,
         tables: rest.tables || DEFAULT_TEMPLATE.tables,
         figures: rest.figures || DEFAULT_TEMPLATE.figures,
@@ -113,6 +119,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         section_blueprints: rest.sectionBlueprints || DEFAULT_TEMPLATE.sectionBlueprints,
         intro_variables: rest.introVariables || DEFAULT_TEMPLATE.introVariables,
         intro_content: rest.introContent || DEFAULT_TEMPLATE.introContent,
+        selected_style_id: rest.selectedStyleId || null,
       };
 
       // Check if template exists
@@ -131,7 +138,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) throw new Error(normalizeSupabaseError(error, "更新模板失败"));
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
       } else {
         // Insert new
@@ -141,11 +148,50 @@ export function useTemplateFingerprint(projectId: string | undefined) {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) throw new Error(normalizeSupabaseError(error, "保存模板失败"));
         return transformTemplateFingerprint(data as DbTemplateFingerprint);
       }
     },
     onSuccess: (data) => {
+      queryClient.setQueryData(["templateFingerprint", data.projectId], data);
+    },
+  });
+
+  const updateSelectedStyleMutation = useMutation({
+    mutationFn: async (selectedStyleId: string | null) => {
+      if (!projectId) return null;
+      const { data, error } = await supabase
+        .from("template_fingerprints")
+        .update({ selected_style_id: selectedStyleId })
+        .eq("project_id", projectId)
+        .select()
+        .single();
+
+      if (error) throw new Error(normalizeSupabaseError(error, "更新模板样式失败"));
+      return transformTemplateFingerprint(data as DbTemplateFingerprint);
+    },
+    onMutate: async (selectedStyleId) => {
+      if (!projectId) return;
+      await queryClient.cancelQueries({ queryKey: ["templateFingerprint", projectId] });
+      const previous = queryClient.getQueryData<TemplateFingerprint | null>([
+        "templateFingerprint",
+        projectId,
+      ]);
+      if (previous) {
+        queryClient.setQueryData(["templateFingerprint", projectId], {
+          ...previous,
+          selectedStyleId,
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["templateFingerprint", projectId], context.previous);
+      }
+    },
+    onSuccess: (data) => {
+      if (!data) return;
       queryClient.setQueryData(["templateFingerprint", data.projectId], data);
     },
   });
@@ -158,7 +204,7 @@ export function useTemplateFingerprint(projectId: string | undefined) {
         .delete()
         .eq("id", templateId);
 
-      if (error) throw error;
+      if (error) throw new Error(normalizeSupabaseError(error, "删除模板失败"));
     },
     onSuccess: () => {
       queryClient.setQueryData(["templateFingerprint", projectId], null);
@@ -168,10 +214,10 @@ export function useTemplateFingerprint(projectId: string | undefined) {
   // Initialize with default template if none exists
   const initializeTemplate = async () => {
     if (!projectId) return null;
-    
+
     return saveMutation.mutateAsync({
       projectId,
-      ...DEFAULT_TEMPLATE,
+      ...createDefaultTemplateFingerprint(),
     });
   };
 
@@ -181,9 +227,11 @@ export function useTemplateFingerprint(projectId: string | undefined) {
     error,
     refetch,
     saveTemplate: saveMutation.mutateAsync,
+    updateSelectedStyle: updateSelectedStyleMutation.mutateAsync,
     deleteTemplate: deleteMutation.mutateAsync,
     initializeTemplate,
     isSaving: saveMutation.isPending,
+    isUpdatingSelectedStyle: updateSelectedStyleMutation.isPending,
     isDeleting: deleteMutation.isPending,
   };
 }

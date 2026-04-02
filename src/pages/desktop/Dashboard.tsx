@@ -181,12 +181,12 @@ export default function Dashboard() {
 
   const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    
+
     // Prevent double-click or clicking while another delete is in progress
     if (deletingProjectId) {
       return;
     }
-    
+
     setDeletingProjectId(projectId);
     try {
       await deleteProjectMutation.mutateAsync(projectId);
@@ -232,7 +232,7 @@ export default function Dashboard() {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
         <AlertCircle className="w-12 h-12 text-destructive mb-4" />
-        <h2 className="text-lg font-semibold mb-2">��载失败</h2>
+        <h2 className="text-lg font-semibold mb-2">加载失败</h2>
         <p className="text-muted-foreground mb-4">{error.message}</p>
         <Button onClick={() => window.location.reload()}>重试</Button>
       </div>
@@ -550,8 +550,8 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleCloseDialog}
               disabled={createProjectMutation.isPending}
             >

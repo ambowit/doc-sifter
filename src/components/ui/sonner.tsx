@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react"
 import {
     CircleCheckIcon,
     CircleXIcon,
@@ -6,15 +5,13 @@ import {
     LoaderCircleIcon,
     TriangleAlertIcon,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-    const { theme = "system" } = useTheme()
-
     return (
         <Sonner
-            theme={theme as ToasterProps["theme"]}
+            position="top-center"
+            theme="dark"
             className="toaster group"
             icons={{
                 success: <CircleCheckIcon className="size-4" />,
@@ -23,14 +20,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
                 error: <CircleXIcon className="size-4" />,
                 loading: <LoaderCircleIcon className="size-4 animate-spin" />,
             }}
-            style={
-                {
-                    "--normal-bg": "hsl(var(--popover))",
-                    "--normal-text": "hsl(var(--popover-foreground))",
-                    "--normal-border": "hsl(var(--border))",
-                    "--border-radius": "var(--radius)",
-                } as CSSProperties
-            }
+            toastOptions={{
+                style: {
+                    background: "rgba(0, 0, 0, 0.85)",
+                    color: "#fff",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: "8px",
+                    backdropFilter: "blur(8px)",
+                },
+            }}
             {...props}
         />
     )

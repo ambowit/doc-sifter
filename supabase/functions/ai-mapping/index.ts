@@ -61,9 +61,9 @@ serve(async (req) => {
       throw new Error("Files and chapters are required");
     }
 
-    const apiKey = Deno.env.get("SUPERUN_API_KEY");
+    const apiKey = Deno.env.get("OOOK_AI_GATEWAY_TOKEN");
     if (!apiKey) {
-      throw new Error("SUPERUN_API_KEY is not configured");
+      throw new Error("OOOK_AI_GATEWAY_TOKEN is not configured");
     }
 
     // Build chapter list for AI context with more detail
@@ -147,35 +147,43 @@ ${fileList}
 
 请仔细分析每个文件名中的关键词，返回映射建议的JSON数组。务必为尽可能多的文件找到匹配的章节。`;
 
-    logStep("Calling SuperunAI for mapping", { model: "gemini-2.5-flash" });
+    logStep("Calling OOOK AI Gateway for mapping", { capability: "ai.general_user_defined" });
 
-    const response = await fetch("https://gateway.superun.ai/chat/completions", {
+    const gatewayUrl = (Deno.env.get("OOOK_AI_GATEWAY_URL") || "https://gateway.oook.cn").replace(/\/$/, "");
+    const response = await fetch(`${gatewayUrl}/api/ai/execute`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 8000,
+        capability: "ai.general_user_defined",
+        input: {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 8000,
+        },
+        constraints: { maxCost: 0.03 },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logStep("SuperunAI error", { status: response.status, error: errorText });
-      throw new Error(`SuperunAI API error: ${response.status}`);
+      logStep("OOOK AI Gateway error", { status: response.status, error: errorText });
+      throw new Error(`AI服务错误: ${response.status}`);
     }
 
     const aiResponse = await response.json();
-    logStep("SuperunAI response received");
+    logStep("OOOK AI Gateway response received");
 
-    const messageContent = aiResponse.choices?.[0]?.message?.content;
+    // Handle OOOK Gateway response format
+    const messageContent = aiResponse.result?.choices?.[0]?.message?.content || 
+                          aiResponse.choices?.[0]?.message?.content ||
+                          aiResponse.result?.content ||
+                          aiResponse.content;
     if (!messageContent) {
       throw new Error("No content in AI response");
     }

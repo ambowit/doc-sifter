@@ -42,3 +42,44 @@ verify_jwt = false
 [functions.process-report-job]
 verify_jwt = false
 
+[functions.extract-definitions]
+verify_jwt = false
+
+[functions.approve-definition-candidates]
+verify_jwt = false
+
+[functions.reject-definition-candidates]
+verify_jwt = false
+
+[functions.file-download-url]
+verify_jwt = false
+
+[functions.delete-file]
+verify_jwt = false
+
+[functions.worker-file-ticket]
+verify_jwt = false
+
+[functions.ocr-callback]
+verify_jwt = false
+
+[functions.classify-single]
+verify_jwt = false
+
+[functions.classify-files]
+verify_jwt = false
+
+[functions.match-sections-to-chapters]
+verify_jwt = false
+
+[functions.parse-document-structure]
+verify_jwt = false
+
+[functions.get-report-job-status]
+verify_jwt = false
+
+[functions.run-report-job]
+verify_jwt = false
+
+[functions.cancel-report-job]
+verify_jwt = false

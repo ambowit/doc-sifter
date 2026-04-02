@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -116,7 +117,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
     };
 
     if (session?.access_token) {
@@ -172,12 +173,17 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
 
   const pollJobStatus = useCallback(async (jobId: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job`, {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/get-report-job-status`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ jobId }),
         signal: abortControllerRef.current?.signal,
       });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`获取任务状态失败(${response.status}): ${errText.substring(0, 200)}`);
+      }
 
       const data = await response.json();
 
@@ -208,7 +214,11 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
         return true;
       }
 
+      const errMsg = normalizeSupabaseError(err, "获取任务状态失败");
       console.error("[useReportJob] Poll error:", err);
+      setError(errMsg);
+      setErrorCode("POLL_FAILED");
+      onErrorRef.current?.(errMsg, "POLL_FAILED");
       return false;
     }
   }, [applyTerminalState, getAuthHeaders, stopMonitoring]);
@@ -301,7 +311,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
     void pollJobStatus(jobId);
   }, [pollJobStatus, stopMonitoring, subscribeRealtime]);
 
-  const createJob = useCallback(async (): Promise<string | null> => {
+  const createJob = useCallback(async (options?: { forceRegenerate?: boolean }): Promise<string | null> => {
     if (!projectId) {
       setError("缺少项目ID");
       setErrorCode("MISSING_PROJECT_ID");
@@ -317,8 +327,16 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/create-report-job`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ 
+          projectId,
+          forceRegenerate: options?.forceRegenerate ?? false,
+        }),
       });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`创建任务失败(${response.status}): ${errText.substring(0, 200)}`);
+      }
 
       const data = await response.json();
 
@@ -352,7 +370,7 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
       startMonitoring(jobId);
       return jobId;
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "创建任务失败";
+      const errMsg = normalizeSupabaseError(err, "创建任务失败");
       setError(errMsg);
       setErrorCode("NETWORK_ERROR");
       onErrorRef.current?.(errMsg, "NETWORK_ERROR");

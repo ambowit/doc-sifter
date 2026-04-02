@@ -1,11 +1,12 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { normalizeSupabaseError } from "@/lib/errorUtils";
 
 export interface GeneratedReportRecord {
   id: string;
   projectId: string;
-  userId: string;
+  userId: string | null;
   status: string;
   version: number;
   reportJson: Record<string, unknown>;
@@ -22,7 +23,7 @@ export interface GeneratedReportRecord {
 const transformGeneratedReport = (row: Record<string, unknown>): GeneratedReportRecord => ({
   id: row.id as string,
   projectId: row.project_id as string,
-  userId: row.user_id as string,
+  userId: (row.user_id || row.created_by) as string | null,
   status: row.status as string,
   version: (row.version as number) || 1,
   reportJson: (row.report_json as Record<string, unknown>) || {},
@@ -58,11 +59,12 @@ export function useLatestGeneratedReport(projectId: string | undefined) {
         .from("generated_reports")
         .select("*")
         .eq("project_id", projectId)
-        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (error) {
-        throw error;
+        throw new Error(normalizeSupabaseError(error, "获取报告失败"));
       }
 
       return data ? transformGeneratedReport(data as Record<string, unknown>) : null;
@@ -78,16 +80,33 @@ export function usePersistGeneratedReport() {
       const sections = Array.isArray(reportJson.sections) ? reportJson.sections as Array<Record<string, unknown>> : [];
       const issuesFound = sections.reduce((count, section) => {
         const issues = Array.isArray(section.issues) ? section.issues : [];
-        return count + issues.length;
+        const validIssues = issues.filter((issue) => {
+          if (!issue || typeof issue !== "object") return false;
+          const issueObj = issue as Record<string, unknown>;
+          return Boolean(issueObj.fact || issueObj.risk || issueObj.suggestion);
+        });
+        return count + validIssues.length;
       }, 0);
-      const evidenceFileCount = sections.reduce((count, section) => {
-        const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-        return count + sourceFiles.length;
-      }, 0);
-      const sectionsWithEvidence = sections.filter((section) => {
-        const sourceFiles = Array.isArray(section.sourceFiles) ? section.sourceFiles : [];
-        return sourceFiles.length > 0;
-      }).length;
+      
+      // 证据统计改为基于 chapter_file_mappings 映射统计
+      const sectionIds = sections.map(s => String(s.id || "")).filter(Boolean);
+      let evidenceFileCount = 0;
+      let sectionsWithEvidence = 0;
+      
+      if (sectionIds.length > 0) {
+        // 从映射表获取每个章节关联的文件数
+        const { data: mappingRows, error: mappingError } = await supabase
+          .from("chapter_file_mappings")
+          .select("chapter_id")
+          .in("chapter_id", sectionIds);
+          
+        if (!mappingError && mappingRows) {
+          const mappedChapterIds = new Set(mappingRows.map(r => r.chapter_id));
+          evidenceFileCount = mappingRows.length;
+          sectionsWithEvidence = sectionIds.filter(id => mappedChapterIds.has(id)).length;
+        }
+      }
+      
       const citationCoverage = sections.length > 0 ? Number((sectionsWithEvidence / sections.length).toFixed(4)) : 0;
 
       const { data, error } = await supabase
@@ -106,7 +125,7 @@ export function usePersistGeneratedReport() {
         .single();
 
       if (error) {
-        throw error;
+        throw new Error(normalizeSupabaseError(error, "保存报告失败"));
       }
 
       return {

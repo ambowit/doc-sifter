@@ -1,4 +1,4 @@
-﻿import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -57,6 +57,7 @@ serve(async (req) => {
     const userId = userData.user.id;
     const payload = await req.json().catch(() => ({}));
     const projectId = typeof payload?.projectId === "string" ? payload.projectId : "";
+    const forceRegenerate = payload?.forceRegenerate === true;
 
     if (!projectId) {
       return jsonResponse({ success: false, errorMessage: "缺少项目ID", errorCode: "MISSING_PROJECT_ID" }, 400);
@@ -88,12 +89,25 @@ serve(async (req) => {
     }
 
     if (existingJob?.id) {
-      return jsonResponse({
-        success: false,
-        errorMessage: "已有正在执行的任务",
-        errorCode: "JOB_EXISTS",
-        existingJobId: existingJob.id,
-      });
+      // If force regenerate is requested, cancel the existing job first
+      if (forceRegenerate) {
+        await admin
+          .from("report_generation_jobs")
+          .update({
+            status: "cancelled",
+            current_stage: "cancelled",
+            progress_message: "任务已被取消（强制重新生成）",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", existingJob.id);
+      } else {
+        return jsonResponse({
+          success: false,
+          errorMessage: "已有正在执行的任务",
+          errorCode: "JOB_EXISTS",
+          existingJobId: existingJob.id,
+        });
+      }
     }
 
     const { count: totalChapters, error: countError } = await admin

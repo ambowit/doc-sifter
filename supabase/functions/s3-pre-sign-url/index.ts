@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createUploadTicket, getUploadProviderContext } from "../_shared/upload-provider.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,8 +7,14 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
-  // Handle CORS preflight - must return 200 with proper headers
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders, status: 200 });
   }
@@ -15,54 +22,29 @@ serve(async (req) => {
   try {
     const { key, contentType } = await req.json();
 
-    if (!key) {
-      return new Response(
-        JSON.stringify({ error: "Object key is required" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
+    if (!key || typeof key !== "string") {
+      return jsonResponse({ error: "Object key is required" }, 400);
     }
 
-    const bucket = Deno.env.get("SUPERUN_STORAGE_BUCKET");
-    if (!bucket) {
-      return new Response(
-        JSON.stringify({ error: "SUPERUN_STORAGE_BUCKET is not set" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
-    }
-
-    // Call Superun's internal pre-sign service
-    const response = await fetch("https://superun.ai/web-api/upload/s3/preSignUrl", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bucket,
-        key,
-        expiresIn: 3600,
-        contentType: contentType || "application/octet-stream",
-      }),
+    const ctx = getUploadProviderContext();
+    console.log("[s3-pre-sign-url] creating upload ticket", {
+      provider: "supabase_storage",
+      bucket: ctx.bucket,
+      key,
     });
 
-    const result = await response.json();
-    const { data } = result || {};
-    const { uploadUrl, contentType: returnedContentType, downloadUrl } = data || {};
+    const ticket = await createUploadTicket(ctx, key, contentType || "application/octet-stream");
 
-    if (!uploadUrl) {
-      console.error("Pre-sign response:", result);
-      return new Response(
-        JSON.stringify({ error: "Failed to get pre-signed URL" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-      );
-    }
-
-    return new Response(
-      JSON.stringify({ uploadUrl, contentType: returnedContentType, downloadUrl }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-    );
+    return jsonResponse({
+      uploadUrl: ticket.uploadUrl,
+      contentType: ticket.contentType,
+      storagePath: ticket.key,
+      bucket: ticket.bucket,
+      provider: ticket.provider,
+    });
   } catch (error) {
-    console.error("Pre-sign error:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[s3-pre-sign-url] error", error);
+    return jsonResponse({ error: message, provider: "supabase_storage" }, 500);
   }
 });

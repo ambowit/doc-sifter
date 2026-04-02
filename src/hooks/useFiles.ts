@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,9 +22,18 @@ export interface UploadedFile {
   parsedContent: Record<string, unknown> | null;
   extractedText: string | null;
   textSummary: string | null;
-  extractedEntities: string[] | null;
   ocrProcessed: boolean;
   ocrProcessedAt: string | null;
+  // extraction_method 是数据库真实存在的字段
+  extractionMethod: string | null;
+  // OCR 任务状态（PDF 异步处理）
+  ocrTaskId: string | null;
+  ocrTaskStatus: string | null; // pending | processing | completed | failed
+  ocrTaskStartedAt: string | null;
+  ocrTaskCompletedAt: string | null;
+  aiSummary: string | null;
+  aiClassifiedAt: string | null;
+  classificationConfidence: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,6 +48,20 @@ export interface CreateFileData {
   storagePath: string;
 }
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : fallback;
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // Transform database row to UploadedFile interface
 const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   id: row.id as string,
@@ -46,7 +70,7 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   originalName: row.original_name as string,
   fileType: row.file_type as FileType,
   mimeType: row.mime_type as string,
-  sizeBytes: row.size_bytes as number,
+  sizeBytes: toFiniteNumber(row.size_bytes),
   storagePath: row.storage_path as string,
   status: row.status as FileStatus,
   excerpt: row.excerpt as string | null,
@@ -55,18 +79,28 @@ const transformFile = (row: Record<string, unknown>): UploadedFile => ({
   parsedContent: row.parsed_content as Record<string, unknown> | null,
   extractedText: row.extracted_text as string | null,
   textSummary: row.text_summary as string | null,
-  extractedEntities: row.extracted_entities as string[] | null,
   ocrProcessed: (row.ocr_processed as boolean) || false,
   ocrProcessedAt: row.ocr_processed_at as string | null,
+  extractionMethod: row.extraction_method as string | null,
+  // OCR 任务状态（PDF 异步处理）
+  ocrTaskId: row.ocr_task_id as string | null,
+  ocrTaskStatus: row.ocr_task_status as string | null,
+  ocrTaskStartedAt: row.ocr_task_started_at as string | null,
+  ocrTaskCompletedAt: row.ocr_task_completed_at as string | null,
+  aiSummary: row.ai_summary as string | null,
+  aiClassifiedAt: row.ai_classified_at as string | null,
+  classificationConfidence: row.classification_confidence as number | null,
   createdAt: row.created_at as string,
   updatedAt: row.updated_at as string,
 });
 
 // Hook to fetch all files for a project
+// Automatically polls when there are pending OCR tasks
 export function useFiles(projectId: string | undefined) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ["files", projectId],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
@@ -83,6 +117,32 @@ export function useFiles(projectId: string | undefined) {
     },
     enabled: !!user && !!projectId,
   });
+
+  useEffect(() => {
+    if (!user || !projectId) return;
+
+    const channel = supabase
+      .channel(`files-${projectId}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "files",
+          filter: `project_id=eq.${projectId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [projectId, queryClient, user]);
+
+  return query;
 }
 
 // Hook to create a file record
@@ -165,18 +225,7 @@ export function useDeleteFile() {
 
   return useMutation({
     mutationFn: async ({ fileId, projectId, storagePath }: { fileId: string; projectId: string; storagePath?: string }) => {
-      // Delete from storage if path provided
-      if (storagePath) {
-        await supabase.storage.from("dd-files").remove([storagePath]);
-      }
-
-      // Delete from database
-      const { error } = await supabase
-        .from("files")
-        .delete()
-        .eq("id", fileId);
-
-      if (error) throw error;
+      await invokeAuthedFunction("delete-file", { fileId, projectId, storagePath });
       return { fileId, projectId };
     },
     onSuccess: (_, variables) => {
@@ -216,7 +265,7 @@ export function detectFileType(filename: string): FileType {
   return "其他";
 }
 
-// Upload file to SuperunStorage via Edge Function
+// Upload file via Edge Function-issued signed upload URL
 export async function uploadFile(
   file: File,
   projectId: string,
@@ -244,7 +293,7 @@ export async function uploadFile(
       throw new Error(`Failed to get upload URL: ${presignError.message}`);
     }
 
-    const { uploadUrl, contentType, downloadUrl } = presignData;
+    const { uploadUrl, contentType } = presignData;
     if (!uploadUrl) {
       throw new Error("No upload URL returned");
     }
@@ -309,6 +358,8 @@ export async function uploadFile(
       fileContent = await file.arrayBuffer();
     }
 
+    const downloadUrl = await getFileDownloadUrl(projectId, storagePath);
+
     onProgress?.(100);
 
     return {
@@ -323,33 +374,113 @@ export async function uploadFile(
 }
 
 // Get download URL for a file (signed URL for private bucket)
-export async function getFileDownloadUrl(storagePath: string): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from("dd-files")
-    .createSignedUrl(storagePath, 3600); // 1 hour expiry
-  
-  if (error || !data?.signedUrl) {
-    console.error("[getFileDownloadUrl] Failed to get signed URL:", error);
-    throw new Error("无法获取文件下载链接");
+export async function getFileDownloadUrl(projectId: string, storagePath: string): Promise<string> {
+  const data = await invokeAuthedFunction<{ signedUrl?: string; error?: string }>("file-download-url", {
+    projectId,
+    storagePath,
+  });
+
+  if (!data?.signedUrl) {
+    console.error("[getFileDownloadUrl] Failed to get signed URL:", data);
+    throw new Error(data?.error || "无法获取文件下载链接");
   }
-  
+
   return data.signedUrl;
 }
 
 // Format file size for display
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+export function formatFileSize(bytes: number | null | undefined): string {
+  const normalized = toFiniteNumber(bytes, Number.NaN);
+  if (!Number.isFinite(normalized) || normalized < 0) return "--";
+  if (normalized < 1024) return `${normalized} B`;
+  if (normalized < 1024 * 1024) return `${(normalized / 1024).toFixed(1)} KB`;
+  return `${(normalized / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Check if file type supports OCR
-export function canOcrFile(mimeType: string): boolean {
-  const supportedTypes = [
-    "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
-    "application/pdf"
-  ];
-  return supportedTypes.some(t => mimeType.includes(t.split("/")[1]));
+export type FileExtractionMethod = "ocr" | "document" | "spreadsheet" | "presentation" | "text";
+
+export function getFileExtractionMethod(mimeType: string, fileName?: string): FileExtractionMethod | null {
+  const m = mimeType.toLowerCase();
+  const ext = (fileName || "").split(".").pop()?.toLowerCase() || "";
+
+  // PDF 和图片走 Worker OCR
+  if (m.includes("pdf") || ext === "pdf") return "ocr";
+  if (m.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"].includes(ext)) return "ocr";
+
+  // Office 新格式本地提取（仅支持 .docx/.xlsx/.pptx，不支持老版本 .doc/.xls/.ppt）
+  if (m.includes("wordprocessingml") || ext === "docx") return "document";
+  if (m.includes("spreadsheetml") || ext === "xlsx") return "spreadsheet";
+  if (m.includes("presentationml") || ext === "pptx") return "presentation";
+
+  // 纯文本
+  if (m.includes("text/plain") || ext === "txt") return "text";
+
+  return null;
+}
+
+// 判断文件是否为不支持提取的老版本 Office 格式
+export function isLegacyOfficeFormat(fileName?: string): boolean {
+  const ext = (fileName || "").split(".").pop()?.toLowerCase() || "";
+  return ["doc", "xls", "ppt"].includes(ext);
+}
+
+// Check if file type supports automatic text extraction
+export function canExtractFileText(mimeType: string, fileName?: string): boolean {
+  return getFileExtractionMethod(mimeType, fileName) !== null;
+}
+
+// 获取当前用户 access_token，用于手动附加 Authorization header
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  let { data: { session } } = await supabase.auth.getSession();
+  const expiresSoon = !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
+
+  if (!session?.access_token || expiresSoon) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) throw new Error("用户登录已失效，请重新登录后重试");
+    session = data.session;
+  }
+
+  if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
+
+  return {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${session.access_token}`,
+  };
+}
+
+async function invokeAuthedFunction<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
+  const headers = await getAuthHeaders();
+  
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  const raw = await response.text();
+  const data = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+
+  if (!response.ok) {
+    throw new Error(
+      (typeof data.error === "string" && data.error) ||
+      (typeof data.message === "string" && data.message) ||
+      `调用 ${functionName} 失��� (${response.status})`
+    );
+  }
+
+  return data as T;
+}
+
+// OCR 提取结果类型
+export interface OcrExtractResult {
+  success: boolean;
+  queued?: boolean;
+  skipped?: boolean;
+  alreadyQueued?: boolean;
+  taskId?: string;
+  message?: string;
+  error?: string;
 }
 
 // Hook to trigger OCR extraction for a file
@@ -359,106 +490,323 @@ export function useOcrExtract() {
   return useMutation({
     mutationFn: async ({ 
       fileId, 
-      fileUrl, 
       mimeType, 
       fileName 
     }: { 
       fileId: string; 
-      fileUrl: string; 
       mimeType: string; 
       fileName: string;
-    }) => {
-      const { data, error } = await supabase.functions.invoke("ocr-extract", {
-        body: { fileId, fileUrl, mimeType, fileName },
-      });
-
-      if (error) throw error;
-      
-      // Check if the response indicates an error
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-      
-      return data as { 
-        success: boolean; 
-        text: string; 
-        summary: string; 
-        entities: string[];
-        skipped?: boolean;
-      };
+    }): Promise<OcrExtractResult> => {
+      return await invokeAuthedFunction<OcrExtractResult>("ocr-extract", { fileId, mimeType, fileName });
     },
     onSuccess: () => {
-      // Invalidate files query to refresh OCR status - use refetchType to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
     },
   });
 }
 
-// Hook to batch process OCR for multiple files
-// Processes files sequentially to avoid overwhelming the Edge Function
+// Hook to call AI classify-files Edge Function
+export function useClassifyFiles() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      files,
+      chapters,
+    }: {
+      projectId: string;
+      files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
+      chapters: Array<{ id: string; number: string; title: string; level: number; parentId?: string | null }>;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("classify-files", {
+        body: { projectId, files, chapters },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: boolean; classified: number; results: unknown[] };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["files", variables.projectId] });
+      // classify-files 现在写入 chapter_file_mappings，需要同步刷新映射缓存
+      queryClient.invalidateQueries({ queryKey: ["mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
+    },
+  });
+}
+
+// AI 分类进度状态
+export interface ClassifyProgressState {
+  isRunning: boolean;
+  isPaused: boolean;
+  total: number;
+  current: number;
+  currentFileName: string;
+  completed: number;
+  failed: number;
+  results: Array<{ fileId: string; fileName: string; success: boolean; chapterId?: string | null; error?: string }>;
+}
+
+// Hook 用于带进度的 AI 分类（逐文件处理，支持暂停/取消）
+export function useClassifyFilesWithProgress() {
+  const queryClient = useQueryClient();
+  const abortControllerRef = { current: null as AbortController | null };
+  const isPausedRef = { current: false };
+
+  const [progress, setProgress] = useState<ClassifyProgressState>({
+    isRunning: false,
+    isPaused: false,
+    total: 0,
+    current: 0,
+    currentFileName: "",
+    completed: 0,
+    failed: 0,
+    results: [],
+  });
+
+  const start = async ({
+    projectId,
+    files,
+    chapters,
+  }: {
+    projectId: string;
+    files: Array<{ id: string; name: string; extractedText?: string | null; textSummary?: string | null }>;
+    chapters: Array<{ id: string; number: string; title: string; level: number; parentId?: string | null }>;
+  }) => {
+    if (progress.isRunning) return;
+
+    abortControllerRef.current = new AbortController();
+    isPausedRef.current = false;
+
+    setProgress({
+      isRunning: true,
+      isPaused: false,
+      total: files.length,
+      current: 0,
+      currentFileName: "",
+      completed: 0,
+      failed: 0,
+      results: [],
+    });
+
+    const results: ClassifyProgressState["results"] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      // 检查是否已取消
+      if (abortControllerRef.current?.signal.aborted) {
+        break;
+      }
+
+      // 暂停时等待
+      while (isPausedRef.current && !abortControllerRef.current?.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      if (abortControllerRef.current?.signal.aborted) {
+        break;
+      }
+
+      const file = files[i];
+      setProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        currentFileName: file.name,
+      }));
+
+      try {
+        const { data, error } = await supabase.functions.invoke("classify-single", {
+          body: { projectId, file, chapters },
+        });
+
+        console.log(`[useClassifyFiles] Edge Function response for ${file.name}:`, { data, error });
+
+        if (error || data?.error) {
+          results.push({ fileId: file.id, fileName: file.name, success: false, error: error?.message || data?.error });
+          setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
+        } else {
+          const chapterId = data?.result?.chapterId ?? null;
+          results.push({ fileId: file.id, fileName: file.name, success: true, chapterId });
+          setProgress((prev) => ({ ...prev, completed: prev.completed + 1, results: [...results] }));
+        }
+      } catch (err) {
+        results.push({ fileId: file.id, fileName: file.name, success: false, error: String(err) });
+        setProgress((prev) => ({ ...prev, failed: prev.failed + 1, results: [...results] }));
+      }
+
+      // 小延迟避免请求过快
+      if (i < files.length - 1) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    setProgress((prev) => ({
+      ...prev,
+      isRunning: false,
+      isPaused: false,
+      currentFileName: "",
+    }));
+
+    queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+    // classify-single 现在写入 chapter_file_mappings，需要同步刷新映射缓存
+    queryClient.invalidateQueries({ queryKey: ["mappings"] });
+    queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
+
+    return { completed: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length };
+  };
+
+  const pause = () => {
+    isPausedRef.current = true;
+    setProgress((prev) => ({ ...prev, isPaused: true }));
+  };
+
+  const resume = () => {
+    isPausedRef.current = false;
+    setProgress((prev) => ({ ...prev, isPaused: false }));
+  };
+
+  const cancel = () => {
+    abortControllerRef.current?.abort();
+    setProgress((prev) => ({
+      ...prev,
+      isRunning: false,
+      isPaused: false,
+      currentFileName: "",
+    }));
+  };
+
+  const reset = () => {
+    setProgress({
+      isRunning: false,
+      isPaused: false,
+      total: 0,
+      current: 0,
+      currentFileName: "",
+      completed: 0,
+      failed: 0,
+      results: [],
+    });
+  };
+
+  return { progress, start, pause, resume, cancel, reset };
+}
+
+// Hook to manually update a single file's chapter assignment
+// 改为写入 chapter_file_mappings，不再写 files.chapter_id
+export function useUpdateFileChapter() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      fileId,
+      chapterId,
+      projectId,
+      action = "add",
+    }: {
+      fileId: string;
+      chapterId: string | null;
+      projectId?: string;
+      // action: "add" 添加映射，"remove" 删除特定映射，"clear" 清空所有映射
+      action?: "add" | "remove" | "clear";
+    }) => {
+      if (action === "clear" || chapterId === null) {
+        // 清空该文件的所有章节映���
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .delete()
+          .eq("file_id", fileId);
+        if (error) throw error;
+      } else if (action === "remove" && chapterId) {
+        // 删除特定章节的映射（多对多：不影响其他章节）
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .delete()
+          .eq("file_id", fileId)
+          .eq("chapter_id", chapterId);
+        if (error) throw error;
+      } else if (action === "add" && chapterId) {
+        // 插入新映射（upsert 避免重复）
+        const { error } = await supabase
+          .from("chapter_file_mappings")
+          .upsert(
+            {
+              chapter_id: chapterId,
+              file_id: fileId,
+              is_confirmed: true,
+              is_ai_suggested: false,
+              confidence: 100,
+            },
+            { onConflict: "chapter_id,file_id" }
+          );
+        if (error) throw error;
+      }
+
+      return { projectId };
+    },
+    onSuccess: ({ projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ["mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["chapterMappings"] });
+      queryClient.invalidateQueries({ queryKey: projectId ? ["files", projectId] : ["files"] });
+    },
+  });
+}
+
+// 批量 OCR 结果类型
+export interface BatchOcrResult {
+  fileId: string;
+  status: "queued" | "skipped" | "already_processing" | "failed";
+  taskId?: string;
+  error?: string;
+}
+
+export interface BatchOcrSummary {
+  requested: number;
+  eligible: number;
+  submitted: number;
+  skipped: number;
+  failed: number;
+  alreadyProcessing: number;
+  batchCount: number;
+  batchSize: number;
+  results: BatchOcrResult[];
+  errors: string[];
+}
+
+// Hook to batch process OCR for multiple files.
+// The client submits the full target set once and the server batches worker task creation.
 export function useBatchOcrExtract() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (files: Array<{ 
-      fileId: string; 
-      fileUrl: string; 
-      mimeType: string; 
-      fileName: string;
-    }>) => {
-      const results: PromiseSettledResult<{ fileId: string; success?: boolean; error?: string }>[] = [];
-      
-      // Process files sequentially with small delay between requests
-      // This avoids overwhelming the Edge Function and reduces timeouts
-      for (const file of files) {
-        try {
-          const { data, error } = await supabase.functions.invoke("ocr-extract", {
-            body: file,
-          });
-          
-          if (error) {
-            results.push({ 
-              status: "rejected", 
-              reason: new Error(error.message || "OCR 请求失败") 
-            });
-          } else if (data?.error) {
-            results.push({ 
-              status: "rejected", 
-              reason: new Error(data.error) 
-            });
-          } else {
-            results.push({ 
-              status: "fulfilled", 
-              value: { fileId: file.fileId, ...data } 
-            });
-          }
-        } catch (err) {
-          results.push({ 
-            status: "rejected", 
-            reason: err instanceof Error ? err : new Error(String(err)) 
-          });
-        }
-        
-        // Small delay between requests to avoid rate limiting
-        if (files.indexOf(file) < files.length - 1) {
-          await new Promise(r => setTimeout(r, 300));
-        }
-      }
+    mutationFn: async (payload: { 
+      files: Array<{ fileId: string; mimeType: string; fileName: string; }>;
+      force?: boolean;
+    }) => {
+      const data = await invokeAuthedFunction<Record<string, unknown>>("ocr-extract", {
+        files: payload.files,
+        force: payload.force ?? false,
+      });
 
-      const successful = results.filter(r => r.status === "fulfilled").length;
-      const failed = results.filter(r => r.status === "rejected").length;
-      
-      // Collect error messages for failed files
-      const errors = results
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .map(r => r.reason?.message || "未知错误");
-
-      return { successful, failed, results, errors };
+      // 后端立即返回 accepted 数量，实际处理在后台进行，通过 Realtime 更新
+      const accepted = Number(data?.accepted || 0);
+      return {
+        requested: payload.files.length,
+        eligible: accepted,
+        submitted: accepted,
+        skipped: 0,
+        failed: 0,
+        alreadyProcessing: 0,
+        batchCount: 1,
+        batchSize: accepted,
+        results: [],
+        errors: [],
+      } satisfies BatchOcrSummary;
     },
-    onSettled: () => {
-      // Always invalidate after mutation settles (success or error)
-      // to ensure UI reflects the actual database state
-      queryClient.invalidateQueries({ queryKey: ["files"], refetchType: "all" });
+    onSuccess: () => {
+      // 立即刷新一次，后续通过 Realtime 自动更新
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0] === "files",
+        refetchType: "all",
+      });
     },
   });
 }
