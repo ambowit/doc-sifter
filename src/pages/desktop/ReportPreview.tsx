@@ -646,7 +646,7 @@ export default function ReportPreview() {
     if (typeof issue === "string") {
       const str = issue.trim();
       let severity: "high" | "medium" | "low" = "low";
-      if (str.includes("重大") || str.includes("���重") || str.includes("违法")) {
+      if (str.includes("重大") || str.includes("�����重") || str.includes("违法")) {
         severity = "high";
       } else if (str.includes("风险") || str.includes("问题") || str.includes("隐患")) {
         severity = "medium";
@@ -869,6 +869,7 @@ export default function ReportPreview() {
 
   // 打开上传对话框
   const handleOpenUploadDialog = (sectionId: string, sectionTitle: string) => {
+    console.log("[v0] handleOpenUploadDialog called with:", { sectionId, sectionTitle });
     setUploadingSectionId(sectionId);
     setUploadingSectionTitle(sectionTitle);
     setUploadingFiles([]);
@@ -912,6 +913,7 @@ export default function ReportPreview() {
 
         // 3. 创建章节-文件映射（直接关联，不走 AI 匹配）
         setUploadingFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: 50 } : f));
+        console.log("[v0] Creating mapping:", { chapterId: uploadingSectionId, fileId: createdFile.id, fileName: file.name });
         await createMappingMutation.mutateAsync({
           chapterId: uploadingSectionId,
           fileId: createdFile.id,
@@ -1051,6 +1053,7 @@ export default function ReportPreview() {
       return;
     }
 
+    console.log("[v0] handleRetrySection called with:", { sectionId, sectionTitle });
     console.log("[ReportPreview] Starting retry for section:", sectionId, sectionTitle);
     setRetryingSectionId(sectionId);
 

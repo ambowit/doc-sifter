@@ -522,9 +522,9 @@ ${allFilesContent}
       }, 200);
     }
 
-    // ============ SINGLE MODE - RETRY ONE CHAPTER ============
-    if (mode === "single") {
-      logStep("Single mode: regenerating one chapter", { chapterId, chapterTitle });
+  // ============ SINGLE MODE - RETRY ONE CHAPTER ============
+  if (mode === "single") {
+    logStep("Single mode: regenerating one chapter", { chapterId, chapterTitle, projectId });
 
       if (!chapterTitle) {
         return jsonResponse({ error: "Chapter title is required for single mode" }, 400);
