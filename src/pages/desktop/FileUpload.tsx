@@ -1184,7 +1184,7 @@ export default function FileUpload() {
 
     const projectExists = await validateProjectExists(currentProjectId);
     if (!projectExists) {
-      toast.error("项目不存在或已被删除，请重新选择项目");
+      toast.error("项目不存在或已被删除，请重��选择项目");
       clearInvalidProject();
       navigate("/");
       return;
@@ -1737,7 +1737,7 @@ export default function FileUpload() {
                       <button
                         onClick={() => setDismissedFailedBanner(true)}
                         className="absolute -top-2 -right-2 p-1 bg-background border border-destructive/30 hover:bg-destructive/10 rounded-full transition-colors shadow-sm z-10"
-                        title="关闭提示（文件行仍会显示失败状态）"
+                        title="关闭提示（文件行仍会���示失败状态）"
                       >
                         <X className="w-3 h-3 text-destructive" />
                       </button>
@@ -1856,7 +1856,6 @@ export default function FileUpload() {
                         {/* Unassigned files section */}
                         {(() => {
                           const unassignedCount = existingFiles.filter(f => !effectiveFileChapterMap.has(f.id)).length;
-                          const hasMatchableFiles = existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary));
                           if (unassignedCount > 0) {
                             return (
                               <div className="mb-1">
@@ -1875,28 +1874,6 @@ export default function FileUpload() {
                                     {unassignedCount}
                                   </Badge>
                                 </button>
-                                {/* 自动匹配按钮 - 移到未分配章节数量旁边 */}
-                                {chapters.length > 0 && hasMatchableFiles && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-full h-7 mt-1 text-[10px] text-blue-600 hover:bg-blue-50 justify-start px-2"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAutoMatch();
-                                    }}
-                                    disabled={classifyProgress.isRunning}
-                                  >
-                                    {classifyProgress.isRunning ? (
-                                      <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                                    ) : (
-                                      <Brain className="w-3 h-3 mr-1.5" />
-                                    )}
-                                    {classifyProgress.isRunning 
-                                      ? `匹配中 ${classifyProgress.completed}/${classifyProgress.total}` 
-                                      : "自动匹配章节"}
-                                  </Button>
-                                )}
                               </div>
                             );
                           }
@@ -2080,9 +2057,30 @@ export default function FileUpload() {
                             </div>
                           )}
                           {selectedChapterId === 'unassigned' && (
-                            <Badge variant="outline" className="text-[10px]">
-                              {selectedChapterFiles.length} 个文件
-                            </Badge>
+                            <>
+                              {/* 自动匹配按钮 - 放在文件数量左边 */}
+                              {chapters.length > 0 && existingFiles.some(f => !effectiveFileChapterMap.has(f.id) && (f.extractedText || f.textSummary)) && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] text-blue-600 border-blue-200 hover:bg-blue-50"
+                                  onClick={handleAutoMatch}
+                                  disabled={classifyProgress.isRunning}
+                                >
+                                  {classifyProgress.isRunning ? (
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Brain className="w-3 h-3 mr-1" />
+                                  )}
+                                  {classifyProgress.isRunning 
+                                    ? `匹配中 ${classifyProgress.completed}/${classifyProgress.total}` 
+                                    : "自动匹配章节"}
+                                </Button>
+                              )}
+                              <Badge variant="outline" className="text-[10px]">
+                                {selectedChapterFiles.length} 个文件
+                              </Badge>
+                            </>
                           )}
                         </div>
                       </div>
