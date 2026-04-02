@@ -74,9 +74,26 @@ serve(async (req) => {
       return jsonResponse({ success: false, errorMessage: "项目不存在或无权限", errorCode: "PROJECT_NOT_FOUND" }, 404);
     }
 
+    // 清理超时的僵尸任务（超过 10 分钟还在 running 或 queued 状态的任务）
+    const timeoutThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await admin
+      .from("report_generation_jobs")
+      .update({
+        status: "failed",
+        current_stage: "timeout",
+        progress_message: "任务超时，已自动标记为失败",
+        error_code: "TIMEOUT",
+        error_message: "任务执行超时",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("project_id", projectId)
+      .eq("user_id", userId)
+      .in("status", ["queued", "running"])
+      .lt("created_at", timeoutThreshold);
+
     const { data: existingJob, error: existingJobError } = await admin
       .from("report_generation_jobs")
-      .select("id, status")
+      .select("id, status, created_at")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .in("status", ["queued", "running"])

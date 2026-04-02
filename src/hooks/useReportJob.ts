@@ -115,26 +115,16 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
   // 异步获取最新的认证 headers，确保 token 有效
   const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     let { data: { session } } = await supabase.auth.getSession();
-    console.log("[v0] getAuthHeaders - initial session:", !!session, "expires_at:", session?.expires_at);
     const expiresSoon = !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
 
     if (!session?.access_token || expiresSoon) {
-      console.log("[v0] getAuthHeaders - refreshing session, expiresSoon:", expiresSoon);
       const { data, error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.log("[v0] getAuthHeaders - refresh error:", error);
-        throw new Error("用户登录已失效，请重新登录后重试");
-      }
+      if (error) throw new Error("用户登录已失效，请重新登录后重试");
       session = data.session;
-      console.log("[v0] getAuthHeaders - refreshed session:", !!session);
     }
 
-    if (!session?.access_token) {
-      console.log("[v0] getAuthHeaders - no access_token after refresh");
-      throw new Error("用户未登录，请刷新页面后重试");
-    }
+    if (!session?.access_token) throw new Error("用户未登录，请刷新页面后重试");
 
-    console.log("[v0] getAuthHeaders - returning headers with token length:", session.access_token.length);
     return {
       "Content-Type": "application/json",
       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -232,10 +222,13 @@ export function useReportJob(options: UseReportJobOptions): UseReportJobReturn {
 
       const errMsg = normalizeSupabaseError(err, "获取任务状态失败");
       console.error("[useReportJob] Poll error:", err);
+      
+      // 轮询错误时停止轮询，避免无限循环弹出错误提示
       setError(errMsg);
       setErrorCode("POLL_FAILED");
+      stopMonitoring();
       onErrorRef.current?.(errMsg, "POLL_FAILED");
-      return false;
+      return true; // 返回 true 表示任务已终止
     }
   }, [applyTerminalState, getAuthHeaders, stopMonitoring]);
 
